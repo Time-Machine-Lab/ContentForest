@@ -55,6 +55,21 @@ MVP 采用 **"本地服务器 + AI 辅助"** 的架构：
 
 ### 4.1 存储层设计 (Storage Layer) - *关键*
 
+#### 4.1.1 文件系统目录结构 (File System Structure)
+
+为了规范化数据存储并支持多用户隔离，采用以下目录结构：
+
+*   **根目录 (Root)**: `/cf`
+*   **数据目录 (Data)**: `/cf/data`
+*   **用户目录 (User Scope)**: `/cf/data/{userId}` (所有用户数据以此隔离)
+*   **模块目录 (Modules)**:
+    *   **种子库**: `/cf/data/{userId}/seeds/{YYYY}/{seed_id}.md` (按年份归档)
+    *   **果实库**: `/cf/data/{userId}/fruits/{YYYY}/{MM}/{fruit_id}.md` (按年月归档)
+    *   **营养库**: `/cf/data/{userId}/nutrients/`
+    *   **生成日志**: `/cf/data/{userId}/logs/generation/`
+
+#### 4.1.2 仓储模式设计 (Repository Pattern)
+
 为了应对未来从 Redis 迁移到 SQLite/ES 的需求，必须严格遵循 **Repository Pattern (仓储模式)**。
 
 *   **设计原则**: 业务逻辑层 **只依赖接口**，不依赖具体实现。
@@ -71,7 +86,7 @@ MVP 采用 **"本地服务器 + AI 辅助"** 的架构：
 *   **用户隔离 (User Isolation)**:
     *   虽然 MVP 是本地运行，但为了 SaaS 铺路，所有数据存储必须带上 `userId` 维度。
     *   **Redis Key 设计**: `app:user:{userId}:fruit:{fruitId}`。
-    *   **Markdown 路径**: `data/{userId}/fruits/xxx.md`。
+    *   **Markdown 路径**: `/cf/data/{userId}/fruits/xxx.md`。
 
 ### 4.2 实体与元数据 (Entities & Metadata)
 
