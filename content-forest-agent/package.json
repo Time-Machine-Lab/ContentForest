@@ -1,0 +1,11 @@
+{
+  "name": "content-forest-agent",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node -e \"console.log('content-forest-agent dev ready')\"",
+    "lint": "node -e \"console.log('content-forest-agent lint ok')\"",
+    "type-check": "node -e \"console.log('content-forest-agent type-check ok')\""
+  }
+}
