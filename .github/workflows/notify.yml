@@ -1,0 +1,21 @@
+name: Discord Notification
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # 统计变更需要历史记录
+
+      - name: 发送 Discord 通知
+        uses: Time-Machine-Lab/TML-Github_Actions/actions/discord-github-notify@main
+        with:
+          webhook_url: ${{ secrets.DISCORD_WEBHOOK_URL }}
