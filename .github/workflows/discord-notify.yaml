@@ -1,0 +1,48 @@
+name: Discord Notify on Push
+
+on:
+  push:
+    branches: ['**']
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # 获取前一个commit用于统计差异
+
+      - name: Get commit stats
+        id: stats
+        run: |
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | wc -l | tr -d ' ')
+          ADDITIONS=$(git diff --shortstat HEAD~1 HEAD | grep -oP '\d+(?= insertion)' || echo 0)
+          DELETIONS=$(git diff --shortstat HEAD~1 HEAD | grep -oP '\d+(?= deletion)' || echo 0)
+          echo "files=$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "additions=$ADDITIONS" >> $GITHUB_OUTPUT
+          echo "deletions=$DELETIONS" >> $GITHUB_OUTPUT
+
+      - name: Send Discord Notification
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -H "Content-Type: application/json" \
+          -d '{
+            "embeds": [{
+              "title": "🚀 New Push to ${{ github.repository }}",
+              "color": 3447003,
+              "fields": [
+                {"name": "📦 Repository", "value": "${{ github.repository }}", "inline": true},
+                {"name": "🌿 Branch", "value": "${{ github.ref_name }}", "inline": true},
+                {"name": "👤 Author", "value": "${{ github.actor }}", "inline": true},
+                {"name": "💬 Commit Message", "value": "${{ github.event.head_commit.message }}", "inline": false},
+                {"name": "📊 Files Changed", "value": "${{ steps.stats.outputs.files }}", "inline": true},
+                {"name": "➕ Additions", "value": "${{ steps.stats.outputs.additions }}", "inline": true},
+                {"name": "➖ Deletions", "value": "${{ steps.stats.outputs.deletions }}", "inline": true},
+                {"name": "🔗 Commit URL", "value": "${{ github.event.head_commit.url }}", "inline": false}
+              ],
+              "timestamp": "${{ github.event.head_commit.timestamp }}"
+            }]
+          }' \
+          $DISCORD_WEBHOOK
