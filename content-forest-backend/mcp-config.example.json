@@ -1,0 +1,15 @@
+{
+  "_comment": "Content Forest MCP Server 接入配置示例。复制此文件内容到 Cursor/Trae 的 MCP 配置中。",
+  "mcpServers": {
+    "content-forest": {
+      "url": "http://localhost:4000/sse",
+      "_comment_url": "MCP SSE 端点，与 REST API 共享同一端口（4000）。"
+    }
+  },
+  "_setup": [
+    "1. 确保本地 Redis 运行：redis-server --appendonly yes",
+    "2. 启动后端：cd content-forest-backend && npm run dev",
+    "3. 将上方 mcpServers 配置添加到 Cursor Settings > MCP，或 Trae 的 mcp.json",
+    "4. 重启 IDE，Agent 即可使用 save_draft、publish_seed、list_seeds、get_seed、update_seed_info、archive_seed 工具"
+  ]
+}
