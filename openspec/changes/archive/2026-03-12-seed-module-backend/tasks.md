@@ -57,10 +57,23 @@
 - [x] 7.4 在 `src/index.ts` 中启动 MCP Server（stdio 模式），确保与 REST API Server 在同一进程中运行
 - [x] 7.5 在项目根目录创建 MCP 配置说明文件 `mcp-config.example.json`，提供 Cursor/Trae 的 MCP 接入配置示例
 
+## 9. [可选] HTTP 框架升级（Hono）
+
+> **触发条件**：路由数量超过 20 个，或需要请求校验中间件、统一错误处理插件时执行。
+> **不推荐 NestJS**：过度工程化，与本项目轻量工具定位不符。推荐 Hono（轻量、TypeScript-first、零学习成本）。
+
+- [x] 9.1 安装 `hono` 依赖：`npm install hono @hono/node-server`
+- [x] 9.2 将 `src/api/server.ts` 中的原生 http 路由分发替换为 `Hono` 路由实例
+- [x] 9.3 将 `src/api/seeds.ts` 中的路由处理器迁移为 `Hono` 路由方法（`app.get/post/patch/delete`）
+- [x] 9.4 使用 `Hono` 的 `zValidator` 中间件替换手动 `readBody` + Zod parse，统一入参校验
+- [x] 9.5 添加全局错误处理中间件，统一处理 `SeedNotFoundError`、`InvalidTransitionError`
+- [x] 9.6 保留 MCP SSE 端点（`/sse`、`/message`）通过 `app.use` 挂载，不影响 MCP 层
+- [x] 9.7 运行 `npm run type-check` 确认无类型错误，手动回归测试所有 REST 接口
+
 ## 8. 集成测试与验证
 
-- [ ] 8.1 手动测试 `POST /api/seeds` 接口，验证 Redis 写入和文件创建正确
-- [ ] 8.2 手动测试 `GET /api/seeds` 接口，验证分页和状态过滤
-- [ ] 8.3 手动测试 `PATCH /api/seeds/:id` 接口，验证合法/非法状态流转
-- [ ] 8.4 在 Cursor 中配置 MCP Server，验证 Agent 可通过 `create_seed` 工具成功创建种子
-- [ ] 8.5 验证 Redis 重启后通过 Markdown 文件可恢复数据（手动执行数据重建流程）
+- [x] 8.1 手动测试 `POST /api/seeds` 接口，验证 Redis 写入和文件创建正确
+- [x] 8.2 手动测试 `GET /api/seeds` 接口，验证分页和状态过滤
+- [x] 8.3 手动测试 `PATCH /api/seeds/:id` 接口，验证合法/非法状态流转
+- [x] 8.4 在 Cursor 中配置 MCP Server，验证 Agent 可通过 `create_seed` 工具成功创建种子
+- [x] 8.5 验证 Redis 重启后通过 Markdown 文件可恢复数据（手动执行数据重建流程）

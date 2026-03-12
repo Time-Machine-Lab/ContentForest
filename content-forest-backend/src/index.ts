@@ -1,3 +1,4 @@
+import "dotenv/config"
 import { createServer } from "node:http"
 import { handleRequest } from "./api/server.js"
 import { PORT } from "./config.js"

@@ -88,7 +88,7 @@ export class SeedService {
     }
 
     const now = Date.now()
-    const id = dto.id ?? generateSeedId()
+    const id = generateSeedId()
 
     // 1. 写入 Redis（主数据源）
     const seed = await this.repo.create(userId, {
