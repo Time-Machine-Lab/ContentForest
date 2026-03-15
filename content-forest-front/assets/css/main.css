@@ -1,0 +1,123 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --void: #050a0e;
+  --void-2: #0a1520;
+  --bio-green: #00ff9f;
+  --gene-blue: #0ea5e9;
+  --mutation: #f59e0b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--void);
+  color: #e2e8f0;
+  font-family: 'Inter', sans-serif;
+  overflow-x: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--void); }
+::-webkit-scrollbar-thumb { background: #00ff9f33; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #00ff9f66; }
+
+/* Glow utilities */
+.glow-green {
+  text-shadow: 0 0 20px #00ff9f80, 0 0 40px #00ff9f40;
+}
+.glow-blue {
+  text-shadow: 0 0 20px #0ea5e980, 0 0 40px #0ea5e940;
+}
+.glow-amber {
+  text-shadow: 0 0 20px #f59e0b80;
+}
+.box-glow-green {
+  box-shadow: 0 0 30px #00ff9f20, inset 0 0 30px #00ff9f05;
+}
+.box-glow-blue {
+  box-shadow: 0 0 30px #0ea5e920, inset 0 0 30px #0ea5e905;
+}
+
+/* Scanline overlay */
+.scanlines::before {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 255, 159, 0.01) 2px,
+    rgba(0, 255, 159, 0.01) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Typing cursor */
+.typing-cursor::after {
+  content: '|';
+  color: #00ff9f;
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Grid bg */
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(0,255,159,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,255,159,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Orbit ring animation */
+@keyframes orbit {
+  from { transform: rotate(0deg) translateX(120px) rotate(0deg); }
+  to   { transform: rotate(360deg) translateX(120px) rotate(-360deg); }
+}
+.orbit { animation: orbit 8s linear infinite; }
+.orbit-2 { animation: orbit 12s linear infinite reverse; }
+.orbit-3 { animation: orbit 16s linear infinite; }
+
+/* Particle float */
+@keyframes particleFloat {
+  0%, 100% { transform: translateY(0) translateX(0); opacity: 0.3; }
+  33% { transform: translateY(-30px) translateX(15px); opacity: 0.8; }
+  66% { transform: translateY(-10px) translateX(-10px); opacity: 0.5; }
+}
+
+/* Section fade in */
+.section-reveal {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: opacity 0.8s ease, transform 0.8s ease;
+}
+.section-reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* DNA strand */
+@keyframes dnaRotate {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(360deg); }
+}
+
+/* Number counter */
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
