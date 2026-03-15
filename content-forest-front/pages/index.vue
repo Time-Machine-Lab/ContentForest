@@ -20,6 +20,17 @@
 <script setup lang="ts">
 useSeoMeta({
   title: 'Content Forest — AI Content Evolution Engine',
-  description: 'Let your content evolve like life itself. An AI-powered content engine built on evolutionary algorithms.',
+  description: '让内容像生命一样进化。基于进化算法的 AI 内容引擎，自动生成、筛选、进化你的内容资产。',
+  ogTitle: 'Content Forest — AI Content Evolution Engine',
+  ogDescription: '让内容像生命一样进化。基于进化算法的 AI 内容引擎。',
+  ogImage: '/og-image.svg',
+  ogImageWidth: 1200,
+  ogImageHeight: 630,
+  ogUrl: 'https://contentforest.ai',
+  ogType: 'website',
+  twitterCard: 'summary_large_image',
+  twitterTitle: 'Content Forest — AI Content Evolution Engine',
+  twitterDescription: '让内容像生命一样进化。',
+  twitterImage: '/og-image.png',
 })
 </script>

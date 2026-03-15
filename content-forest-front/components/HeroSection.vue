@@ -167,7 +167,8 @@ const stats = [
   { value: '∞', label: 'Iterations' },
 ]
 
-const particles = Array.from({ length: 40 }, (_, i) => ({
+const particleCount = typeof window !== 'undefined' && window.innerWidth < 768 ? 15 : 40
+const particles = Array.from({ length: particleCount }, (_, i) => ({
   id: i,
   style: {
     left: `${Math.random() * 100}%`,

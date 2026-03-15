@@ -17,16 +17,17 @@
         <table class="w-full border-collapse">
           <thead>
             <tr>
-              <th class="text-left p-5 font-mono text-xs tracking-wider text-mist-2 uppercase border-b border-mist-3/30 w-1/3">Capability</th>
-              <th class="text-center p-5 font-mono text-xs tracking-wider text-mist-2 uppercase border-b border-mist-3/30 w-1/3">
+              <th class="text-left p-5 font-mono text-xs tracking-wider text-mist-2 uppercase border-b border-mist-3/30 md:w-1/3">Capability</th>
+              <th class="text-center p-3 md:p-5 font-mono text-xs tracking-wider text-mist-2 uppercase border-b border-mist-3/30 md:w-1/3">
                 <div class="flex items-center justify-center gap-2">
-                  <div class="w-1.5 h-1.5 rounded-full bg-mist-2"></div>
-                  普通 AI 写作工具
+                  <div class="w-1.5 h-1.5 rounded-full bg-mist-2 shrink-0"></div>
+                  <span class="hidden md:inline">普通 AI 写作工具</span>
+                  <span class="md:hidden">普通工具</span>
                 </div>
               </th>
-              <th class="text-center p-5 font-mono text-xs tracking-wider text-bio-green uppercase border-b border-bio-green/30 w-1/3 bg-bio-green/5">
+              <th class="text-center p-3 md:p-5 font-mono text-xs tracking-wider text-bio-green uppercase border-b border-bio-green/30 md:w-1/3 bg-bio-green/5">
                 <div class="flex items-center justify-center gap-2">
-                  <div class="w-1.5 h-1.5 rounded-full bg-bio-green animate-pulse"></div>
+                  <div class="w-1.5 h-1.5 rounded-full bg-bio-green animate-pulse shrink-0"></div>
                   Content Forest
                 </div>
               </th>

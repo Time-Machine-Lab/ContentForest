@@ -1,5 +1,5 @@
 <template>
-  <div class="relative w-full overflow-hidden" style="height:340px">
+  <div class="relative w-full overflow-hidden" style="aspect-ratio:860/340">
     <svg ref="svgRef" class="absolute inset-0 w-full" viewBox="0 0 860 340" preserveAspectRatio="xMidYMid meet">
       <defs>
         <filter id="glow-green" x="-50%" y="-50%" width="200%" height="200%">
@@ -75,17 +75,17 @@ interface N {
 }
 
 const nodes: N[] = [
-  { id:'seed',  label:'SEED',    metric:'AI¹¤¾ßÍÆ¹ã',   x:70,  y:170, r:14, color:'#f59e0b', fill:'rgba(245,158,11,0.18)', glow:'amber', fs:9,  delay:0,    pulsing:true,  parent:undefined, tip:[{k:'type',v:'Origin Seed',c:'text-mutation'}] },
-  { id:'fA',    label:'Fruit A', metric:'1,247 likes',  x:230, y:85,  r:10, color:'#00ff9f', fill:'rgba(0,255,159,0.14)',  glow:'green', fs:9,  delay:600,  pulsing:true,  parent:'seed',    tip:[{k:'platform',v:'Ğ¡ºìÊé',c:'text-slate-300'},{k:'likes',v:'1,247',c:'text-bio-green'}] },
+  { id:'seed',  label:'SEED',    metric:'AIï¿½ï¿½ï¿½ï¿½ï¿½Æ¹ï¿½',   x:70,  y:170, r:14, color:'#f59e0b', fill:'rgba(245,158,11,0.18)', glow:'amber', fs:9,  delay:0,    pulsing:true,  parent:undefined, tip:[{k:'type',v:'Origin Seed',c:'text-mutation'}] },
+  { id:'fA',    label:'Fruit A', metric:'1,247 likes',  x:230, y:85,  r:10, color:'#00ff9f', fill:'rgba(0,255,159,0.14)',  glow:'green', fs:9,  delay:600,  pulsing:true,  parent:'seed',    tip:[{k:'platform',v:'Ğ¡ï¿½ï¿½ï¿½ï¿½',c:'text-slate-300'},{k:'likes',v:'1,247',c:'text-bio-green'}] },
   { id:'fB',    label:'Fruit B', metric:'rejected',      x:230, y:195, r:7,  color:'#334155', fill:'rgba(51,65,85,0.10)',   glow:'green', fs:8,  delay:700,  parent:'seed',    tip:[{k:'status',v:'rejected',c:'text-death-red'}] },
-  { id:'fC',    label:'Fruit C', metric:'580 fav',       x:230, y:290, r:10, color:'#00ff9f', fill:'rgba(0,255,159,0.14)',  glow:'green', fs:9,  delay:800,  pulsing:true,  parent:'seed',    tip:[{k:'platform',v:'Öªºõ³¤ÎÄ',c:'text-slate-300'},{k:'favorites',v:'580',c:'text-bio-green'}] },
-  { id:'fA1',   label:'A1',      metric:'2,100 likes',  x:400, y:35,  r:7,  color:'#00ff9f', fill:'rgba(0,255,159,0.10)',  glow:'green', fs:8,  delay:1300, parent:'fA',      tip:[{k:'type',v:'ÓÅ»¯±êÌâ',c:'text-slate-300'},{k:'likes',v:'2,100',c:'text-bio-green'}] },
-  { id:'fA2',   label:'A2',      metric:'85K views',    x:400, y:110, r:9,  color:'#0ea5e9', fill:'rgba(14,165,233,0.14)', glow:'blue',  fs:8,  delay:1450, parent:'fA',      tip:[{k:'platform',v:'¶¶Òô',c:'text-slate-300'},{k:'views',v:'85,000',c:'text-gene-blue'}] },
+  { id:'fC',    label:'Fruit C', metric:'580 fav',       x:230, y:290, r:10, color:'#00ff9f', fill:'rgba(0,255,159,0.14)',  glow:'green', fs:9,  delay:800,  pulsing:true,  parent:'seed',    tip:[{k:'platform',v:'Öªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½',c:'text-slate-300'},{k:'favorites',v:'580',c:'text-bio-green'}] },
+  { id:'fA1',   label:'A1',      metric:'2,100 likes',  x:400, y:35,  r:7,  color:'#00ff9f', fill:'rgba(0,255,159,0.10)',  glow:'green', fs:8,  delay:1300, parent:'fA',      tip:[{k:'type',v:'ï¿½Å»ï¿½ï¿½ï¿½ï¿½ï¿½',c:'text-slate-300'},{k:'likes',v:'2,100',c:'text-bio-green'}] },
+  { id:'fA2',   label:'A2',      metric:'85K views',    x:400, y:110, r:9,  color:'#0ea5e9', fill:'rgba(14,165,233,0.14)', glow:'blue',  fs:8,  delay:1450, parent:'fA',      tip:[{k:'platform',v:'ï¿½ï¿½ï¿½ï¿½',c:'text-slate-300'},{k:'views',v:'85,000',c:'text-gene-blue'}] },
   { id:'fA3',   label:'A3 mut',  metric:'ctr:12.4%',    x:400, y:185, r:7,  color:'#ef4444', fill:'rgba(239,68,68,0.14)',  glow:'amber', fs:8,  delay:1600, parent:'fA',      tip:[{k:'mutation',v:'anti-logic',c:'text-death-red'},{k:'ctr',v:'12.4%',c:'text-death-red'}] },
-  { id:'fA2a',  label:'A2a hot', metric:'210K views',   x:590, y:75,  r:12, color:'#0ea5e9', fill:'rgba(14,165,233,0.22)', glow:'blue',  fs:8,  delay:2200, pulsing:true,  parent:'fA2',     tip:[{k:'type',v:'¶ş´´±¬¿î',c:'text-slate-300'},{k:'views',v:'210,000',c:'text-gene-blue'}] },
+  { id:'fA2a',  label:'A2a hot', metric:'210K views',   x:590, y:75,  r:12, color:'#0ea5e9', fill:'rgba(14,165,233,0.22)', glow:'blue',  fs:8,  delay:2200, pulsing:true,  parent:'fA2',     tip:[{k:'type',v:'ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½',c:'text-slate-300'},{k:'views',v:'210,000',c:'text-gene-blue'}] },
   { id:'fA2a1', label:'A2a-1',   metric:'iterating...',  x:760, y:45,  r:5,  color:'#0ea5e9', fill:'rgba(14,165,233,0.08)', glow:'blue',  fs:7,  delay:2900, parent:'fA2a',    tip:[{k:'status',v:'iterating',c:'text-gene-blue'}] },
   { id:'fA2a2', label:'A2a-2',   metric:'iterating...',  x:760, y:115, r:5,  color:'#0ea5e9', fill:'rgba(14,165,233,0.08)', glow:'blue',  fs:7,  delay:3100, parent:'fA2a',    tip:[{k:'status',v:'iterating',c:'text-gene-blue'}] },
-  { id:'fC1',   label:'C1',      metric:'´ı·¢²¼',         x:400, y:290, r:7,  color:'#00ff9f', fill:'rgba(0,255,159,0.08)',  glow:'green', fs:8,  delay:1900, parent:'fC',      tip:[{k:'type',v:'¾«»ª°æ',c:'text-slate-300'},{k:'status',v:'´ı·¢²¼',c:'text-mutation'}] },
+  { id:'fC1',   label:'C1',      metric:'ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½',         x:400, y:290, r:7,  color:'#00ff9f', fill:'rgba(0,255,159,0.08)',  glow:'green', fs:8,  delay:1900, parent:'fC',      tip:[{k:'type',v:'ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½',c:'text-slate-300'},{k:'status',v:'ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½',c:'text-mutation'}] },
 ]
 
 const nodeMap = Object.fromEntries(nodes.map(n => [n.id, n]))

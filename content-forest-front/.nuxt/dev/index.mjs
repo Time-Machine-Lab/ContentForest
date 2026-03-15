@@ -5,6 +5,7 @@ import nodeCrypto from 'node:crypto';
 import { parentPort, threadId } from 'node:worker_threads';
 import { defineEventHandler, handleCacheHeaders, splitCookiesString, createEvent, fetchWithEvent, isEvent, eventHandler, setHeaders, sendRedirect, proxyRequest, getRequestHeader, setResponseHeaders, setResponseStatus, send, getRequestHeaders, setResponseHeader, appendResponseHeader, getRequestURL, getResponseHeader, removeResponseHeader, createError, getQuery as getQuery$1, readBody, createApp, createRouter as createRouter$1, toNodeListener, lazyEventHandler, getResponseStatus, getRouterParam, getResponseStatusText } from 'file://D:/Code/Project/Github/ContentForest/content-forest-front/node_modules/h3/dist/index.mjs';
 import { escapeHtml } from 'file://D:/Code/Project/Github/ContentForest/content-forest-front/node_modules/@vue/shared/dist/shared.cjs.js';
+import { promises, readFileSync, writeFileSync } from 'node:fs';
 import { createRenderer, getRequestDependencies, getPreloadLinks, getPrefetchLinks } from 'file://D:/Code/Project/Github/ContentForest/content-forest-front/node_modules/vue-bundle-renderer/dist/runtime.mjs';
 import { parseURL, withoutBase, joinURL, getQuery, withQuery, withTrailingSlash, decodePath, withLeadingSlash, withoutTrailingSlash, joinRelativeURL } from 'file://D:/Code/Project/Github/ContentForest/content-forest-front/node_modules/ufo/dist/index.mjs';
 import { renderToString } from 'file://D:/Code/Project/Github/ContentForest/content-forest-front/node_modules/vue/server-renderer/index.mjs';
@@ -32,7 +33,6 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { getContext } from 'file://D:/Code/Project/Github/ContentForest/content-forest-front/node_modules/unctx/dist/index.mjs';
 import { captureRawStackTrace, parseRawStackTrace } from 'file://D:/Code/Project/Github/ContentForest/content-forest-front/node_modules/errx/dist/index.js';
 import _wH6JrtIxmaSoA8lCPWFnE9z4lQeXW6H5z3l5aymEQw from 'file://D:/Code/Project/Github/ContentForest/content-forest-front/node_modules/@nuxt/vite-builder/dist/fix-stacktrace.mjs';
-import { promises } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname as dirname$1, resolve as resolve$1 } from 'file://D:/Code/Project/Github/ContentForest/content-forest-front/node_modules/pathe/dist/index.mjs';
 import { walkResolver } from 'file://D:/Code/Project/Github/ContentForest/content-forest-front/node_modules/unhead/dist/utils.mjs';
@@ -2591,10 +2591,12 @@ async function getIslandContext(event) {
 	};
 }
 
+const _lazy_yH2PCJ = () => Promise.resolve().then(function () { return waitlist_post$1; });
 const _lazy_YXzf4B = () => Promise.resolve().then(function () { return renderer; });
 
 const handlers = [
   { route: '', handler: _v_EJsZ, lazy: false, middleware: true, method: undefined },
+  { route: '/api/waitlist', handler: _lazy_yH2PCJ, lazy: true, middleware: false, method: "post" },
   { route: '/__nuxt_error', handler: _lazy_YXzf4B, lazy: true, middleware: false, method: undefined },
   { route: '/__nuxt_island/**', handler: handler$1, lazy: false, middleware: false, method: undefined },
   { route: '/**', handler: _lazy_YXzf4B, lazy: true, middleware: false, method: undefined }
@@ -2935,6 +2937,36 @@ const styles = {};
 const styles$1 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
   __proto__: null,
   default: styles
+}, Symbol.toStringTag, { value: 'Module' }));
+
+const DATA_PATH = resolve("./server/data/waitlist.json");
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+const waitlist_post = defineEventHandler(async (event) => {
+  var _a;
+  const body = await readBody(event);
+  const email = ((_a = body == null ? void 0 : body.email) != null ? _a : "").trim().toLowerCase();
+  if (!email || !isValidEmail(email)) {
+    return { success: false, message: "\u8BF7\u8F93\u5165\u6709\u6548\u7684\u90AE\u7BB1\u5730\u5740" };
+  }
+  let list = [];
+  try {
+    list = JSON.parse(readFileSync(DATA_PATH, "utf-8"));
+  } catch {
+    list = [];
+  }
+  if (list.some((item) => item.email === email)) {
+    return { success: true, message: "\u4F60\u5DF2\u7ECF\u5728\u5019\u8865\u540D\u5355\u4E2D\u4E86" };
+  }
+  list.push({ email, joinedAt: (/* @__PURE__ */ new Date()).toISOString() });
+  writeFileSync(DATA_PATH, JSON.stringify(list, null, 2), "utf-8");
+  return { success: true, message: "\u5DF2\u6210\u529F\u52A0\u5165\u5019\u8865\u540D\u5355" };
+});
+
+const waitlist_post$1 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+  __proto__: null,
+  default: waitlist_post
 }, Symbol.toStringTag, { value: 'Module' }));
 
 function renderPayloadResponse(ssrContext) {

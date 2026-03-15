@@ -26,26 +26,29 @@
       </p>
 
       <!-- Form -->
-      <form @submit.prevent="handleSubmit" class="flex flex-col sm:flex-row gap-3 max-w-md mx-auto mb-8">
+      <form @submit.prevent="handleSubmit" class="flex flex-col sm:flex-row gap-3 max-w-md mx-auto mb-4">
         <input
           v-model="email"
           type="email"
           placeholder="your@email.com"
           class="flex-1 bg-void-2 border border-mist-3/50 px-5 py-4 font-mono text-sm text-slate-200 placeholder-mist-2 focus:outline-none focus:border-bio-green/60 transition-colors"
+          :disabled="submitted || loading"
           required
         />
         <button
           type="submit"
-          :disabled="submitted"
+          :disabled="submitted || loading"
           class="px-8 py-4 font-mono text-sm tracking-widest uppercase transition-all duration-300 whitespace-nowrap"
           :class="submitted
             ? 'bg-bio-green/20 text-bio-green border border-bio-green/30 cursor-default'
+            : loading
+            ? 'bg-bio-green/40 text-void cursor-wait'
             : 'bg-bio-green text-void hover:bg-bio-green-dim cursor-pointer'"
         >
-          {{ submitted ? '✓ Joined' : 'Request Access' }}
+          {{ submitted ? '✓ Joined' : loading ? '...' : 'Request Access' }}
         </button>
       </form>
-
+      <p v-if="error" class="font-mono text-xs text-death-red mb-3">{{ error }}</p>
       <p class="font-mono text-xs text-mist-2">无垃圾邮件 · No spam. Unsubscribe anytime.</p>
 
       <!-- Principles -->
@@ -63,12 +66,28 @@
 <script setup lang="ts">
 const email = ref('')
 const submitted = ref(false)
+const error = ref('')
+const loading = ref(false)
 
-function handleSubmit() {
-  if (!email.value) return
-  // TODO: integrate with actual waitlist API
-  submitted.value = true
-  console.log('Waitlist signup:', email.value)
+async function handleSubmit() {
+  if (!email.value || loading.value) return
+  loading.value = true
+  error.value = ''
+  try {
+    const res = await $fetch<{ success: boolean; message: string }>('/api/waitlist', {
+      method: 'POST',
+      body: { email: email.value },
+    })
+    if (res.success) {
+      submitted.value = true
+    } else {
+      error.value = res.message
+    }
+  } catch {
+    error.value = '提交失败，请稍后重试'
+  } finally {
+    loading.value = false
+  }
 }
 
 const principles = [

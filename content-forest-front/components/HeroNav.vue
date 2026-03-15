@@ -40,5 +40,6 @@ const links = [
   { label: 'How It Works', href: '#loop' },
   { label: 'Concepts', href: '#concepts' },
   { label: 'vs. Others', href: '#compare' },
+  { label: 'Demo', href: '/demo' },
 ]
 </script>
