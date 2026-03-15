@@ -19,6 +19,7 @@ export const ConceptsSection: typeof import("../components/ConceptsSection.vue")
 export const CtaSection: typeof import("../components/CtaSection.vue")['default']
 export const HeroNav: typeof import("../components/HeroNav.vue")['default']
 export const HeroSection: typeof import("../components/HeroSection.vue")['default']
+export const IterationTree: typeof import("../components/IterationTree.vue")['default']
 export const LoopSection: typeof import("../components/LoopSection.vue")['default']
 export const SiteFooter: typeof import("../components/SiteFooter.vue")['default']
 export const NuxtWelcome: typeof import("../node_modules/nuxt/dist/app/components/welcome.vue")['default']
@@ -49,6 +50,7 @@ export const LazyConceptsSection: LazyComponent<typeof import("../components/Con
 export const LazyCtaSection: LazyComponent<typeof import("../components/CtaSection.vue")['default']>
 export const LazyHeroNav: LazyComponent<typeof import("../components/HeroNav.vue")['default']>
 export const LazyHeroSection: LazyComponent<typeof import("../components/HeroSection.vue")['default']>
+export const LazyIterationTree: LazyComponent<typeof import("../components/IterationTree.vue")['default']>
 export const LazyLoopSection: LazyComponent<typeof import("../components/LoopSection.vue")['default']>
 export const LazySiteFooter: LazyComponent<typeof import("../components/SiteFooter.vue")['default']>
 export const LazyNuxtWelcome: LazyComponent<typeof import("../node_modules/nuxt/dist/app/components/welcome.vue")['default']>

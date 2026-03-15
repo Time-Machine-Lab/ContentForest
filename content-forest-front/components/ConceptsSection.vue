@@ -54,10 +54,9 @@
         <div class="flex items-center gap-3 mb-8">
           <div class="font-mono text-xs tracking-widest text-bio-green uppercase">// Iteration Tree · 迭代树</div>
           <div class="flex-1 h-px bg-gradient-to-r from-bio-green/30 to-transparent"></div>
+          <div class="font-mono text-xs text-mist-2">Hover nodes to explore</div>
         </div>
-        <div class="font-mono text-xs leading-7 text-slate-400 overflow-x-auto">
-          <div class="whitespace-pre" v-html="treeText"></div>
-        </div>
+        <IterationTree />
       </div>
     </div>
   </section>

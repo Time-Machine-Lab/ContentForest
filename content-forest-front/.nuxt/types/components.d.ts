@@ -19,6 +19,7 @@ interface _GlobalComponents {
   CtaSection: typeof import("../../components/CtaSection.vue")['default']
   HeroNav: typeof import("../../components/HeroNav.vue")['default']
   HeroSection: typeof import("../../components/HeroSection.vue")['default']
+  IterationTree: typeof import("../../components/IterationTree.vue")['default']
   LoopSection: typeof import("../../components/LoopSection.vue")['default']
   SiteFooter: typeof import("../../components/SiteFooter.vue")['default']
   NuxtWelcome: typeof import("../../node_modules/nuxt/dist/app/components/welcome.vue")['default']
@@ -49,6 +50,7 @@ interface _GlobalComponents {
   LazyCtaSection: LazyComponent<typeof import("../../components/CtaSection.vue")['default']>
   LazyHeroNav: LazyComponent<typeof import("../../components/HeroNav.vue")['default']>
   LazyHeroSection: LazyComponent<typeof import("../../components/HeroSection.vue")['default']>
+  LazyIterationTree: LazyComponent<typeof import("../../components/IterationTree.vue")['default']>
   LazyLoopSection: LazyComponent<typeof import("../../components/LoopSection.vue")['default']>
   LazySiteFooter: LazyComponent<typeof import("../../components/SiteFooter.vue")['default']>
   LazyNuxtWelcome: LazyComponent<typeof import("../../node_modules/nuxt/dist/app/components/welcome.vue")['default']>

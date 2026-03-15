@@ -51,8 +51,31 @@
         <span class="block mt-2 text-sm text-slate-500">Content isn't disposable. It's alive — it seeds, grows, evolves, and breeds.</span>
       </p>
 
+      <!-- Seed input interaction -->
+      <div class="mt-12 max-w-xl mx-auto">
+        <div class="border border-mist-3/40 bg-void-2/60 backdrop-blur p-1 flex gap-0 group focus-within:border-bio-green/50 transition-colors duration-300">
+          <div class="flex items-center px-4 border-r border-mist-3/30">
+            <span class="font-mono text-xs text-bio-green/70 whitespace-nowrap">seed =</span>
+          </div>
+          <input
+            v-model="seedInput"
+            type="text"
+            :placeholder="seedPlaceholder"
+            class="flex-1 bg-transparent px-4 py-3 font-mono text-sm text-slate-200 placeholder-mist-2/50 focus:outline-none"
+            @keydown.enter="goDemo"
+          />
+          <button
+            @click="goDemo"
+            class="px-5 py-3 bg-bio-green text-void font-mono text-xs tracking-widest uppercase hover:bg-bio-green-dim transition-colors duration-200 whitespace-nowrap"
+          >
+            进化 →
+          </button>
+        </div>
+        <p class="font-mono text-xs text-mist-2/60 mt-2 text-center">输入你的产品/创意，看看内容森林如何让它进化</p>
+      </div>
+
       <!-- CTAs -->
-      <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mt-12">
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
         <a href="#waitlist"
            class="group relative px-8 py-4 bg-bio-green text-void font-mono text-sm tracking-widest uppercase font-medium hover:bg-bio-green-dim transition-all duration-300 overflow-hidden">
           <span class="relative z-10">申请早期访问 / Request Access</span>
@@ -110,6 +133,33 @@ function typeNext() {
 
 onMounted(() => { typeNext() })
 onUnmounted(() => { clearTimeout(timer) })
+
+const seedInput = ref('')
+const seedPlaceholders = [
+  '我在做一款 AI 效率工具...',
+  'A fitness app for busy professionals...',
+  '帮助独立开发者找到第一批用户的产品...',
+  'My handmade jewelry brand...',
+]
+const seedPlaceholder = ref(seedPlaceholders[0])
+let phIdx = 0
+let phTimer: ReturnType<typeof setInterval>
+
+onMounted(() => {
+  phTimer = setInterval(() => {
+    phIdx = (phIdx + 1) % seedPlaceholders.length
+    seedPlaceholder.value = seedPlaceholders[phIdx]
+  }, 3000)
+})
+onUnmounted(() => clearInterval(phTimer))
+
+function goDemo() {
+  const q = seedInput.value.trim() || seedPlaceholder.value
+  if (typeof window !== 'undefined') {
+    sessionStorage.setItem('cf_seed', q)
+    window.location.href = '/demo'
+  }
+}
 
 const stats = [
   { value: '5', label: 'Phase Loop' },

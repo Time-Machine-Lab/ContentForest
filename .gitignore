@@ -1,5 +1,5 @@
-.cursor
-.trae
+.cursor/
+.trae/
 node_modules/
 dist/
 build/
