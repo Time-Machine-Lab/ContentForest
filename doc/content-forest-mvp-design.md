@@ -65,8 +65,12 @@ MVP 采用 **"本地服务器 + AI 辅助"** 的架构：
 *   **模块目录 (Modules)**:
     *   **种子库**: `/cf/data/{userId}/seeds/{YYYY}/{seed_id}.md` (按年份归档)
     *   **果实库**: `/cf/data/{userId}/fruits/{YYYY}/{MM}/{fruit_id}.md` (按年月归档)
+    *   **生成器库**: `/cf/data/{userId}/generators/{generatorId}/skills/` (用户私有生成器 Skill)
+        *   `SKILL.md` — 生成核心主文件
+        *   `references/` — 参考资料（可选）
+        *   *注：生成器元数据（名称、平台、安装数等）由平台存储在 Redis / 云端，不在此目录*
     *   **营养库**: `/cf/data/{userId}/nutrients/`
-    *   **生成日志**: `/cf/data/{userId}/logs/generation/`
+    *   **生成日志**: `/cf/data/{userId}/logs/generation/{generation_id}.json`
 
 #### 4.1.2 仓储模式设计 (Repository Pattern)
 
@@ -106,25 +110,69 @@ MVP 采用 **"本地服务器 + AI 辅助"** 的架构：
     推广 Content Forest 工具...
     ```
 
-*   **Fruit (果实)**:
-    ```markdown
-    ---
-    id: "fruit_abc"
-    seed_id: "seed_001"
-    generator_id: "gen_xhs_v1"
-    status: "generated" // generated, picked, published, rejected
-    metrics: { likes: 0, views: 0 }
-    mutation: { applied: true, type: "style_remix" }
-    ---
-    # 标题
-    ...
+*   **Fruit (果实)**：采用**容器格式（Container Pattern）**设计，固定容器 + 自由载荷：
+
+    ```typescript
+    interface Fruit {
+      // 系统固定字段
+      id: string;
+      userId: string;
+      seedId: string;
+      parentFruitId?: string;      // 迭代生成时存在
+      generatorId: string;         // 产出此果实的生成器 ID
+      generatorVersion: string;
+      status: 'generated' | 'picked' | 'published' | 'rejected';
+      createdAt: number;
+      mutation: { applied: boolean; type?: string; styleLabel?: string; };
+
+      // 最小展示契约（生成器必须填写）
+      preview: {
+        title: string;             // 用于果实池卡片展示
+        summary: string;           // 一句话摘要
+        contentType: string;       // 'text' | 'image_text' | 'video_script' | ...
+      };
+
+      // 生成器自由载荷（完全由生成器定义，系统不解析）
+      payload: Record<string, any>;
+
+      metrics?: FruitMetrics;      // 发布后由监控器写入
+    }
     ```
+
+    **设计价值**：`payload` 不受系统约束，适配任意平台和生成器；`preview` 是系统与生成器之间的松耦合展示契约，确保果实池可以正常渲染。果实同时记录 `generatorId` 与 `generatorVersion`，实现果实与生成器的完整关联溯源。
 
 ### 4.3 生成器与 Skills (Generator & Skills)
 
-*   **Skills**: 独立的 Prompt 模板或逻辑单元（如：`title-generator`, `image-prompter`）。
-*   **多平台支持**: 通过配置不同的 Generator（组合不同的 Skills）来实现。
-*   **Agent 交互**: Agent 不直接写死逻辑，而是读取 `skills/` 目录下的定义来执行。
+生成器由**外部元数据**和**生成核心（Skill）**两部分组成。
+
+#### 生成器组成
+
+*   **外部元数据 (`generator.yaml`)**: 用于平台展示与管理。包含名称、作者、适用平台、版本、`install_count`、`price`（预留）、`output_capabilities` 等字段。
+*   **生成核心 (`skills/`)**: 标准 Skill 文件夹，定义生成逻辑。生成器只关注如何生成内容，不感知营养库和 MCP，具备完全可移植性。
+
+#### 生成器与用户关系
+
+*   生成器由用户/平台发布，MVP 阶段支持**导入**功能。
+*   其他用户可从**生成器市场**安装，安装后成为**我的生成器**，存储在 `/cf/data/{userId}/generators/{generatorId}/`。
+*   生成时用户选择「我的生成器」；选择平台生成器时自动安装。
+*   在**营养汲取**阶段，可使用 skill-creator 工具迭代优化「我的生成器」。
+
+#### 生成器 Agent
+
+MVP 阶段使用 **AI IDE（Cursor/Trae）内置 Agent** 作为生成器 Agent。需实现一个 `generation-orchestrator` Skill，编排完整的生成流程：
+
+```
+用户在 AI IDE 输入指令
+  → Agent 读取 generation-orchestrator Skill
+  → MCP: get_seed / get_fruit（获取输入内容）
+  → MCP: get_nutrients（获取营养库，可选）
+  → 加载生成器 Skill，组装 Prompt，调用 LLM 生成多个果实
+  → MCP: save_fruits（保存果实）
+  → MCP: write_generation_log（记录日志）
+  → 展示结果，等待用户 Pick Up
+```
+
+最终阶段将 Agent 替换为平台自研 Agent，**流程逻辑完全一致**，唯一变量是 Agent 的宿主环境。
 
 ### 4.4 监控与迭代 (Monitor & Iteration)
 
@@ -144,7 +192,8 @@ MVP 采用 **"本地服务器 + AI 辅助"** 的架构：
 
 1.  **MCP 集成**:
     *   Agent 生成果实后落库的操作，**必须**通过 MCP 工具调用 API 完成，禁止 Agent 直接修改数据库文件（防止并发冲突和逻辑不一致）。
-    *   定义清晰的 MCP Tools 列表：`create_seed`, `save_fruit`, `update_metrics`。
+    *   **种子模块 MCP Tools**：`create_seed`, `publish_seed`, `update_seed`, `archive_seed`
+    *   **生成器模块 MCP Tools**：`get_generator`, `list_generators`, `install_generator`, `save_fruits`, `pick_fruit`, `write_generation_log`, `get_nutrients`
 
 2.  **数据一致性**:
     *   "线上数据" (Redis) 是热数据，"线下数据" (Markdown) 是冷备份。
@@ -277,15 +326,23 @@ e. 种子工作区 (核心工作区)
 4.  **UI 实现 - 种子库**: 实现卡片墙设计，支持基本操作（编辑、删除、发布）。
 5.  **前后端联调**: 种子库与后端 API 联调，实现完整的 CRUD 流程。
 
-### 第二阶段：种子工作区（后续提案）
+### 第二阶段：生成器模块
 
-6.  **树状图组件**: 开发动效生动的树状图组件。
-7.  **生成流程**: 实现分步骤向导式生成流程。
-8.  **果实管理**: 实现果实的生成、展示、Pick Up 流程。
-9.  **迭代逻辑**: 实现基于果实的迭代生成。
+6.  **基础设施**: 定义 `Fruit` TypeScript 接口（容器格式 + payload + preview），实现果实与生成器的文件系统存储。
+7.  **MCP Tools**: 实现 `get_generator`、`list_generators`、`install_generator`、`save_fruits`、`pick_fruit`、`write_generation_log`。
+8.  **生成编排 Skill**: 编写 `generation-orchestrator` Skill；编写第一个示例生成器（小红书图文生成器）。
+9.  **端到端测试**: 在 AI IDE 中完成「种子 → 生成 → Pick Up」完整流程验证。
+10. **前端 - 生成器市场**: 实现生成器市场卡片墙页面（导入/安装功能）。
+11. **前端 - 我的生成器**: 实现我的生成器管理页面。
 
-### 第三阶段：数据看板 + 监控（后续提案）
+### 第三阶段：种子工作区
 
-10. **数据看板**: 实现时间线故事线设计的数据看板。
-11. **监控器**: 实现手动数据录入的监控器。
-12. **对比视图**: 实现果实的对比视图（可选）。
+12. **树状图组件**: 开发动效生动的树状图组件。
+13. **果实池**: 实现果实的展示（基于 `preview` 契约渲染卡片）、Pick Up 流程。
+14. **迭代逻辑**: 实现基于果实的迭代生成（`parentFruitId` 关联）。
+
+### 第四阶段：数据看板 + 监控
+
+15. **数据看板**: 实现时间线故事线设计的数据看板。
+16. **监控器**: 实现手动数据录入的监控器。
+17. **对比视图**: 实现果实的对比视图（可选）。
