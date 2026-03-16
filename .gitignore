@@ -11,3 +11,5 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
+content-forest-backend/cf/
+content-forest-front/.nuxt/

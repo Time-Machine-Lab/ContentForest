@@ -11,12 +11,16 @@
   },
   "dependencies": {
     "@nuxtjs/sitemap": "^7.6.0",
+    "dompurify": "^3.3.3",
+    "marked": "^17.0.4",
     "nuxt": "^3.15.4",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "@iconify/vue": "^5.0.0",
     "@nuxtjs/tailwindcss": "^6.12.2",
+    "@types/dompurify": "^3.0.5",
     "@vueuse/core": "^12.4.0",
     "@vueuse/nuxt": "^12.4.0"
   }

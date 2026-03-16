@@ -1,0 +1,45 @@
+<template>
+  <header class="sticky top-0 z-30 h-14 flex items-center justify-between px-6 bg-void/60 backdrop-blur border-b border-bio-green/10 shrink-0">
+    <!-- 左侧：面包屑 + 页面标题 -->
+    <div class="flex items-center gap-3">
+      <span class="font-mono text-[10px] tracking-[0.3em] text-mist-2 uppercase">// Console</span>
+      <span class="text-mist-3">/</span>
+      <span class="font-mono text-[10px] tracking-[0.3em] text-bio-green uppercase">{{ pageTitle }}</span>
+    </div>
+
+    <!-- 右侧：上下文操作 -->
+    <div class="flex items-center gap-3">
+      <button
+        v-if="showNewSeed"
+        class="flex items-center gap-2 font-mono text-xs tracking-widest uppercase px-4 py-1.5 bg-bio-green text-void hover:bg-bio-green/80 transition-all duration-300"
+        @click="emit('new-seed')"
+      >
+        <Icon icon="ph:plus-bold" class="text-sm" />
+        新建种子
+      </button>
+    </div>
+  </header>
+</template>
+
+<script setup lang="ts">
+import { Icon } from '@iconify/vue'
+
+const props = defineProps<{
+  activeView: string
+}>()
+
+const emit = defineEmits<{
+  'new-seed': []
+}>()
+
+const viewMeta: Record<string, { title: string; showNewSeed?: boolean }> = {
+  seeds: { title: '种子库', showNewSeed: true },
+  fruits: { title: '果实管理' },
+  workspace: { title: '内容工坊' },
+  dashboard: { title: '数据看板' },
+  settings: { title: '设置' },
+}
+
+const pageTitle = computed(() => viewMeta[props.activeView]?.title ?? '控制台')
+const showNewSeed = computed(() => viewMeta[props.activeView]?.showNewSeed ?? false)
+</script>

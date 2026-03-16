@@ -19,11 +19,18 @@
       </a>
     </div>
 
-    <!-- CTA -->
-    <a href="#waitlist"
-       class="font-mono text-xs tracking-widest uppercase px-4 py-2 border border-bio-green/50 text-bio-green hover:bg-bio-green hover:text-void transition-all duration-300">
-      Request Access
-    </a>
+    <!-- CTA Group -->
+    <div class="flex items-center gap-3">
+      <NuxtLink
+        to="/console"
+        class="font-mono text-xs tracking-widest uppercase px-4 py-2 bg-bio-green text-void hover:bg-bio-green/80 transition-all duration-300">
+        进入控制台
+      </NuxtLink>
+      <a href="#waitlist"
+         class="hidden md:inline-block font-mono text-xs tracking-widest uppercase px-4 py-2 border border-bio-green/50 text-bio-green hover:bg-bio-green hover:text-void transition-all duration-300">
+        Request Access
+      </a>
+    </div>
   </nav>
 </template>
 

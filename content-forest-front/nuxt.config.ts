@@ -1,5 +1,8 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
+  routeRules: {
+    '/api/**': { proxy: 'http://localhost:4000/api/**' },
+  },
   compatibilityDate: '2024-11-01',
   devtools: { enabled: true },
   modules: [
