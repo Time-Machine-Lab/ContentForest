@@ -12,6 +12,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.30",
+    "@types/unzipper": "^0.10.11",
     "tsx": "^4.20.6",
     "typescript": "^5.8.3"
   },
@@ -25,6 +26,7 @@
     "hono": "^4.12.7",
     "ioredis": "^5.10.0",
     "nanoid": "^5.1.5",
+    "unzipper": "^0.12.3",
     "uuid": "^13.0.0",
     "zod": "^4.3.6"
   }
