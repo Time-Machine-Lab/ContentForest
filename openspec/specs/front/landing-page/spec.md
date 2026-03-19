@@ -26,12 +26,28 @@
 
 ### Requirement: Navigation
 
-导航栏 SHALL 包含品牌 Logo、页面锚点链接和 Demo 页面入口。
+导航栏 SHALL 包含品牌 Logo、页面锚点链接、「产品」下拉菜单和控制台入口。
+
+「产品」下拉菜单 SHALL 包含：
+- 生成器市场 → `/generators`
+- （预留更多产品入口）
+
+下拉菜单 SHALL 使用 `bg-void-2 border border-bio-green/10` 背景，`font-mono text-xs tracking-widest uppercase` 文字样式。鼠标离开时自动关闭，动效 `opacity-0 → opacity-100` + `translate-y-1 → translate-y-0`。
 
 #### Scenario: Demo 链接可见
 - **WHEN** 用户访问任意页面
 - **THEN** 导航栏显示「Demo」链接指向 `/demo`
 - **AND** 导航栏在滚动时保持固定（sticky）
+
+#### Scenario: 展开产品下拉菜单
+- **WHEN** 用户悬停或点击「产品」触发器
+- **THEN** 下拉菜单以 `opacity-0 → opacity-100` + `translate-y-1 → translate-y-0` 动效展开
+- **AND** 显示「生成器市场」菜单项
+
+#### Scenario: 跳转生成器市场
+- **WHEN** 用户点击下拉菜单中的「生成器市场」
+- **THEN** 页面跳转至 `/generators`
+- **AND** 下拉菜单关闭
 
 ---
 

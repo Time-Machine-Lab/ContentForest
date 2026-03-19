@@ -72,7 +72,7 @@ app.onError((err, c) => {
   if (err instanceof InvalidSkillPackageError) {
     return c.json({ code: 400, message: err.message }, 400)
   }
-  process.stderr.write(`[Server] unhandled error: ${err.message}\n`)
+  process.stderr.write(`[Server] unhandled error: ${err.message}\n${err.stack ?? ""}\n`)
   return c.json({ code: 500, message: "Internal Server Error" }, 500)
 })
 
@@ -105,7 +105,7 @@ export async function handleRequest(
     ),
     body: ["GET", "HEAD"].includes(request.method ?? "GET")
       ? undefined
-      : await readStream(request),
+      : await readStreamBinary(request),
   })
 
   const res = await app.fetch(req)
@@ -120,11 +120,12 @@ export async function handleRequest(
 // 内部工具
 // ---------------------------------------------------------------------------
 
-async function readStream(stream: IncomingMessage): Promise<string> {
+async function readStreamBinary(stream: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     stream.on("data", (chunk: Buffer) => chunks.push(chunk))
-    stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")))
+    stream.on("end", () => resolve(Buffer.concat(chunks)))
     stream.on("error", reject)
   })
 }
+

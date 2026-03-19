@@ -23,6 +23,7 @@
       <ConsoleHeader
         :active-view="activeView"
         @new-seed="openSeedEditor(null)"
+        @upload-generator="showUploadModal = true"
       />
 
       <!-- 主内容区 -->
@@ -42,6 +43,14 @@
               key="seeds"
               ref="seedCardWallRef"
               @edit-seed="openSeedEditor"
+            />
+
+            <GeneratorView
+              v-else-if="activeView === 'generators'"
+              key="generators"
+              ref="generatorViewRef"
+              :show-upload-modal="showUploadModal"
+              @close-upload="showUploadModal = false"
             />
 
             <div v-else :key="activeView" class="flex flex-col items-center justify-center py-32 gap-4">
@@ -82,11 +91,13 @@ useSeoMeta({
 })
 
 const seedCardWallRef = ref<{ reload: () => void } | null>(null)
+const generatorViewRef = ref<{ reload: () => void } | null>(null)
 const activeView = ref('seeds')
 const sidebarCollapsed = ref(false)
 
 const showSeedEditor = ref(false)
 const editingSeed = ref<Seed | null>(null)
+const showUploadModal = ref(false)
 
 function openSeedEditor(seed: Seed | null) {
   editingSeed.value = seed

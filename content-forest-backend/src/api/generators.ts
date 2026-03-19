@@ -103,7 +103,22 @@ export function createGeneratorRoutes(service: GeneratorService): Hono {
       return c.json({ code: 400, message: `platform must be one of: ${validPlatforms.join(", ")}` }, 400)
     }
 
-    const zipBuffer = Buffer.from(await file.arrayBuffer())
+    // 用 file.stream() 读取原始二进制，避免 formData 解析时 UTF-8 编码损坏二进制内容
+    const chunks: Uint8Array[] = []
+    const reader = file.stream().getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value) chunks.push(value)
+    }
+    const totalLen = chunks.reduce((s, c) => s + c.length, 0)
+    const zipBuf = Buffer.allocUnsafe(totalLen)
+    let pos = 0
+    for (const chunk of chunks) { zipBuf.set(chunk, pos); pos += chunk.length }
+    process.stderr.write(`[upload] zip size=${zipBuf.length} first4: ${zipBuf.slice(0,4).toString('hex')}\n`)
+    if (zipBuf.length === 0) {
+      return c.json({ code: 400, message: "file is empty" }, 400)
+    }
     const safeJson = (raw: FormDataEntryValue | null): string[] => {
       if (!raw) return []
       try { return JSON.parse(String(raw)) } catch { return [] }
@@ -120,7 +135,7 @@ export function createGeneratorRoutes(service: GeneratorService): Hono {
       price: Number(formData.get("price") ?? 0),
     }
 
-    const result = await service.upload(userId, dto, zipBuffer)
+    const result = await service.upload(userId, dto, zipBuf)
     return c.json({ code: 0, data: result }, 201)
   })
 

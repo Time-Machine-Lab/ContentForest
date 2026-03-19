@@ -14,7 +14,10 @@
 
 import fs from "node:fs/promises"
 import path from "node:path"
+import { createRequire } from "node:module"
 import { CF_DATA_ROOT } from "../config.js"
+
+const require = createRequire(import.meta.url)
 
 /** 平台生成器 Skill 存储根目录 */
 export const CF_PLATFORM_ROOT =
@@ -147,34 +150,60 @@ export class InvalidSkillPackageError extends Error {
 }
 
 /**
- * 解压 zip Buffer，返回文件内容 Map<相对路径, Buffer>。
- * 校验根目录必须包含 SKILL.md，否则抛 InvalidSkillPackageError。
- *
- * 依赖：unzipper（需在 package.json 中声明）
+ * 纯 Node.js zip 解析（无外部依赖，兼容 Node v23）。
+ * 支持 STORED (0) 和 DEFLATED (8) 压缩方式。
  */
 export async function extractAndValidateZip(
   zipBuffer: Buffer
 ): Promise<Map<string, Buffer>> {
-  const unzipper = await import("unzipper").catch(() => {
-    throw new Error(
-      "unzipper is not installed. Run: npm install unzipper @types/unzipper"
-    )
-  })
-
-  const directory = await unzipper.Open.buffer(zipBuffer)
+  const { inflateRawSync } = require("node:zlib") as typeof import("node:zlib")
   const files = new Map<string, Buffer>()
 
-  // 收集所有文件
-  for (const file of directory.files) {
-    if (file.type === "Directory") continue
-    const content = await file.buffer()
-    // 去除 zip 根目录前缀（如 my-skill/SKILL.md → SKILL.md）
-    const parts = file.path.split("/")
-    const relPath = parts.length > 1 ? parts.slice(1).join("/") : parts[0]
-    if (relPath) files.set(relPath, content)
+  // 强制拷贝一份独立 Buffer，彻底避免内存池引用问题
+  const buf = Buffer.allocUnsafe(zipBuffer.length)
+  zipBuffer.copy(buf)
+
+  process.stderr.write(`[zip] parse start, len=${buf.length}, sig=${buf.readUInt32LE(0).toString(16)}\n`)
+
+  let offset = 0
+  while (offset < buf.length - 4) {
+    const sig = buf.readUInt32LE(offset)
+    if (sig !== 0x04034b50) break // Local file header signature
+
+    const compression = buf.readUInt16LE(offset + 8)
+    const compSize    = buf.readUInt32LE(offset + 18)
+    const nameLen     = buf.readUInt16LE(offset + 26)
+    const extraLen    = buf.readUInt16LE(offset + 28)
+    const name        = buf.slice(offset + 30, offset + 30 + nameLen).toString("utf-8")
+    const dataOffset  = offset + 30 + nameLen + extraLen
+    const compData    = buf.slice(dataOffset, dataOffset + compSize)
+
+    process.stderr.write(`[zip] entry name=${name} comp=${compression} compSize=${compSize} dataOffset=${dataOffset} compDataLen=${compData.length}\n`)
+
+    if (!name.endsWith("/")) {
+      let content: Buffer
+      if (compression === 0) {
+        content = Buffer.from(compData) // 显式拷贝
+      } else if (compression === 8) {
+        content = inflateRawSync(compData)
+      } else {
+        throw new InvalidSkillPackageError(`Unsupported compression method ${compression} for: ${name}`)
+      }
+      const parts = name.split("/")
+      const relPath = parts.length > 1 ? parts.slice(1).join("/") : parts[0]!
+      if (relPath) files.set(relPath, content)
+      process.stderr.write(`[zip] stored relPath=${relPath} contentLen=${content.length}\n`)
+    }
+
+    offset = dataOffset + compSize
   }
 
-  // 校验 SKILL.md 存在
+  process.stderr.write(`[zip] total files: ${files.size} [${[...files.keys()].join(', ')}]\n`)
+
+  if (files.size === 0) {
+    throw new InvalidSkillPackageError("Invalid skill package: zip appears empty or corrupt")
+  }
+
   const hasSkillMd = [...files.keys()].some(
     (p) => p === "SKILL.md" || p.toLowerCase() === "skill.md"
   )

@@ -11,10 +11,15 @@ import { Redis } from "ioredis"
 import { REDIS_URL } from "../config.js"
 
 const redis = new Redis(REDIS_URL, {
-  // 连接失败时自动重试，最多 3 次，避免启动时因 Redis 未就绪崩溃
-  maxRetriesPerRequest: 3,
-  enableReadyCheck: true,
+  maxRetriesPerRequest: 1,       // 快速失败，不长时间等待
+  enableReadyCheck: false,       // 不等 ready 再发命令
   lazyConnect: false,
+  retryStrategy: (times: number) => {
+    if (times > 10) return null   // 超过 10 次停止重试
+    return Math.min(times * 200, 2000) // 200ms 起步，最多 2s
+  },
+  reconnectOnError: () => true,   // 任何错误都尝试重连
+  commandTimeout: 5000,          // 单个命令 5s 超时
 })
 
 redis.on("error", (err: Error) => {

@@ -103,6 +103,7 @@ const emit = defineEmits<{
 
 const navItems = [
   { id: 'seeds', label: '种子库', icon: 'ph:plant' },
+  { id: 'generators', label: '生成器', icon: 'ph:cpu' },
   { id: 'fruits', label: '果实管理', icon: 'ph:leaf', disabled: true },
   { id: 'workspace', label: '内容工坊', icon: 'ph:tree-structure', disabled: true },
   { id: 'dashboard', label: '数据看板', icon: 'ph:chart-line-up', disabled: true },
