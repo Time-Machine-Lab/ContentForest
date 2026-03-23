@@ -16,6 +16,10 @@ import { RedisSeedRepository } from "../repositories/redis-seed-repository.js"
 import { SeedService, SeedNotFoundError, InvalidTransitionError } from "../services/seed-service.js"
 import { createSeedRoutes } from "./seeds.js"
 import { createMcpServer, handleMcpRequest } from "../mcp/server.js"
+import { RedisGeneratorRepository } from "../repositories/redis-generator-repository.js"
+import { RedisUserGeneratorRepository } from "../repositories/redis-user-generator-repository.js"
+import { GeneratorService, GeneratorNotFoundError, GeneratorAlreadyInstalledError, GeneratorNotInstalledError, InvalidSkillPackageError } from "../services/generator-service.js"
+import { createGeneratorRoutes } from "./generators.js"
 import type { IncomingMessage, ServerResponse } from "node:http"
 
 // ---------------------------------------------------------------------------
@@ -24,7 +28,12 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 
 const repo = new RedisSeedRepository()
 export const seedService = new SeedService(repo)
-export const mcpServer = createMcpServer(seedService)
+
+const genRepo = new RedisGeneratorRepository()
+const userGenRepo = new RedisUserGeneratorRepository()
+export const generatorService = new GeneratorService(genRepo, userGenRepo)
+
+export const mcpServer = createMcpServer(seedService, generatorService)
 
 // ---------------------------------------------------------------------------
 // Hono App 组装 (9.2 + 9.5 + 9.6)
@@ -39,6 +48,10 @@ app.get("/health", (c) => c.json({ status: "ok" }))
 const seedRoutes = createSeedRoutes(seedService)
 app.route("/", seedRoutes)
 
+// 生成器路由
+const generatorRoutes = createGeneratorRoutes(generatorService)
+app.route("/", generatorRoutes)
+
 // 全局错误处理 (9.5)
 app.onError((err, c) => {
   if (err instanceof SeedNotFoundError) {
@@ -47,7 +60,19 @@ app.onError((err, c) => {
   if (err instanceof InvalidTransitionError) {
     return c.json({ code: 400, message: err.message }, 400)
   }
-  process.stderr.write(`[Server] unhandled error: ${err.message}\n`)
+  if (err instanceof GeneratorNotFoundError) {
+    return c.json({ code: 404, message: err.message }, 404)
+  }
+  if (err instanceof GeneratorAlreadyInstalledError) {
+    return c.json({ code: 409, message: err.message }, 409)
+  }
+  if (err instanceof GeneratorNotInstalledError) {
+    return c.json({ code: 404, message: err.message }, 404)
+  }
+  if (err instanceof InvalidSkillPackageError) {
+    return c.json({ code: 400, message: err.message }, 400)
+  }
+  process.stderr.write(`[Server] unhandled error: ${err.message}\n${err.stack ?? ""}\n`)
   return c.json({ code: 500, message: "Internal Server Error" }, 500)
 })
 
@@ -80,7 +105,7 @@ export async function handleRequest(
     ),
     body: ["GET", "HEAD"].includes(request.method ?? "GET")
       ? undefined
-      : await readStream(request),
+      : await readStreamBinary(request),
   })
 
   const res = await app.fetch(req)
@@ -95,11 +120,12 @@ export async function handleRequest(
 // 内部工具
 // ---------------------------------------------------------------------------
 
-async function readStream(stream: IncomingMessage): Promise<string> {
+async function readStreamBinary(stream: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     stream.on("data", (chunk: Buffer) => chunks.push(chunk))
-    stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")))
+    stream.on("end", () => resolve(Buffer.concat(chunks)))
     stream.on("error", reject)
   })
 }
+

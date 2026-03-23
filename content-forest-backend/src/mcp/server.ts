@@ -1,10 +1,8 @@
 /**
  * MCP Server 初始化
  *
- * 使用 @modelcontextprotocol/sdk 的 HTTP SSE 模式（宪法决策 #8）。
- * 与 REST API Server 共享同一进程，复用 SeedService（宪法 1.3/1.5）。
- *
- * 端口：MCP_PORT（默认 4001），路径：GET /sse + POST /message
+ * 注册种子工具 + 生成器工具。
+ * 使用 @modelcontextprotocol/sdk 的 HTTP SSE 模式。
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -19,20 +17,23 @@ import {
   GetSeedSchema,
   UpdateSeedInfoSchema,
 } from "./seed-tools.js"
+import { createGeneratorToolHandlers } from "./generator-tools.js"
 import type { SeedService } from "../services/seed-service.js"
+import type { GeneratorService } from "../services/generator-service.js"
 import { z } from "zod"
 
-export function createMcpServer(service: SeedService): McpServer {
+export function createMcpServer(
+  seedService: SeedService,
+  generatorService?: GeneratorService
+): McpServer {
   const server = new McpServer({
     name: "content-forest",
     version: "0.1.0",
   })
 
-  const handlers = createSeedToolHandlers(service)
+  const seedHandlers = createSeedToolHandlers(seedService)
 
-  // -------------------------------------------------------------------------
-  // 注册工具 (7.3)
-  // -------------------------------------------------------------------------
+  // ── 种子工具 ──────────────────────────────────────────────────────────────
 
   server.tool(
     "save_draft",
@@ -44,7 +45,7 @@ export function createMcpServer(service: SeedService): McpServer {
       id: z.string().optional().describe("已有草稿 ID（upsert 时传入）"),
     },
     async (args) => {
-      const result = await handlers.save_draft(args)
+      const result = await seedHandlers.save_draft(args)
       return { content: [{ type: "text", text: JSON.stringify(result) }] }
     }
   )
@@ -59,19 +60,17 @@ export function createMcpServer(service: SeedService): McpServer {
       tags: z.array(z.string()).optional().describe("标签列表"),
     },
     async (args) => {
-      const result = await handlers.publish_seed(args)
+      const result = await seedHandlers.publish_seed(args)
       return { content: [{ type: "text", text: JSON.stringify(result) }] }
     }
   )
 
   server.tool(
     "archive_seed",
-    "归档种子，将状态变为 archived。归档后不再被生成器扫描。",
-    {
-      seedId: z.string().min(1).describe("种子 ID"),
-    },
+    "归档种子，将状态变为 archived。",
+    { seedId: z.string().min(1).describe("种子 ID") },
     async (args) => {
-      const result = await handlers.archive_seed(args)
+      const result = await seedHandlers.archive_seed(args)
       return { content: [{ type: "text", text: JSON.stringify(result) }] }
     }
   )
@@ -86,26 +85,24 @@ export function createMcpServer(service: SeedService): McpServer {
       size: z.number().int().positive().max(100).optional().describe("每页数量，默认 20"),
     },
     async (args) => {
-      const result = await handlers.list_seeds(args)
+      const result = await seedHandlers.list_seeds(args)
       return { content: [{ type: "text", text: JSON.stringify(result) }] }
     }
   )
 
   server.tool(
     "get_seed",
-    "获取种子完整信息，包含 Markdown 正文内容。生成果实前调用此工具读取种子详情。",
-    {
-      seedId: z.string().min(1).describe("种子 ID"),
-    },
+    "获取种子完整信息，包含 Markdown 正文。生成果实前调用此工具。",
+    { seedId: z.string().min(1).describe("种子 ID") },
     async (args) => {
-      const result = await handlers.get_seed(args)
+      const result = await seedHandlers.get_seed(args)
       return { content: [{ type: "text", text: JSON.stringify(result) }] }
     }
   )
 
   server.tool(
     "update_seed_info",
-    "更新种子的内容信息（title/content/tags）。不支持修改状态，状态变更请使用专用工具。",
+    "更新种子的内容信息（title/content/tags）。不支持修改状态。",
     {
       seedId: z.string().min(1).describe("种子 ID"),
       title: z.string().optional().describe("新标题"),
@@ -113,19 +110,102 @@ export function createMcpServer(service: SeedService): McpServer {
       tags: z.array(z.string()).optional().describe("新标签列表"),
     },
     async (args) => {
-      const result = await handlers.update_seed_info(args)
+      const result = await seedHandlers.update_seed_info(args)
       return { content: [{ type: "text", text: JSON.stringify(result) }] }
     }
   )
+
+  // ── 生成器工具 ────────────────────────────────────────────────────────────
+
+  if (generatorService) {
+    const genHandlers = createGeneratorToolHandlers(generatorService)
+
+    server.tool(
+      "get_generator",
+      "获取生成器元数据及当前用户的本地 skillPath。Agent 执行生成前调用此工具确认 Skill 路径。",
+      {
+        generatorId: z.string().min(1).describe("生成器 ID"),
+        userId: z.string().optional().describe("用户 ID，传入时返回该用户的 skillPath"),
+      },
+      async (args) => {
+        const result = await genHandlers.get_generator(args)
+        return { content: [{ type: "text", text: JSON.stringify(result) }] }
+      }
+    )
+
+    server.tool(
+      "list_generators",
+      "列出用户已安装的生成器列表。Agent 在生成前调用以选择合适的生成器。",
+      {
+        userId: z.string().min(1).describe("用户 ID"),
+        filter: z.object({
+          platform: z.enum(["xiaohongshu", "douyin", "twitter", "wechat", "other"]).optional().describe("平台过滤"),
+          domain: z.string().optional().describe("领域过滤"),
+          keyword: z.string().optional().describe("关键词搜索"),
+        }).optional().describe("过滤条件"),
+        page: z.number().int().positive().optional().describe("页码，默认 1"),
+        pageSize: z.number().int().positive().max(100).optional().describe("每页数量，默认 20"),
+      },
+      async (args) => {
+        const result = await genHandlers.list_generators(args)
+        return { content: [{ type: "text", text: JSON.stringify(result) }] }
+      }
+    )
+
+    server.tool(
+      "install_generator",
+      "将市场生成器安装到用户本地，返回 skillPath 供 Agent 加载 Skill。",
+      {
+        userId: z.string().min(1).describe("用户 ID"),
+        generatorId: z.string().min(1).describe("生成器 ID"),
+      },
+      async (args) => {
+        const result = await genHandlers.install_generator(args)
+        return { content: [{ type: "text", text: JSON.stringify(result) }] }
+      }
+    )
+
+    server.tool(
+      "write_generation_log",
+      "写入一次内容生成的完整日志（Redis + 本地文件双写）。生成完成后调用。",
+      {
+        userId: z.string().min(1).describe("用户 ID"),
+        generatorId: z.string().min(1).describe("使用的生成器 ID"),
+        seedId: z.string().optional().describe("关联种子 ID"),
+        fruitId: z.string().optional().describe("关联果实 ID（再加工时填写）"),
+        input: z.record(z.unknown()).optional().describe("生成输入参数"),
+        output: z.string().min(1).describe("生成结果 Markdown 正文"),
+        status: z.enum(["success", "failed"]).optional().describe("生成状态，默认 success"),
+        error: z.string().optional().describe("错误信息（status=failed 时填写）"),
+        durationMs: z.number().int().nonnegative().optional().describe("生成耗时（毫秒）"),
+      },
+      async (args) => {
+        const result = await genHandlers.write_generation_log(args)
+        return { content: [{ type: "text", text: JSON.stringify(result) }] }
+      }
+    )
+
+    server.tool(
+      "get_nutrients",
+      "读取用户营养库中的 Markdown 文件内容。文件不存在时返回 null 并附带 warning，不抛错。",
+      {
+        userId: z.string().min(1).describe("用户 ID"),
+        paths: z.array(z.string().min(1)).min(1).describe("营养库文件相对路径列表（相对于用户营养库根目录）"),
+      },
+      async (args) => {
+        const result = await genHandlers.get_nutrients(args)
+        return { content: [{ type: "text", text: JSON.stringify(result) }] }
+      }
+    )
+  }
 
   return server
 }
 
 // ---------------------------------------------------------------------------
-// SSE 传输层 — 处理 HTTP 请求路由
+// SSE 传输层
 // ---------------------------------------------------------------------------
 
-/** 每个 SSE 连接对应一个 transport 实例，用 sessionId 索引 */
 const transports = new Map<string, SSEServerTransport>()
 
 export async function handleMcpRequest(
@@ -134,18 +214,14 @@ export async function handleMcpRequest(
   res: ServerResponse,
   pathname: string
 ): Promise<boolean> {
-  // GET /sse — 建立 SSE 连接
   if (req.method === "GET" && pathname === "/sse") {
     const transport = new SSEServerTransport("/message", res)
     transports.set(transport.sessionId, transport)
-    res.on("close", () => {
-      transports.delete(transport.sessionId)
-    })
+    res.on("close", () => { transports.delete(transport.sessionId) })
     await mcpServer.connect(transport)
     return true
   }
 
-  // POST /message — 接收客户端消息
   if (req.method === "POST" && pathname === "/message") {
     const qs = new URL(req.url ?? "/", "http://localhost").searchParams
     const sessionId = qs.get("sessionId") ?? ""
@@ -160,4 +236,4 @@ export async function handleMcpRequest(
   }
 
   return false
-}
+} 

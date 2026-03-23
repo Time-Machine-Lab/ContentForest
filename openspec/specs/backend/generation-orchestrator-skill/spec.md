@@ -1,0 +1,25 @@
+## Purpose
+
+实现一个核心编排层，负责接收用户输入、调用 AI 模型执行生成器的提示词模板，并将结果结构化输出。
+
+## Requirements
+
+### Requirement: 生成编排技能（Generation Orchestrator Skill）
+
+实现一个核心编排层，负责接收用户输入、调用 AI 模型执行生成器的提示词模板，并将结果结构化输出。
+
+#### Scenario: 执行生成任务
+- **WHEN** 编排器接收到一个生成请求，包含 `generatorId` 和用户填写的 `inputs`
+- **THEN** 从存储中加载对应生成器的 `promptTemplate` 和 `schema`
+- **AND** 使用 `inputs` 渲染提示词模板
+- **AND** 调用配置好的 AI 模型（LLM）执行推理
+- **AND** 将模型返回的内容解析为结构化结果后返回
+
+#### Scenario: 输入参数校验失败
+- **WHEN** 用户提交的 `inputs` 不符合生成器的 `schema` 定义
+- **THEN** 编排器在调用模型之前即返回校验错误，说明哪些字段不符合要求
+
+#### Scenario: 模型调用失败
+- **WHEN** AI 模型调用超时或返回错误
+- **THEN** 编排器返回包含错误类型与描述的错误响应
+- **AND** 不产生任何部分输出
