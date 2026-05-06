@@ -123,6 +123,52 @@ async function handleApiRequest(
     return true;
   }
 
+  const fruitContentMatch = pathname.match(/^\/api\/fruits\/([^/]+)\/content$/);
+  if (fruitContentMatch && method === "PATCH") {
+    const result = await app.fruitController.updateFruitContent(
+      decodeURIComponent(fruitContentMatch[1] ?? ""),
+      toUpdateFruitContentInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const fruitSelectMatch = pathname.match(/^\/api\/fruits\/([^/]+)\/select$/);
+  if (fruitSelectMatch && method === "POST") {
+    const result = await app.fruitController.selectFruit(
+      decodeURIComponent(fruitSelectMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const fruitEliminateMatch = pathname.match(/^\/api\/fruits\/([^/]+)\/eliminate$/);
+  if (fruitEliminateMatch && method === "POST") {
+    const result = await app.fruitController.eliminateFruit(
+      decodeURIComponent(fruitEliminateMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const fruitRestoreMatch = pathname.match(/^\/api\/fruits\/([^/]+)\/restore-candidate$/);
+  if (fruitRestoreMatch && method === "POST") {
+    const result = await app.fruitController.restoreFruitToCandidate(
+      decodeURIComponent(fruitRestoreMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const fruitMatch = pathname.match(/^\/api\/fruits\/([^/]+)$/);
+  if (fruitMatch && method === "GET") {
+    const result = await app.fruitController.getFruit(
+      decodeURIComponent(fruitMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
   if (pathname === "/api/seeds" && method === "POST") {
     const result = await app.seedController.createSeed(
       toCreateSeedInput(await readJsonBody(request)),
@@ -268,6 +314,22 @@ function toUpdateSeedInput(body: Record<string, unknown>): {
   }
 
   return input;
+}
+
+function toUpdateFruitContentInput(body: Record<string, unknown>): {
+  markdown: string;
+} {
+  if (typeof body.markdown !== "string") {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "编辑果实需要提供 Markdown 正文",
+      400,
+    );
+  }
+
+  return {
+    markdown: body.markdown,
+  };
 }
 
 function decodeBase64Zip(zipBase64: string): Buffer {

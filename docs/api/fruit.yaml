@@ -1,0 +1,173 @@
+openapi: 3.1.0
+info:
+  title: 内容森林果实 API
+  version: 0.1.0
+  description: >
+    果实 Controller 对外暴露果实详情读取、Markdown 正文编辑、选择、淘汰和恢复候选能力。
+    API 契约对应 docs/sql/fruit.sql 与果实领域模块设计文档。
+    果实创建仅供后端内部应用服务使用，不提供公开创建接口；果实查询不提供全局列表接口。
+tags:
+  - name: Fruit
+paths:
+  /api/fruits/{fruitId}:
+    get:
+      tags: [Fruit]
+      summary: 查看果实详情
+      parameters:
+        - $ref: '#/components/parameters/FruitId'
+      responses:
+        '200':
+          description: 果实详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FruitDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/fruits/{fruitId}/content:
+    patch:
+      tags: [Fruit]
+      summary: 编辑果实 Markdown 正文
+      parameters:
+        - $ref: '#/components/parameters/FruitId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFruitContentRequest'
+      responses:
+        '200':
+          description: 编辑成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FruitDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/fruits/{fruitId}/select:
+    post:
+      tags: [Fruit]
+      summary: 选择果实
+      parameters:
+        - $ref: '#/components/parameters/FruitId'
+      responses:
+        '200':
+          description: 选择成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FruitDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/fruits/{fruitId}/eliminate:
+    post:
+      tags: [Fruit]
+      summary: 淘汰果实
+      parameters:
+        - $ref: '#/components/parameters/FruitId'
+      responses:
+        '200':
+          description: 淘汰成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FruitDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/fruits/{fruitId}/restore-candidate:
+    post:
+      tags: [Fruit]
+      summary: 恢复为候选果实
+      parameters:
+        - $ref: '#/components/parameters/FruitId'
+      responses:
+        '200':
+          description: 恢复成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FruitDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  parameters:
+    FruitId:
+      name: fruitId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    UpdateFruitContentRequest:
+      type: object
+      required: [markdown]
+      properties:
+        markdown:
+          type: string
+          minLength: 1
+    ParentNodeRef:
+      type: object
+      required: [nodeId, nodeType]
+      properties:
+        nodeId:
+          type: string
+        nodeType:
+          type: string
+          enum: [seed, fruit]
+    FruitSummary:
+      type: object
+      required: [id, selectionState, parentNodeRef, contentLocation, summary, geneTags, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        selectionState:
+          type: string
+          enum: [candidate, selected, eliminated]
+        parentNodeRef:
+          $ref: '#/components/schemas/ParentNodeRef'
+        contentLocation:
+          type: string
+        summary:
+          type: string
+        geneTags:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    FruitDetail:
+      allOf:
+        - $ref: '#/components/schemas/FruitSummary'
+        - type: object
+          required: [markdown]
+          properties:
+            markdown:
+              type: string
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+  responses:
+    BadRequest:
+      description: 请求参数不满足果实完整性约束
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: 果实不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
