@@ -1,0 +1,260 @@
+openapi: 3.1.0
+info:
+  title: 内容森林种子 API
+  version: 0.1.0
+  description: >
+    种子 Controller 对外暴露创建、列表、详情、编辑、归档、回档、根节点读取和可生长性校验能力。
+    API 契约对应 docs/sql/seed.sql 与种子领域模块设计文档。
+tags:
+  - name: Seed
+paths:
+  /api/seeds:
+    post:
+      tags: [Seed]
+      summary: 创建种子
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSeedRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    get:
+      tags: [Seed]
+      summary: 查看未归档种子列表
+      responses:
+        '200':
+          description: 未归档种子列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeedSummary'
+  /api/seeds/archived:
+    get:
+      tags: [Seed]
+      summary: 查看已归档种子列表
+      responses:
+        '200':
+          description: 已归档种子列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeedSummary'
+  /api/seeds/{seedId}:
+    get:
+      tags: [Seed]
+      summary: 查看种子详情
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      responses:
+        '200':
+          description: 种子详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Seed]
+      summary: 编辑种子标题或 Markdown 正文
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSeedRequest'
+      responses:
+        '200':
+          description: 编辑成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/seeds/{seedId}/archive:
+    post:
+      tags: [Seed]
+      summary: 归档种子
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      responses:
+        '200':
+          description: 归档成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/seeds/{seedId}/restore:
+    post:
+      tags: [Seed]
+      summary: 回档种子
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      responses:
+        '200':
+          description: 回档成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/seeds/{seedId}/root-node:
+    get:
+      tags: [Seed]
+      summary: 读取种子作为内容树根节点的信息
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      responses:
+        '200':
+          description: 根节点信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedRootNode'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/seeds/{seedId}/growth-eligibility:
+    get:
+      tags: [Seed]
+      summary: 校验种子是否可作为枝化生长来源
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      responses:
+        '200':
+          description: 可生长性校验结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrowthEligibility'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  parameters:
+    SeedId:
+      name: seedId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    CreateSeedRequest:
+      type: object
+      required: [title, markdown]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        markdown:
+          type: string
+          minLength: 1
+    UpdateSeedRequest:
+      type: object
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+        markdown:
+          type: string
+          minLength: 1
+    SeedSummary:
+      type: object
+      required: [id, title, archiveState, rootNodeId, contentLocation, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        archiveState:
+          type: string
+          enum: [active, archived]
+        rootNodeId:
+          type: string
+        contentLocation:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+    SeedDetail:
+      allOf:
+        - $ref: '#/components/schemas/SeedSummary'
+        - type: object
+          required: [markdown]
+          properties:
+            markdown:
+              type: string
+    SeedRootNode:
+      type: object
+      required: [seedId, nodeId, nodeType, workspaceReadOnly]
+      properties:
+        seedId:
+          type: string
+        nodeId:
+          type: string
+        nodeType:
+          type: string
+          enum: [seed]
+        workspaceReadOnly:
+          type: boolean
+    GrowthEligibility:
+      type: object
+      required: [seedId, canGrow, workspaceReadOnly]
+      properties:
+        seedId:
+          type: string
+        canGrow:
+          type: boolean
+        workspaceReadOnly:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+  responses:
+    BadRequest:
+      description: 请求参数不满足种子完整性约束
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: 种子不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
