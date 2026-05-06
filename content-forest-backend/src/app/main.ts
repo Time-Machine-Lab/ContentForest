@@ -1,11 +1,13 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { bootstrapApp } from "./bootstrap/app-bootstrap.js";
+import { loadLocalEnvFile } from "./config/local-env.js";
 import {
   ApplicationError,
   isApplicationError,
 } from "../shared/errors/application-error.js";
 
+await loadLocalEnvFile();
 const app = await bootstrapApp();
 
 const corsHeaders = {

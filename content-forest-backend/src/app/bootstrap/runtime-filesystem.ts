@@ -1,6 +1,10 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { AppConfig } from "../config/app-config.js";
+
+export interface RuntimeFilesystemConfig {
+  contentRootDir: string;
+  databasePath: string;
+}
 
 export const STANDARD_CONTENT_DIRECTORIES = [
   "seeds",
@@ -14,7 +18,7 @@ export const STANDARD_CONTENT_DIRECTORIES = [
 ] as const;
 
 export async function initializeRuntimeFilesystem(
-  config: AppConfig,
+  config: RuntimeFilesystemConfig,
 ): Promise<void> {
   await mkdir(dirname(config.databasePath), { recursive: true });
   await mkdir(config.contentRootDir, { recursive: true });
@@ -25,4 +29,3 @@ export async function initializeRuntimeFilesystem(
     ),
   );
 }
-

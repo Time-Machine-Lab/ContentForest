@@ -14,7 +14,10 @@ import { SqliteFruitStorageAdapter } from "../../storage/adapters/sqlite-fruit-s
 import { SqliteGeneratorStorageAdapter } from "../../storage/adapters/sqlite-generator-storage-adapter.js";
 import { SqliteSeedStorageAdapter } from "../../storage/adapters/sqlite-seed-storage-adapter.js";
 import type { AppConfig, AppConfigEnv } from "../config/app-config.js";
-import { loadAppConfig } from "../config/app-config.js";
+import {
+  getAgentLlmStartupWarnings,
+  loadAppConfig,
+} from "../config/app-config.js";
 import { initializeRuntimeFilesystem } from "./runtime-filesystem.js";
 
 export interface AppRuntime {
@@ -30,6 +33,9 @@ export async function bootstrapApp(
   cwd: string = process.cwd(),
 ): Promise<AppRuntime> {
   const config = loadAppConfig(env, cwd);
+  for (const warning of getAgentLlmStartupWarnings(config)) {
+    console.warn(warning);
+  }
   await initializeRuntimeFilesystem(config);
 
   const seedStorage = new SqliteSeedStorageAdapter(config.databasePath);

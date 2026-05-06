@@ -1,7 +1,12 @@
 export type ApplicationErrorCode =
   | "VALIDATION_ERROR"
   | "NOT_FOUND"
-  | "CONTENT_ACCESS_ERROR";
+  | "CONTENT_ACCESS_ERROR"
+  | "AGENT_RUNTIME_ERROR"
+  | "AGENT_TOOL_ERROR"
+  | "AGENT_SKILL_ERROR"
+  | "AGENT_LLM_ERROR"
+  | "CONFIGURATION_ERROR";
 
 export class ApplicationError extends Error {
   public readonly code: ApplicationErrorCode;
@@ -18,4 +23,3 @@ export class ApplicationError extends Error {
 export function isApplicationError(error: unknown): error is ApplicationError {
   return error instanceof ApplicationError;
 }
-
