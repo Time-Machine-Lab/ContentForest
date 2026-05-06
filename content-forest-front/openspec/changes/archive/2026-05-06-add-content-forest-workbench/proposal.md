@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- 新增内容森林主工作台外壳，采用 `DESIGN.md` 定义的 Raycast-inspired Quiet Command Workspace 风格。
+- 新增内容森林主工作台外壳，采用 `docs/spec/DESIGN.md` 定义的 Raycast-inspired Quiet Command Workspace 风格。
 - 左侧全局导航只承载主工作台级入口，如种子库、生成器、营养库；不放置“已归档”作为全局入口。
 - 新增种子库页面，使用更具识别度的卡片网格呈现种子，并在页面内部提供未归档/已归档视图切换。
 - 新增居中 Command Modal 创建种子，要求标题和 Markdown 正文都非空。
@@ -27,7 +27,7 @@
 ## Impact
 
 - 影响前端 Nuxt 应用布局、路由入口、基础 UI 组件、种子模块、API 访问封装和测试。
-- 依赖 `DESIGN.md` 与 `docs/spec/前端开发规范文档.md` 的设计和开发约束。
+- 依赖 `docs/spec/DESIGN.md` 与 `docs/spec/前端开发规范文档.md` 的设计和开发约束。
 - 依赖 `docs/api/seed.yaml` 中的种子 API 契约。
 - 依赖 `docs/sql/seed.sql` 中的种子系统事实结构，仅作为只读建模参考。
 - 不修改后端、SQL 文档或 API 文档。

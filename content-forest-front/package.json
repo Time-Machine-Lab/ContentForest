@@ -3,19 +3,26 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "nuxt dev",
+    "dev": "nuxt dev --no-fork",
     "build": "nuxt build",
     "preview": "nuxt preview",
+    "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "nuxt typecheck",
     "lint": "eslint ."
   },
   "dependencies": {
-    "nuxt": "^4.0.0",
+    "nuxt": "4.3.1",
     "vue": "^3.5.0"
   },
   "devDependencies": {
     "@nuxt/eslint": "^1.0.0",
+    "@types/node": "^25.6.0",
     "eslint": "^9.0.0",
-    "typescript": "^5.0.0"
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0",
+    "vue-tsc": "^3.2.8"
+  },
+  "optionalDependencies": {
+    "@oxc-parser/binding-win32-x64-msvc": "0.128.0"
   }
 }

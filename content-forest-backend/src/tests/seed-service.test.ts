@@ -40,7 +40,7 @@ describe("SeedService", () => {
       id: "seed_1",
       title: "内容森林",
       archiveState: SEED_ARCHIVE_STATES.active,
-      contentLocation: "seed/seed_1.md",
+      contentLocation: "seeds/seed_1.md",
       rootNodeId: "seed-node_seed_1",
       archivedAt: null,
       markdown: "# 灵感种子",
@@ -160,4 +160,3 @@ describe("SeedService", () => {
     });
   });
 });
-

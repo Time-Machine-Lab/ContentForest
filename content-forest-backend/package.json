@@ -6,6 +6,7 @@
   "description": "Content Forest backend skeleton.",
   "scripts": {
     "build": "tsc",
+    "start": "npm run build && node dist/app/main.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\"",
     "test": "vitest run"

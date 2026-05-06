@@ -1,21 +1,22 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, normalize } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { isAbsolute, relative, resolve } from "node:path";
 import type {
   CreateSeedMarkdownInput,
   SeedMarkdownContentAccessPort,
 } from "../ports/seed-markdown-content-access-port.js";
+import { ApplicationError } from "../../shared/errors/application-error.js";
 
 export class LocalSeedMarkdownContentAccessAdapter
   implements SeedMarkdownContentAccessPort
 {
-  private readonly rootDir: string;
+  private readonly contentRootDir: string;
 
-  public constructor(rootDir: string) {
-    this.rootDir = rootDir;
+  public constructor(contentRootDir: string) {
+    this.contentRootDir = resolve(contentRootDir);
   }
 
   public async createSeedMarkdown(input: CreateSeedMarkdownInput): Promise<string> {
-    const contentLocation = `seed/${this.safeFileName(input.seedId)}.md`;
+    const contentLocation = `seeds/${this.safeFileName(input.seedId)}.md`;
     await this.write(contentLocation, input.markdown);
     return contentLocation;
   }
@@ -33,20 +34,41 @@ export class LocalSeedMarkdownContentAccessAdapter
 
   private async write(contentLocation: string, markdown: string): Promise<void> {
     const target = this.resolve(contentLocation);
-    await mkdir(dirname(target), { recursive: true });
     await writeFile(target, markdown, "utf8");
   }
 
   private resolve(contentLocation: string): string {
-    const normalized = normalize(contentLocation);
-    if (normalized.startsWith("..")) {
-      throw new Error("Invalid content location");
+    const segments = contentLocation.replaceAll("\\", "/").split("/");
+    if (
+      contentLocation.trim().length === 0 ||
+      isAbsolute(contentLocation) ||
+      segments.includes("..")
+    ) {
+      throw this.invalidContentLocation();
     }
-    return join(this.rootDir, normalized);
+
+    const target = resolve(this.contentRootDir, contentLocation);
+    const relativePath = relative(this.contentRootDir, target);
+    if (
+      relativePath.length === 0 ||
+      relativePath.startsWith("..") ||
+      isAbsolute(relativePath)
+    ) {
+      throw this.invalidContentLocation();
+    }
+
+    return target;
   }
 
   private safeFileName(value: string): string {
     return value.replace(/[^a-zA-Z0-9_-]/g, "_");
   }
-}
 
+  private invalidContentLocation(): ApplicationError {
+    return new ApplicationError(
+      "CONTENT_ACCESS_ERROR",
+      "内容位置必须是运行时内容根目录下的相对路径",
+      500,
+    );
+  }
+}

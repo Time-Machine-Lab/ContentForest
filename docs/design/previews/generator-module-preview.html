@@ -1,0 +1,851 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>内容森林生成器模块预览</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --cf-bg: #07080b;
+      --cf-main: #090b10;
+      --cf-panel: #0d1017;
+      --cf-panel-strong: #121722;
+      --cf-panel-elevated: #151a24;
+      --cf-border: #252b36;
+      --cf-border-soft: #1b202a;
+      --cf-text: #eef1f7;
+      --cf-text-muted: #8f98a8;
+      --cf-text-faint: #626b7d;
+      --cf-accent: #8b9cff;
+      --cf-growth: #5ed7c5;
+      --cf-danger: #ff6b7a;
+      --cf-warning: #f0c36b;
+      --cf-shadow: 0 18px 60px rgba(0, 0, 0, .42);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--cf-text);
+      background: var(--cf-bg);
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      color: inherit;
+      cursor: pointer;
+    }
+
+    .cf-app-shell {
+      display: grid;
+      grid-template-columns: 244px minmax(0, 1fr);
+      min-height: 100vh;
+      background: var(--cf-bg);
+    }
+
+    .cf-sidebar {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      padding: 14px 12px;
+      border-right: 1px solid var(--cf-border-soft);
+      background: linear-gradient(180deg, #0c0e13 0%, #090a0e 100%);
+    }
+
+    .cf-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      height: 40px;
+      padding: 0 8px;
+      margin-bottom: 12px;
+      border-radius: 8px;
+    }
+
+    .cf-brand-mark {
+      position: relative;
+      width: 24px;
+      height: 24px;
+      flex: 0 0 auto;
+      border: 1px solid rgba(139, 156, 255, .55);
+      border-radius: 7px;
+      background: #111521;
+      box-shadow: inset 0 0 20px rgba(139, 156, 255, .12);
+    }
+
+    .cf-brand-mark::before,
+    .cf-brand-mark::after {
+      content: "";
+      position: absolute;
+      border-radius: 999px;
+    }
+
+    .cf-brand-mark::before {
+      top: 5px;
+      left: 8px;
+      width: 7px;
+      height: 7px;
+      background: var(--cf-accent);
+      box-shadow: 5px 8px 0 rgba(94, 215, 197, .9);
+    }
+
+    .cf-brand-mark::after {
+      top: 8px;
+      left: 12px;
+      width: 1px;
+      height: 13px;
+      transform: rotate(-30deg);
+      background: rgba(139, 156, 255, .55);
+    }
+
+    .cf-brand-copy strong,
+    .cf-brand-copy span {
+      display: block;
+    }
+
+    .cf-brand-copy strong {
+      font-size: 13px;
+      line-height: 16px;
+      font-weight: 650;
+    }
+
+    .cf-brand-copy span {
+      color: var(--cf-text-muted);
+      font-size: 11px;
+      line-height: 14px;
+    }
+
+    .cf-nav-section { margin-top: 10px; }
+
+    .cf-nav-label {
+      margin: 18px 0 7px;
+      padding: 0 10px;
+      color: var(--cf-text-faint);
+      font-size: 11px;
+      font-weight: 650;
+      text-transform: uppercase;
+    }
+
+    .cf-nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      height: 34px;
+      padding: 0 10px;
+      border-radius: 7px;
+      background: transparent;
+      color: #bcc3d2;
+      text-align: left;
+    }
+
+    .cf-nav-item.is-active {
+      background: #171c29;
+      color: var(--cf-text);
+      box-shadow: inset 0 0 0 1px rgba(139, 156, 255, .18);
+    }
+
+    .cf-nav-icon {
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+      color: var(--cf-text-muted);
+    }
+
+    .cf-nav-text {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .cf-sidebar-note {
+      display: flex;
+      gap: 9px;
+      align-items: center;
+      margin-top: auto;
+      padding: 10px;
+      border: 1px solid var(--cf-border-soft);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .025);
+    }
+
+    .cf-note-dot {
+      width: 7px;
+      height: 7px;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      background: var(--cf-growth);
+    }
+
+    .cf-sidebar-note strong,
+    .cf-sidebar-note span {
+      display: block;
+    }
+
+    .cf-sidebar-note strong { font-size: 12px; }
+
+    .cf-sidebar-note span {
+      color: var(--cf-text-muted);
+      font-size: 11px;
+    }
+
+    .cf-main {
+      min-width: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(rgba(255, 255, 255, .022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .018) 1px, transparent 1px),
+        var(--cf-main);
+      background-size: 34px 34px;
+    }
+
+    .cf-page-topbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-height: 58px;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--cf-border-soft);
+      background: rgba(9, 11, 16, .86);
+      backdrop-filter: blur(18px);
+    }
+
+    .cf-page-title {
+      min-width: 220px;
+    }
+
+    .cf-page-topbar h1 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 20px;
+      font-weight: 680;
+    }
+
+    .cf-page-topbar p {
+      margin: 1px 0 0;
+      color: var(--cf-text-muted);
+      font-size: 12px;
+    }
+
+    .cf-command-button,
+    .cf-primary-action,
+    .cf-secondary-action,
+    .cf-danger-action,
+    .cf-icon-button,
+    .cf-view-tab {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 7px;
+    }
+
+    .cf-command-button {
+      gap: 10px;
+      flex: 1;
+      max-width: 560px;
+      height: 36px;
+      padding: 0 11px;
+      margin-left: auto;
+      border: 1px solid var(--cf-border);
+      background: var(--cf-panel);
+      color: var(--cf-text-muted);
+      text-align: left;
+    }
+
+    .cf-kbd {
+      padding: 2px 6px;
+      border: 1px solid #303747;
+      border-bottom-color: #202634;
+      border-radius: 5px;
+      background: #151a24;
+      color: #aab3c4;
+      font-size: 11px;
+      line-height: 15px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
+    }
+
+    .cf-primary-action {
+      gap: 8px;
+      min-height: 36px;
+      padding: 0 13px;
+      border: 1px solid rgba(139, 156, 255, .5);
+      background: #242b55;
+      color: #f5f6ff;
+      font-size: 13px;
+      font-weight: 620;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07);
+    }
+
+    .cf-secondary-action,
+    .cf-danger-action {
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid var(--cf-border);
+      background: #121722;
+      color: #c7cedb;
+      font-size: 13px;
+    }
+
+    .cf-danger-action {
+      border-color: rgba(255, 107, 122, .2);
+      background: rgba(255, 107, 122, .055);
+      color: #ffb3bc;
+    }
+
+    .cf-generator-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 390px;
+      min-height: calc(100vh - 58px);
+    }
+
+    .cf-generator-main {
+      min-width: 0;
+      overflow: auto;
+      padding: 22px;
+    }
+
+    .cf-generator-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .cf-search {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      flex: 1;
+      max-width: 420px;
+      height: 38px;
+      padding: 0 12px;
+      border: 1px solid var(--cf-border-soft);
+      border-radius: 8px;
+      background: rgba(13, 16, 23, .82);
+      color: var(--cf-text-muted);
+      font-size: 13px;
+    }
+
+    .cf-search input {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--cf-text);
+    }
+
+    .cf-view-tabs {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--cf-border-soft);
+      border-radius: 8px;
+      background: rgba(18, 21, 28, .76);
+    }
+
+    .cf-view-tab {
+      height: 28px;
+      padding: 0 10px;
+      background: transparent;
+      color: #aeb6c6;
+      font-size: 12px;
+    }
+
+    .cf-view-tab.is-active {
+      background: #202638;
+      color: var(--cf-text);
+      box-shadow: inset 0 0 0 1px rgba(139, 156, 255, .18);
+    }
+
+    .cf-generator-row,
+    .cf-side-card {
+      border: 1px solid var(--cf-border-soft);
+      border-radius: 8px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, .045), rgba(255, 255, 255, .018)),
+        var(--cf-panel);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+    }
+
+    .cf-generator-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .cf-generator-row {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      min-height: 92px;
+      padding: 13px;
+      transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    }
+
+    .cf-generator-row.is-selected {
+      transform: translateY(-1px);
+      border-color: rgba(139, 156, 255, .55);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .026)),
+        #10141d;
+      box-shadow: 0 0 0 1px rgba(139, 156, 255, .15), var(--cf-shadow);
+    }
+
+    .cf-generator-mark {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border: 1px solid rgba(139, 156, 255, .28);
+      border-radius: 8px;
+      background: rgba(139, 156, 255, .06);
+      color: var(--cf-accent);
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .cf-generator-copy {
+      min-width: 0;
+    }
+
+    .cf-generator-copy strong,
+    .cf-generator-copy span {
+      display: block;
+    }
+
+    .cf-generator-copy strong {
+      color: #f5f7fb;
+      font-size: 14px;
+      line-height: 20px;
+      font-weight: 680;
+    }
+
+    .cf-generator-copy span {
+      overflow: hidden;
+      margin-top: 4px;
+      color: #9ca5b6;
+      font-size: 12px;
+      line-height: 18px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .cf-row-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .cf-pill {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 7px;
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .035);
+      color: #8f98a8;
+      font-size: 11px;
+    }
+
+    .cf-pill.is-enabled {
+      border-color: rgba(94, 215, 197, .2);
+      background: rgba(94, 215, 197, .07);
+      color: #9be6dc;
+    }
+
+    .cf-pill.is-disabled {
+      border-color: rgba(255, 107, 122, .18);
+      background: rgba(255, 107, 122, .055);
+      color: #ffb3bc;
+    }
+
+    .cf-row-actions {
+      display: grid;
+      justify-items: end;
+      gap: 8px;
+    }
+
+    .cf-detail {
+      min-width: 0;
+      overflow: auto;
+      border-left: 1px solid var(--cf-border-soft);
+      background: rgba(10, 12, 18, .94);
+      backdrop-filter: blur(20px);
+    }
+
+    .cf-detail-content {
+      padding: 20px;
+    }
+
+    .cf-detail-kicker {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      color: var(--cf-text-muted);
+      font-size: 12px;
+    }
+
+    .cf-detail-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--cf-growth);
+    }
+
+    .cf-detail-title {
+      margin: 0 0 8px;
+      color: var(--cf-text);
+      font-size: 20px;
+      line-height: 28px;
+      font-weight: 720;
+    }
+
+    .cf-detail-summary {
+      margin: 0 0 16px;
+      color: #9ca5b6;
+      font-size: 13px;
+      line-height: 20px;
+    }
+
+    .cf-detail-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin: 14px 0 18px;
+    }
+
+    .cf-action-wide {
+      grid-column: 1 / -1;
+    }
+
+    .cf-side-card {
+      padding: 13px;
+      margin-top: 12px;
+    }
+
+    .cf-side-card h3 {
+      margin: 0 0 10px;
+      color: #c6cedc;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .cf-info-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 0;
+      border-top: 1px solid var(--cf-border-soft);
+      color: var(--cf-text-muted);
+      font-size: 12px;
+    }
+
+    .cf-info-row:first-of-type {
+      border-top: 0;
+    }
+
+    .cf-info-row strong {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      color: #d5dbea;
+      font-weight: 600;
+      text-align: right;
+    }
+
+    .cf-file-tree {
+      margin: 0;
+      padding: 10px 11px;
+      border: 1px solid var(--cf-border-soft);
+      border-radius: 8px;
+      background: #090c12;
+      color: #cbd3e2;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 20px;
+      overflow: auto;
+    }
+
+    .cf-activity {
+      display: grid;
+      gap: 8px;
+    }
+
+    .cf-activity-row {
+      display: flex;
+      gap: 9px;
+      align-items: flex-start;
+      color: var(--cf-text-muted);
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    .cf-activity-row::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      flex: 0 0 auto;
+      margin-top: 5px;
+      border-radius: 999px;
+      background: var(--cf-accent);
+    }
+
+    @media (max-width: 1180px) {
+      .cf-generator-layout {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .cf-detail {
+        border-left: 0;
+        border-top: 1px solid var(--cf-border-soft);
+      }
+    }
+
+    @media (max-width: 820px) {
+      .cf-app-shell {
+        grid-template-columns: 72px minmax(0, 1fr);
+      }
+
+      .cf-brand-copy,
+      .cf-nav-text,
+      .cf-nav-label,
+      .cf-sidebar-note {
+        display: none;
+      }
+
+      .cf-brand,
+      .cf-nav-item {
+        justify-content: center;
+      }
+
+      .cf-page-topbar,
+      .cf-generator-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .cf-command-button,
+      .cf-search {
+        max-width: none;
+        margin-left: 0;
+      }
+
+    }
+  </style>
+</head>
+<body>
+  <div class="cf-app-shell">
+    <aside class="cf-sidebar" aria-label="内容森林主导航">
+      <div class="cf-brand" aria-label="内容森林">
+        <span class="cf-brand-mark" aria-hidden="true"></span>
+        <span class="cf-brand-copy">
+          <strong>Content Forest</strong>
+          <span>Quiet Growth Workspace</span>
+        </span>
+      </div>
+
+      <nav class="cf-nav-section" aria-label="工作台">
+        <p class="cf-nav-label">Workspace</p>
+        <button class="cf-nav-item" type="button">
+          <span class="cf-nav-icon" aria-hidden="true">◇</span>
+          <span class="cf-nav-text">种子库</span>
+        </button>
+        <button class="cf-nav-item is-active" type="button">
+          <span class="cf-nav-icon" aria-hidden="true">⌘</span>
+          <span class="cf-nav-text">生成器</span>
+        </button>
+        <button class="cf-nav-item" type="button">
+          <span class="cf-nav-icon" aria-hidden="true">◎</span>
+          <span class="cf-nav-text">营养库</span>
+        </button>
+      </nav>
+
+      <nav class="cf-nav-section" aria-label="快速入口">
+        <p class="cf-nav-label">Quick Access</p>
+        <button class="cf-nav-item" type="button">
+          <span class="cf-nav-icon" aria-hidden="true">↵</span>
+          <span class="cf-nav-text">最近工作区</span>
+        </button>
+        <button class="cf-nav-item" type="button">
+          <span class="cf-nav-icon" aria-hidden="true">⌕</span>
+          <span class="cf-nav-text">全局搜索</span>
+        </button>
+      </nav>
+
+      <section class="cf-sidebar-note" aria-label="当前阶段">
+        <span class="cf-note-dot" aria-hidden="true"></span>
+        <div>
+          <strong>Phase One</strong>
+          <span>生成器导入设计稿</span>
+        </div>
+      </section>
+    </aside>
+
+    <main class="cf-main">
+      <section>
+        <header class="cf-page-topbar">
+          <div class="cf-page-title">
+            <h1>生成器</h1>
+            <p>外部 Skill 的导入、启停与生长选择支撑</p>
+          </div>
+          <button class="cf-command-button" type="button">
+            <span aria-hidden="true">⌕</span>
+            <span>筛选生成器、Skill 内容或导入记录</span>
+            <span class="cf-kbd">G</span>
+          </button>
+          <button class="cf-primary-action" type="button">导入生成器</button>
+        </header>
+
+        <div class="cf-generator-layout">
+          <section class="cf-generator-main" aria-label="生成器资源管理">
+            <div class="cf-generator-toolbar">
+              <label class="cf-search">
+                <span aria-hidden="true">⌕</span>
+                <input type="search" value="" placeholder="筛选生成器">
+              </label>
+              <div class="cf-view-tabs" aria-label="生成器视图">
+                <button class="cf-view-tab is-active" type="button">启用</button>
+                <button class="cf-view-tab" type="button">停用</button>
+                <button class="cf-view-tab" type="button">全部</button>
+              </div>
+            </div>
+
+            <div class="cf-generator-list" aria-label="生成器列表">
+              <article class="cf-generator-row is-selected">
+                <div class="cf-generator-mark" aria-hidden="true">小</div>
+                <div class="cf-generator-copy">
+                  <strong>小红书产品文案生成器</strong>
+                  <span>场景痛点、卖点表达、收藏导向 CTA 的图文种草 Skill</span>
+                  <div class="cf-row-meta">
+                    <span class="cf-pill is-enabled">启用</span>
+                    <span class="cf-pill">SKILL.md</span>
+                    <span class="cf-pill">zip 导入</span>
+                    <span class="cf-pill">可被生长选择</span>
+                  </div>
+                </div>
+                <div class="cf-row-actions">
+                  <button class="cf-secondary-action" type="button">重新上传</button>
+                  <button class="cf-danger-action" type="button">停用</button>
+                </div>
+              </article>
+
+              <article class="cf-generator-row">
+                <div class="cf-generator-mark" aria-hidden="true">推</div>
+                <div class="cf-generator-copy">
+                  <strong>推特短帖生成器</strong>
+                  <span>将一个灵感压缩成可测试的短观点与多角度 thread 开头</span>
+                  <div class="cf-row-meta">
+                    <span class="cf-pill is-enabled">启用</span>
+                    <span class="cf-pill">SKILL.md</span>
+                    <span class="cf-pill">examples/</span>
+                  </div>
+                </div>
+                <div class="cf-row-actions">
+                  <button class="cf-secondary-action" type="button">重新上传</button>
+                  <button class="cf-danger-action" type="button">停用</button>
+                </div>
+              </article>
+
+              <article class="cf-generator-row">
+                <div class="cf-generator-mark" aria-hidden="true">抖</div>
+                <div class="cf-generator-copy">
+                  <strong>抖音科技讲解脚本生成器</strong>
+                  <span>口播节奏、镜头提示和开场钩子的短视频脚本 Skill</span>
+                  <div class="cf-row-meta">
+                    <span class="cf-pill is-disabled">停用</span>
+                    <span class="cf-pill">历史可追溯</span>
+                    <span class="cf-pill">不可选择</span>
+                  </div>
+                </div>
+                <div class="cf-row-actions">
+                  <button class="cf-secondary-action" type="button">启用</button>
+                </div>
+              </article>
+            </div>
+
+          </section>
+
+          <aside class="cf-detail" aria-label="生成器详情">
+            <div class="cf-detail-content">
+              <div class="cf-detail-kicker">
+                <span class="cf-detail-dot" aria-hidden="true"></span>
+                <span>启用生成器</span>
+              </div>
+              <h2 class="cf-detail-title">小红书产品文案生成器</h2>
+              <p class="cf-detail-summary">
+                面向产品种子的图文种草文案 Skill。生成器保持外部 Skill 独立性，内容森林只维护系统事实与内容位置。
+              </p>
+
+              <div class="cf-detail-actions">
+                <button class="cf-secondary-action" type="button">重新上传</button>
+                <button class="cf-danger-action" type="button">停用</button>
+              </div>
+
+              <section class="cf-side-card">
+                <h3>Skill 本体</h3>
+                <pre class="cf-file-tree">xiaohongshu-product-copywriter/
+├── SKILL.md
+├── examples/
+│   ├── wallpaper-case.md
+│   └── beauty-product.md
+└── assets/
+    └── cover-notes.md</pre>
+              </section>
+
+              <section class="cf-side-card">
+                <h3>系统事实</h3>
+                <div class="cf-info-row">
+                  <span>内容位置</span>
+                  <strong>generators/xhs-product-copywriter</strong>
+                </div>
+                <div class="cf-info-row">
+                  <span>导入方式</span>
+                  <strong>zip</strong>
+                </div>
+                <div class="cf-info-row">
+                  <span>最近更新</span>
+                  <strong>2026/05/06 21:40</strong>
+                </div>
+              </section>
+
+              <section class="cf-side-card">
+                <h3>联动记录</h3>
+                <div class="cf-activity">
+                  <div class="cf-activity-row">
+                    <span>导入时补充名称和描述，Skill 本体保持原样。</span>
+                  </div>
+                  <div class="cf-activity-row">
+                    <span>停用不会删除内容，也不会破坏历史果实追溯。</span>
+                  </div>
+                  <div class="cf-activity-row">
+                    <span>枝化生长读取 Skill，生成器不负责果实封装。</span>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

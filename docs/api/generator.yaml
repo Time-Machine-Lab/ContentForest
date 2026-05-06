@@ -1,0 +1,221 @@
+openapi: 3.1.0
+info:
+  title: 内容森林生成器 API
+  version: 0.1.0
+  description: >
+    生成器 Controller 对外暴露生成器 Skill zip 导入、列表、详情、启用、停用、重新上传和可选生成器查询能力。
+    API 契约对应 docs/sql/generator.sql 与生成器领域模块设计文档。
+tags:
+  - name: Generator
+paths:
+  /api/generators:
+    post:
+      tags: [Generator]
+      summary: 导入生成器 Skill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportGeneratorRequest'
+      responses:
+        '201':
+          description: 导入成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneratorDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    get:
+      tags: [Generator]
+      summary: 查看生成器列表
+      responses:
+        '200':
+          description: 生成器列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GeneratorSummary'
+  /api/generators/selectable:
+    get:
+      tags: [Generator]
+      summary: 查看枝化生长可选生成器
+      responses:
+        '200':
+          description: 启用生成器列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SelectableGenerator'
+  /api/generators/{generatorId}:
+    get:
+      tags: [Generator]
+      summary: 查看生成器详情
+      parameters:
+        - $ref: '#/components/parameters/GeneratorId'
+      responses:
+        '200':
+          description: 生成器详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneratorDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/generators/{generatorId}/enable:
+    post:
+      tags: [Generator]
+      summary: 启用生成器
+      parameters:
+        - $ref: '#/components/parameters/GeneratorId'
+      responses:
+        '200':
+          description: 启用成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneratorDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/generators/{generatorId}/disable:
+    post:
+      tags: [Generator]
+      summary: 停用生成器
+      parameters:
+        - $ref: '#/components/parameters/GeneratorId'
+      responses:
+        '200':
+          description: 停用成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneratorDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/generators/{generatorId}/reupload:
+    post:
+      tags: [Generator]
+      summary: 重新上传生成器 Skill
+      parameters:
+        - $ref: '#/components/parameters/GeneratorId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReuploadGeneratorRequest'
+      responses:
+        '200':
+          description: 重新上传成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneratorDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  parameters:
+    GeneratorId:
+      name: generatorId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    ImportGeneratorRequest:
+      type: object
+      required: [name, description, zipBase64]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          minLength: 1
+        zipBase64:
+          type: string
+          minLength: 1
+    ReuploadGeneratorRequest:
+      type: object
+      required: [zipBase64]
+      properties:
+        zipBase64:
+          type: string
+          minLength: 1
+    GeneratorSummary:
+      type: object
+      required: [id, name, description, enableState, contentLocation, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        enableState:
+          type: string
+          enum: [enabled, disabled]
+        contentLocation:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        disabledAt:
+          type: string
+          format: date-time
+          nullable: true
+    GeneratorDetail:
+      allOf:
+        - $ref: '#/components/schemas/GeneratorSummary'
+        - type: object
+          required: [skillMarkdown, entries]
+          properties:
+            skillMarkdown:
+              type: string
+            entries:
+              type: array
+              items:
+                type: string
+    SelectableGenerator:
+      type: object
+      required: [id, name, description, contentLocation]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        contentLocation:
+          type: string
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+  responses:
+    BadRequest:
+      description: 请求参数、zip 内容或 Skill 合法性不满足生成器约束
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: 生成器不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

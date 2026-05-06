@@ -1,7 +1,10 @@
-## ADDED Requirements
+# content-forest-workbench Specification
 
+## Purpose
+TBD - created by archiving change add-content-forest-workbench. Update Purpose after archive.
+## Requirements
 ### Requirement: 主工作台外壳
-前端 SHALL 提供内容森林主工作台外壳，用于承载种子库、生成器、营养库和后续工作区页面。该外壳 MUST 遵循 `DESIGN.md` 定义的暗色、紧凑、命令式工作台风格。
+前端 SHALL 提供内容森林主工作台外壳，用于承载种子库、生成器、营养库和后续工作区页面。该外壳 MUST 遵循 `docs/spec/DESIGN.md` 定义的暗色、紧凑、命令式工作台风格。
 
 #### Scenario: 打开主工作台
 - **WHEN** 用户进入内容森林前端应用
@@ -35,3 +38,4 @@
 #### Scenario: 页面主要操作可见
 - **WHEN** 用户进入种子库页面
 - **THEN** 前端 MUST 在顶部区域提供新建种子的主要操作入口
+

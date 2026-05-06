@@ -1,0 +1,57 @@
+import type { SeedController } from "../../interface/http/seed-controller.js";
+import type { GeneratorController } from "../../interface/http/generator-controller.js";
+import { GeneratorController as HttpGeneratorController } from "../../interface/http/generator-controller.js";
+import { SeedController as HttpSeedController } from "../../interface/http/seed-controller.js";
+import { LocalGeneratorSkillContentAccessAdapter } from "../../content-access/adapters/local-generator-skill-content-access-adapter.js";
+import { LocalSeedMarkdownContentAccessAdapter } from "../../content-access/adapters/local-seed-markdown-content-access-adapter.js";
+import { GeneratorService } from "../../modules/generator/application/generator-service.js";
+import { SeedService } from "../../modules/seed/application/seed-service.js";
+import { SqliteGeneratorStorageAdapter } from "../../storage/adapters/sqlite-generator-storage-adapter.js";
+import { SqliteSeedStorageAdapter } from "../../storage/adapters/sqlite-seed-storage-adapter.js";
+import type { AppConfig, AppConfigEnv } from "../config/app-config.js";
+import { loadAppConfig } from "../config/app-config.js";
+import { initializeRuntimeFilesystem } from "./runtime-filesystem.js";
+
+export interface AppRuntime {
+  config: AppConfig;
+  seedController: SeedController;
+  generatorController: GeneratorController;
+  close(): void;
+}
+
+export async function bootstrapApp(
+  env: AppConfigEnv = process.env,
+  cwd: string = process.cwd(),
+): Promise<AppRuntime> {
+  const config = loadAppConfig(env, cwd);
+  await initializeRuntimeFilesystem(config);
+
+  const seedStorage = new SqliteSeedStorageAdapter(config.databasePath);
+  const generatorStorage = new SqliteGeneratorStorageAdapter(config.databasePath);
+  const seedContentAccess = new LocalSeedMarkdownContentAccessAdapter(
+    config.contentRootDir,
+  );
+  const generatorContentAccess = new LocalGeneratorSkillContentAccessAdapter(
+    config.contentRootDir,
+  );
+  const seedService = new SeedService({
+    storage: seedStorage,
+    contentAccess: seedContentAccess,
+  });
+  const generatorService = new GeneratorService({
+    storage: generatorStorage,
+    contentAccess: generatorContentAccess,
+  });
+  const seedController = new HttpSeedController(seedService);
+  const generatorController = new HttpGeneratorController(generatorService);
+
+  return {
+    config,
+    seedController,
+    generatorController,
+    close(): void {
+      seedStorage.close();
+      generatorStorage.close();
+    },
+  };
+}

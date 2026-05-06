@@ -10,7 +10,7 @@ export class InMemorySeedMarkdownContentAccessAdapter
   private readonly markdownByLocation = new Map<string, string>();
 
   public async createSeedMarkdown(input: CreateSeedMarkdownInput): Promise<string> {
-    const location = `seed/${input.seedId}.md`;
+    const location = `seeds/${input.seedId}.md`;
     this.markdownByLocation.set(location, input.markdown);
     return location;
   }
@@ -41,4 +41,3 @@ export class InMemorySeedMarkdownContentAccessAdapter
     this.markdownByLocation.set(contentLocation, markdown);
   }
 }
-

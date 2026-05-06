@@ -2,7 +2,7 @@
 
 前端项目当前已经具备 Nuxt 4、Vue 3、TypeScript 的基础结构，但主应用外壳、种子库页面、种子 API 访问层和可复用 UI 组件尚未落地。本次变更的目标是先完成内容森林主工作台与种子模块前端闭环，为后续内容树画布、枝化生长、果实、生成器和营养库模块提供稳定的页面承载方式。
 
-本次设计必须遵循 `DESIGN.md` 的 Quiet Command Workspace 风格，并遵循 `docs/spec/前端开发规范文档.md` 中的前端分层约束。种子数据只消费 `docs/api/seed.yaml` 已定义的接口，数据结构参考 `docs/sql/seed.sql`，不新增前端私有系统事实。
+本次设计必须遵循 `docs/spec/DESIGN.md` 的 Quiet Command Workspace 风格，并遵循 `docs/spec/前端开发规范文档.md` 中的前端分层约束。种子数据只消费 `docs/api/seed.yaml` 已定义的接口，数据结构参考 `docs/sql/seed.sql`，不新增前端私有系统事实。
 
 ## Goals / Non-Goals
 
