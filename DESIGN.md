@@ -64,7 +64,8 @@ Avoid:
 
 The product should use a compact app shell:
 
-- Left sidebar for primary navigation: Seeds, Generators, Nutrients, Archived.
+- Left sidebar for primary navigation: Seeds, Generators, Nutrients, and other global workbench entries.
+- Archived seeds belong inside the seed library as a page-level filter/view, not as a global sidebar item.
 - Main area for page content or seed workspace canvas.
 - Right side panel or drawer for details.
 - Bottom floating growth input in seed workspace.
@@ -271,4 +272,3 @@ Avoid explaining the product philosophy inside the UI. The interface should help
 - Do not use visible instructional text to explain obvious controls.
 - Prefer icons for common actions, with tooltips where needed.
 - Keep UI density high enough for repeated professional use.
-
