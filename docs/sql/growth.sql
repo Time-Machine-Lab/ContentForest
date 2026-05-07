@@ -1,0 +1,85 @@
+-- 内容森林：枝化生长系统事实表
+-- 依据：
+-- - docs/design/domain/枝化生长领域模块设计文档.md
+-- - docs/design/内容森林Agent架构设计文档.md
+-- - content-forest-backend/openspec/changes/add-branch-growth-module/specs/branch-growth/spec.md
+--
+-- 约束说明：
+-- - 生长任务是一次枝化生长批次，不是通用后台任务系统。
+-- - 任务状态、来源节点、生长锁、内部尝试、最近失败输入都属于数据库维护的系统事实。
+-- - Markdown 不保存任何生长任务 meta；Agent 输出必须由后端校验后交付果实领域落地。
+-- - 同一来源节点同一时间只能有一个生长锁；其他节点不受影响。
+
+CREATE TABLE IF NOT EXISTS growth_tasks (
+  id TEXT PRIMARY KEY,
+  seed_id TEXT NOT NULL,
+  source_node_id TEXT NOT NULL,
+  source_node_type TEXT NOT NULL CHECK (source_node_type IN ('seed', 'fruit')),
+  status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+  user_input TEXT NOT NULL DEFAULT '',
+  generator_id TEXT NOT NULL,
+  fruit_count INTEGER NOT NULL CHECK (fruit_count >= 1 AND fruit_count <= 6),
+  nutrient_refs_json TEXT NOT NULL DEFAULT '[]',
+  gene_refs_json TEXT NOT NULL DEFAULT '[]',
+  detail_params_json TEXT NOT NULL DEFAULT '{}',
+  authorization_refs_json TEXT NOT NULL DEFAULT '[]',
+  agent_input_json TEXT NOT NULL DEFAULT '{}',
+  successful_fruit_ids_json TEXT NOT NULL DEFAULT '[]',
+  failure_reason TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_growth_tasks_source_status_updated_at
+  ON growth_tasks (source_node_type, source_node_id, status, updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_growth_tasks_seed_updated_at
+  ON growth_tasks (seed_id, updated_at);
+
+CREATE TABLE IF NOT EXISTS growth_attempts (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  attempt_index INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
+  agent_task_id TEXT,
+  fruit_id TEXT,
+  failure_reason TEXT,
+  agent_output_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (task_id, attempt_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_growth_attempts_task_attempt_index
+  ON growth_attempts (task_id, attempt_index);
+
+CREATE TABLE IF NOT EXISTS growth_locks (
+  source_node_id TEXT NOT NULL,
+  source_node_type TEXT NOT NULL CHECK (source_node_type IN ('seed', 'fruit')),
+  task_id TEXT NOT NULL,
+  locked_at TEXT NOT NULL,
+  PRIMARY KEY (source_node_type, source_node_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_growth_locks_task_id
+  ON growth_locks (task_id);
+
+CREATE TABLE IF NOT EXISTS growth_failed_inputs (
+  source_node_id TEXT NOT NULL,
+  source_node_type TEXT NOT NULL CHECK (source_node_type IN ('seed', 'fruit')),
+  task_id TEXT NOT NULL,
+  seed_id TEXT NOT NULL,
+  user_input TEXT NOT NULL DEFAULT '',
+  generator_id TEXT NOT NULL,
+  fruit_count INTEGER NOT NULL CHECK (fruit_count >= 1 AND fruit_count <= 6),
+  nutrient_refs_json TEXT NOT NULL DEFAULT '[]',
+  gene_refs_json TEXT NOT NULL DEFAULT '[]',
+  detail_params_json TEXT NOT NULL DEFAULT '{}',
+  failure_reason TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (source_node_type, source_node_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_growth_failed_inputs_seed_updated_at
+  ON growth_failed_inputs (seed_id, updated_at);

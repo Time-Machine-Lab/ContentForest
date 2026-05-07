@@ -1,0 +1,342 @@
+openapi: 3.1.0
+info:
+  title: 内容森林枝化生长 API
+  version: 0.1.0
+  description: >
+    Growth Controller 对外暴露枝化生长任务创建、最近失败任务重试、任务状态查询、
+    来源节点生长状态查询和最近失败输入查询能力。枝化生长模块只编排业务流程，
+    不直接读写 Markdown 文件，不直接调用 LLM SDK，也不实现 Agent Skill 或 Tool。
+tags:
+  - name: Growth
+paths:
+  /api/growth-tasks:
+    post:
+      tags: [Growth]
+      summary: 发起枝化生长任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartGrowthTaskRequest'
+      responses:
+        '201':
+          description: 生长任务已创建并执行
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrowthTaskResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/AgentFailure'
+  /api/growth-tasks/{taskId}:
+    get:
+      tags: [Growth]
+      summary: 查询生长任务状态
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 生长任务状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrowthTaskDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/growth-sources/{nodeType}/{nodeId}/retry:
+    post:
+      tags: [Growth]
+      summary: 重试来源节点最近一次失败任务
+      parameters:
+        - $ref: '#/components/parameters/NodeType'
+        - $ref: '#/components/parameters/NodeId'
+      responses:
+        '201':
+          description: 重试任务已创建并执行
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrowthTaskResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/AgentFailure'
+  /api/growth-sources/{nodeType}/{nodeId}/status:
+    get:
+      tags: [Growth]
+      summary: 查询来源节点生长状态
+      parameters:
+        - $ref: '#/components/parameters/NodeType'
+        - $ref: '#/components/parameters/NodeId'
+      responses:
+        '200':
+          description: 来源节点是否正在生长
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrowthSourceStatus'
+  /api/growth-sources/{nodeType}/{nodeId}/failed-input:
+    get:
+      tags: [Growth]
+      summary: 查询来源节点最近失败输入
+      parameters:
+        - $ref: '#/components/parameters/NodeType'
+        - $ref: '#/components/parameters/NodeId'
+      responses:
+        '200':
+          description: 最近失败输入；不存在时返回 null
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/GrowthFailedInput'
+                  - type: 'null'
+components:
+  parameters:
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema:
+        type: string
+    NodeType:
+      name: nodeType
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [seed, fruit]
+    NodeId:
+      name: nodeId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    SourceNodeRef:
+      type: object
+      required: [nodeType, nodeId]
+      properties:
+        nodeType:
+          type: string
+          enum: [seed, fruit]
+        nodeId:
+          type: string
+    ResourceRef:
+      type: object
+      required: [resourceType, resourceId]
+      properties:
+        resourceType:
+          type: string
+          enum: [nutrient, gene]
+        resourceId:
+          type: string
+    StartGrowthTaskRequest:
+      type: object
+      required: [seedId, sourceNodeRef, generatorId]
+      properties:
+        seedId:
+          type: string
+        sourceNodeRef:
+          $ref: '#/components/schemas/SourceNodeRef'
+        userInput:
+          type: string
+        generatorId:
+          type: string
+        fruitCount:
+          type: integer
+          minimum: 1
+          maximum: 6
+          default: 3
+        nutrientRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceRef'
+        geneRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceRef'
+        detailParams:
+          type: object
+          additionalProperties: true
+    GrowthAttempt:
+      type: object
+      required: [id, taskId, attemptIndex, status, fruitId, failureReason, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        taskId:
+          type: string
+        attemptIndex:
+          type: integer
+        status:
+          type: string
+          enum: [running, succeeded, failed]
+        agentTaskId:
+          type: string
+          nullable: true
+        fruitId:
+          type: string
+          nullable: true
+        failureReason:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    GrowthTaskDetail:
+      type: object
+      required:
+        - id
+        - seedId
+        - sourceNodeRef
+        - status
+        - generatorId
+        - fruitCount
+        - nutrientRefs
+        - geneRefs
+        - successfulFruitIds
+        - failureReason
+        - attempts
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        seedId:
+          type: string
+        sourceNodeRef:
+          $ref: '#/components/schemas/SourceNodeRef'
+        status:
+          type: string
+          enum: [running, completed, failed]
+        userInput:
+          type: string
+        generatorId:
+          type: string
+        fruitCount:
+          type: integer
+        nutrientRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceRef'
+        geneRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceRef'
+        successfulFruitIds:
+          type: array
+          items:
+            type: string
+        failureReason:
+          type: string
+          nullable: true
+        attempts:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthAttempt'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+    GrowthTaskResult:
+      type: object
+      required: [task]
+      properties:
+        task:
+          $ref: '#/components/schemas/GrowthTaskDetail'
+    GrowthSourceStatus:
+      type: object
+      required: [sourceNodeRef, isGrowing, taskId]
+      properties:
+        sourceNodeRef:
+          $ref: '#/components/schemas/SourceNodeRef'
+        isGrowing:
+          type: boolean
+        taskId:
+          type: string
+          nullable: true
+    GrowthFailedInput:
+      type: object
+      required:
+        - taskId
+        - seedId
+        - sourceNodeRef
+        - userInput
+        - generatorId
+        - fruitCount
+        - nutrientRefs
+        - geneRefs
+        - failureReason
+        - updatedAt
+      properties:
+        taskId:
+          type: string
+        seedId:
+          type: string
+        sourceNodeRef:
+          $ref: '#/components/schemas/SourceNodeRef'
+        userInput:
+          type: string
+        generatorId:
+          type: string
+        fruitCount:
+          type: integer
+        nutrientRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceRef'
+        geneRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceRef'
+        detailParams:
+          type: object
+          additionalProperties: true
+        failureReason:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+  responses:
+    BadRequest:
+      description: 请求参数不满足枝化生长约束
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: 枝化生长资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    AgentFailure:
+      description: Agent 侧枝化生长能力不可用或返回不可落地结果
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

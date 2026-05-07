@@ -6,6 +6,10 @@ import {
   ApplicationError,
   isApplicationError,
 } from "../shared/errors/application-error.js";
+import type {
+  GrowthResourceRef,
+  GrowthSourceNodeRef,
+} from "../modules/growth/domain/growth-types.js";
 
 await loadLocalEnvFile();
 const app = await bootstrapApp();
@@ -64,6 +68,59 @@ async function handleApiRequest(
 
   if (pathname === "/api/seeds" && method === "GET") {
     const result = await app.seedController.listActiveSeeds();
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  if (pathname === "/api/growth-tasks" && method === "POST") {
+    const result = await app.growthController.startGrowthTask(
+      toStartGrowthTaskInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const growthTaskMatch = pathname.match(/^\/api\/growth-tasks\/([^/]+)$/);
+  if (growthTaskMatch && method === "GET") {
+    const result = await app.growthController.getGrowthTask(
+      decodeURIComponent(growthTaskMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const growthSourceRetryMatch = pathname.match(
+    /^\/api\/growth-sources\/([^/]+)\/([^/]+)\/retry$/,
+  );
+  if (growthSourceRetryMatch && method === "POST") {
+    const result = await app.growthController.retryLatestFailedTask(
+      toGrowthSourceNodeRef(growthSourceRetryMatch[1], growthSourceRetryMatch[2]),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const growthSourceStatusMatch = pathname.match(
+    /^\/api\/growth-sources\/([^/]+)\/([^/]+)\/status$/,
+  );
+  if (growthSourceStatusMatch && method === "GET") {
+    const result = await app.growthController.getSourceStatus(
+      toGrowthSourceNodeRef(growthSourceStatusMatch[1], growthSourceStatusMatch[2]),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const growthSourceFailedInputMatch = pathname.match(
+    /^\/api\/growth-sources\/([^/]+)\/([^/]+)\/failed-input$/,
+  );
+  if (growthSourceFailedInputMatch && method === "GET") {
+    const result = await app.growthController.getLatestFailedInput(
+      toGrowthSourceNodeRef(
+        growthSourceFailedInputMatch[1],
+        growthSourceFailedInputMatch[2],
+      ),
+    );
     sendJson(response, result.status, result.body);
     return true;
   }
@@ -437,6 +494,105 @@ function toCreateSeedInput(body: Record<string, unknown>): {
     title: body.title,
     markdown: body.markdown,
   };
+}
+
+function toStartGrowthTaskInput(body: Record<string, unknown>): {
+  seedId: string;
+  sourceNodeRef: GrowthSourceNodeRef;
+  userInput?: string;
+  generatorId: string;
+  fruitCount?: number;
+  nutrientRefs?: GrowthResourceRef[];
+  geneRefs?: GrowthResourceRef[];
+  detailParams?: Record<string, unknown>;
+} {
+  if (
+    typeof body.seedId !== "string" ||
+    typeof body.generatorId !== "string" ||
+    typeof body.sourceNodeRef !== "object" ||
+    body.sourceNodeRef === null
+  ) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "发起枝化生长需要提供 seedId、sourceNodeRef 和 generatorId",
+      400,
+    );
+  }
+  return {
+    seedId: body.seedId,
+    sourceNodeRef: toSourceNodeRef(body.sourceNodeRef),
+    userInput: typeof body.userInput === "string" ? body.userInput : undefined,
+    generatorId: body.generatorId,
+    fruitCount: typeof body.fruitCount === "number" ? body.fruitCount : undefined,
+    nutrientRefs: toGrowthResourceRefs(body.nutrientRefs, "nutrient"),
+    geneRefs: toGrowthResourceRefs(body.geneRefs, "gene"),
+    detailParams: toOptionalRecord(body.detailParams),
+  };
+}
+
+function toGrowthSourceNodeRef(
+  rawNodeType: string | undefined,
+  rawNodeId: string | undefined,
+): GrowthSourceNodeRef {
+  const nodeType = decodeURIComponent(rawNodeType ?? "");
+  const nodeId = decodeURIComponent(rawNodeId ?? "");
+  if (nodeType !== "seed" && nodeType !== "fruit") {
+    throw new ApplicationError("VALIDATION_ERROR", "来源节点类型不正确", 400);
+  }
+  return {
+    nodeType,
+    nodeId,
+  };
+}
+
+function toSourceNodeRef(value: object): GrowthSourceNodeRef {
+  const record = value as Record<string, unknown>;
+  if (
+    (record.nodeType !== "seed" && record.nodeType !== "fruit") ||
+    typeof record.nodeId !== "string"
+  ) {
+    throw new ApplicationError("VALIDATION_ERROR", "来源节点格式不正确", 400);
+  }
+  return {
+    nodeType: record.nodeType,
+    nodeId: record.nodeId,
+  };
+}
+
+function toGrowthResourceRefs(
+  value: unknown,
+  resourceType: GrowthResourceRef["resourceType"],
+): GrowthResourceRef[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new ApplicationError("VALIDATION_ERROR", "引用资源格式不正确", 400);
+  }
+  return value.map((item) => {
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      (item as GrowthResourceRef).resourceType !== resourceType ||
+      typeof (item as GrowthResourceRef).resourceId !== "string"
+    ) {
+      throw new ApplicationError("VALIDATION_ERROR", "引用资源格式不正确", 400);
+    }
+    return {
+      resourceType,
+      resourceId: (item as GrowthResourceRef).resourceId,
+    };
+  });
+}
+
+function toOptionalRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ApplicationError("VALIDATION_ERROR", "枝化生长详情参数格式不正确", 400);
+  }
+  return value as Record<string, unknown>;
 }
 
 function toUpdateSeedInput(body: Record<string, unknown>): {

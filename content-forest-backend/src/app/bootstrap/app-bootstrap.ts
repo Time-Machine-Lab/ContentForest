@@ -2,9 +2,11 @@ import type { SeedController } from "../../interface/http/seed-controller.js";
 import type { GeneratorController } from "../../interface/http/generator-controller.js";
 import type { FruitController } from "../../interface/http/fruit-controller.js";
 import type { GeneController } from "../../interface/http/gene-controller.js";
+import type { GrowthController } from "../../interface/http/growth-controller.js";
 import { GeneratorController as HttpGeneratorController } from "../../interface/http/generator-controller.js";
 import { FruitController as HttpFruitController } from "../../interface/http/fruit-controller.js";
 import { GeneController as HttpGeneController } from "../../interface/http/gene-controller.js";
+import { GrowthController as HttpGrowthController } from "../../interface/http/growth-controller.js";
 import { SeedController as HttpSeedController } from "../../interface/http/seed-controller.js";
 import { AgentRuntime } from "../../agent/runtime/agent-runtime.js";
 import { FakeLlmAdapter } from "../../agent/runtime/fake-llm-adapter.js";
@@ -15,10 +17,12 @@ import { LocalSeedMarkdownContentAccessAdapter } from "../../content-access/adap
 import { FruitService } from "../../modules/fruit/application/fruit-service.js";
 import { GeneService } from "../../modules/gene/application/gene-service.js";
 import { GeneratorService } from "../../modules/generator/application/generator-service.js";
+import { GrowthService } from "../../modules/growth/application/growth-service.js";
 import { SeedService } from "../../modules/seed/application/seed-service.js";
 import { SqliteFruitStorageAdapter } from "../../storage/adapters/sqlite-fruit-storage-adapter.js";
 import { SqliteGeneStorageAdapter } from "../../storage/adapters/sqlite-gene-storage-adapter.js";
 import { SqliteGeneratorStorageAdapter } from "../../storage/adapters/sqlite-generator-storage-adapter.js";
+import { SqliteGrowthStorageAdapter } from "../../storage/adapters/sqlite-growth-storage-adapter.js";
 import { SqliteSeedStorageAdapter } from "../../storage/adapters/sqlite-seed-storage-adapter.js";
 import type { AppConfig, AppConfigEnv } from "../config/app-config.js";
 import {
@@ -33,6 +37,7 @@ export interface AppRuntime {
   generatorController: GeneratorController;
   fruitController: FruitController;
   geneController: GeneController;
+  growthController: GrowthController;
   close(): void;
 }
 
@@ -50,6 +55,7 @@ export async function bootstrapApp(
   const generatorStorage = new SqliteGeneratorStorageAdapter(config.databasePath);
   const fruitStorage = new SqliteFruitStorageAdapter(config.databasePath);
   const geneStorage = new SqliteGeneStorageAdapter(config.databasePath);
+  const growthStorage = new SqliteGrowthStorageAdapter(config.databasePath);
   const seedContentAccess = new LocalSeedMarkdownContentAccessAdapter(
     config.contentRootDir,
   );
@@ -96,10 +102,19 @@ export async function bootstrapApp(
         .then(() => undefined);
     },
   });
+  const growthService = new GrowthService({
+    storage: growthStorage,
+    seedStorage,
+    fruitStorage,
+    generatorStorage,
+    fruitService,
+    agentPort: agentRuntime,
+  });
   const seedController = new HttpSeedController(seedService);
   const generatorController = new HttpGeneratorController(generatorService);
   const fruitController = new HttpFruitController(fruitService);
   const geneController = new HttpGeneController(geneService);
+  const growthController = new HttpGrowthController(growthService);
 
   return {
     config,
@@ -107,11 +122,13 @@ export async function bootstrapApp(
     generatorController,
     fruitController,
     geneController,
+    growthController,
     close(): void {
       seedStorage.close();
       generatorStorage.close();
       fruitStorage.close();
       geneStorage.close();
+      growthStorage.close();
     },
   };
 }
