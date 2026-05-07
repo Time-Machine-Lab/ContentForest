@@ -3,12 +3,14 @@
 -- - docs/design/domain/枝化生长领域模块设计文档.md
 -- - docs/design/内容森林Agent架构设计文档.md
 -- - content-forest-backend/openspec/changes/add-branch-growth-module/specs/branch-growth/spec.md
+-- - content-forest-backend/openspec/changes/connect-branch-growth-agent/specs/branch-growth-agent-connection/spec.md
 --
 -- 约束说明：
 -- - 生长任务是一次枝化生长批次，不是通用后台任务系统。
 -- - 任务状态、来源节点、生长锁、内部尝试、最近失败输入都属于数据库维护的系统事实。
 -- - Markdown 不保存任何生长任务 meta；Agent 输出必须由后端校验后交付果实领域落地。
 -- - 同一来源节点同一时间只能有一个生长锁；其他节点不受影响。
+-- - 异步执行不新增表；运行中任务、后台 attempts、来源节点锁和失败输入继续由下列表维护。
 
 CREATE TABLE IF NOT EXISTS growth_tasks (
   id TEXT PRIMARY KEY,

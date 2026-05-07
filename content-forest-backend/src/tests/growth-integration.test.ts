@@ -9,6 +9,7 @@ import { LocalFruitMarkdownContentAccessAdapter } from "../content-access/adapte
 import { GrowthController } from "../interface/http/growth-controller.js";
 import { FruitService } from "../modules/fruit/application/fruit-service.js";
 import { GrowthService } from "../modules/growth/application/growth-service.js";
+import type { GrowthTaskExecutionScheduler } from "../modules/growth/application/growth-service.js";
 import { GROWTH_TASK_STATUSES } from "../modules/growth/domain/growth-types.js";
 import { SEED_ARCHIVE_STATES } from "../modules/seed/domain/seed-types.js";
 import type { IdGenerator } from "../shared/utils/id-generator.js";
@@ -37,6 +38,26 @@ function createIdGenerator(): IdGenerator {
     nextId(prefix: string): string {
       counter += 1;
       return `${prefix}_integration_${counter}`;
+    },
+  };
+}
+
+function createManualGrowthScheduler(): {
+  schedule: GrowthTaskExecutionScheduler;
+  runAll(): Promise<void>;
+} {
+  const pending: Array<() => Promise<void>> = [];
+  return {
+    schedule(execute: () => Promise<void>): void {
+      pending.push(execute);
+    },
+    async runAll(): Promise<void> {
+      while (pending.length > 0) {
+        const execute = pending.shift();
+        if (execute !== undefined) {
+          await execute();
+        }
+      }
     },
   };
 }
@@ -77,6 +98,7 @@ describe("Growth module integration", () => {
     const generatorStorage = new SqliteGeneratorStorageAdapter(config.databasePath);
     const fruitStorage = new SqliteFruitStorageAdapter(config.databasePath);
     const growthStorage = new SqliteGrowthStorageAdapter(config.databasePath);
+    const scheduler = createManualGrowthScheduler();
     const fruitService = new FruitService({
       storage: fruitStorage,
       contentAccess: new LocalFruitMarkdownContentAccessAdapter(
@@ -94,6 +116,7 @@ describe("Growth module integration", () => {
       agentPort: successAgent(),
       idGenerator: createIdGenerator(),
       now: () => new Date("2026-01-01T00:00:00.000Z"),
+      scheduleTaskExecution: scheduler.schedule,
     });
     const controller = new GrowthController(service);
 
@@ -129,6 +152,12 @@ describe("Growth module integration", () => {
         fruitCount: 1,
       });
       const task = (created.body as { task: { id: string } }).task;
+      const running = await controller.getGrowthTask(task.id);
+      const runningStatus = await controller.getSourceStatus({
+        nodeType: "seed",
+        nodeId: "seed-node_seed_integration",
+      });
+      await scheduler.runAll();
       const queried = await controller.getGrowthTask(task.id);
       const status = await controller.getSourceStatus({
         nodeType: "seed",
@@ -136,6 +165,14 @@ describe("Growth module integration", () => {
       });
 
       expect(created.status).toBe(201);
+      expect(running.body).toMatchObject({
+        status: GROWTH_TASK_STATUSES.running,
+        successfulFruitIds: [],
+      });
+      expect(runningStatus.body).toMatchObject({
+        isGrowing: true,
+        taskId: task.id,
+      });
       expect(queried.body).toMatchObject({
         status: GROWTH_TASK_STATUSES.completed,
         successfulFruitIds: ["fruit_integration_1"],

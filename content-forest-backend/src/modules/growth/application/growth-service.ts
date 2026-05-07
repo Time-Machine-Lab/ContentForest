@@ -47,6 +47,10 @@ export interface GrowthReferenceAuthorizationPort {
   authorize(input: GrowthAuthorizationScope): Promise<GrowthAuthorizationScope>;
 }
 
+export type GrowthTaskExecutionScheduler = (
+  execute: () => Promise<void>,
+) => void;
+
 export interface GrowthServiceDependencies {
   storage: GrowthStoragePort;
   seedStorage: SeedStoragePort;
@@ -57,6 +61,7 @@ export interface GrowthServiceDependencies {
   referenceAuthorization?: GrowthReferenceAuthorizationPort;
   idGenerator?: IdGenerator;
   now?: () => Date;
+  scheduleTaskExecution?: GrowthTaskExecutionScheduler;
 }
 
 export class GrowthService {
@@ -69,6 +74,7 @@ export class GrowthService {
   private readonly referenceAuthorization: GrowthReferenceAuthorizationPort;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
+  private readonly scheduleTaskExecution: GrowthTaskExecutionScheduler;
 
   public constructor(dependencies: GrowthServiceDependencies) {
     this.storage = dependencies.storage;
@@ -81,6 +87,8 @@ export class GrowthService {
       dependencies.referenceAuthorization ?? new PassThroughGrowthReferenceAuthorization();
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
+    this.scheduleTaskExecution =
+      dependencies.scheduleTaskExecution ?? scheduleAsyncGrowthTaskExecution;
   }
 
   public async startGrowthTask(
@@ -124,18 +132,15 @@ export class GrowthService {
 
     try {
       await this.storage.createTask(task);
-      const executed = await this.executeTaskAttempts(task);
-      return {
-        task: await this.getGrowthTask(executed.id),
-      };
     } catch (error) {
-      await this.failTaskFromUnexpectedError(task, error);
-      return {
-        task: await this.getGrowthTask(task.id),
-      };
-    } finally {
       await this.storage.releaseLock(task.sourceNodeRef, task.id);
+      throw error;
     }
+
+    this.scheduleGrowthTaskExecution(task.id);
+    return {
+      task: await this.getGrowthTask(task.id),
+    };
   }
 
   public async retryLatestFailedTask(
@@ -190,6 +195,29 @@ export class GrowthService {
     return this.storage.findFailedInputBySource(
       this.normalizeSourceNodeRef(sourceNodeRef),
     );
+  }
+
+  private scheduleGrowthTaskExecution(taskId: string): void {
+    this.scheduleTaskExecution(() => this.executeGrowthTask(taskId));
+  }
+
+  private async executeGrowthTask(taskId: string): Promise<void> {
+    const task = await this.storage.findTaskById(taskId);
+    if (task === null) {
+      return;
+    }
+    if (task.status !== GROWTH_TASK_STATUSES.running) {
+      await this.storage.releaseLock(task.sourceNodeRef, task.id);
+      return;
+    }
+
+    try {
+      await this.executeTaskAttempts(task);
+    } catch (error) {
+      await this.failTaskFromUnexpectedError(task, error);
+    } finally {
+      await this.storage.releaseLock(task.sourceNodeRef, task.id);
+    }
   }
 
   private async executeTaskAttempts(
@@ -665,6 +693,14 @@ export class GrowthService {
   private timestamp(): string {
     return this.now().toISOString();
   }
+}
+
+function scheduleAsyncGrowthTaskExecution(
+  execute: () => Promise<void>,
+): void {
+  setTimeout(() => {
+    void execute().catch(() => undefined);
+  }, 0);
 }
 
 class PassThroughGrowthReferenceAuthorization

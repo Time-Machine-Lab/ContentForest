@@ -21,7 +21,7 @@ paths:
               $ref: '#/components/schemas/StartGrowthTaskRequest'
       responses:
         '201':
-          description: 生长任务已创建并执行
+          description: 生长任务已创建，响应中的任务状态为 running，后台继续执行 Agent 尝试
           content:
             application/json:
               schema:
@@ -56,7 +56,7 @@ paths:
         - $ref: '#/components/parameters/NodeId'
       responses:
         '201':
-          description: 重试任务已创建并执行
+          description: 重试任务已创建，响应中的任务状态为 running，后台继续执行 Agent 尝试
           content:
             application/json:
               schema:

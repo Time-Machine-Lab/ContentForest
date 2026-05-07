@@ -6,6 +6,7 @@ import { FruitService } from "../modules/fruit/application/fruit-service.js";
 import {
   GrowthService,
   type GrowthReferenceAuthorizationPort,
+  type GrowthTaskExecutionScheduler,
 } from "../modules/growth/application/growth-service.js";
 import {
   GROWTH_ATTEMPT_STATUSES,
@@ -35,6 +36,30 @@ function createNow(): () => Date {
   return () => {
     counter += 1;
     return new Date(`2026-01-01T00:00:${String(counter).padStart(2, "0")}.000Z`);
+  };
+}
+
+function createManualGrowthScheduler(): {
+  schedule: GrowthTaskExecutionScheduler;
+  runAll(): Promise<void>;
+  pendingCount(): number;
+} {
+  const pending: Array<() => Promise<void>> = [];
+  return {
+    schedule(execute: () => Promise<void>): void {
+      pending.push(execute);
+    },
+    async runAll(): Promise<void> {
+      while (pending.length > 0) {
+        const execute = pending.shift();
+        if (execute !== undefined) {
+          await execute();
+        }
+      }
+    },
+    pendingCount(): number {
+      return pending.length;
+    },
   };
 }
 
@@ -147,12 +172,14 @@ async function createFixture(agentPort: AgentPort = successAgent()): Promise<{
   fruitStorage: InMemoryFruitStorageAdapter;
   generatorStorage: InMemoryGeneratorStorageAdapter;
   fruitService: FruitService;
+  scheduler: ReturnType<typeof createManualGrowthScheduler>;
 }> {
   const seedStorage = new InMemorySeedStorageAdapter();
   const fruitStorage = new InMemoryFruitStorageAdapter();
   const generatorStorage = new InMemoryGeneratorStorageAdapter();
   const storage = new InMemoryGrowthStorageAdapter();
   const now = createNow();
+  const scheduler = createManualGrowthScheduler();
 
   await seedStorage.createSeed({
     id: "seed_1",
@@ -210,6 +237,7 @@ async function createFixture(agentPort: AgentPort = successAgent()): Promise<{
     agentPort,
     idGenerator: createIdGenerator(),
     now,
+    scheduleTaskExecution: scheduler.schedule,
   });
   return {
     service,
@@ -218,13 +246,14 @@ async function createFixture(agentPort: AgentPort = successAgent()): Promise<{
     fruitStorage,
     generatorStorage,
     fruitService,
+    scheduler,
   };
 }
 
 describe("GrowthService", () => {
   it("starts growth from a seed and delivers candidate fruits to the fruit module", async () => {
     const capturedTasks: AgentTask[] = [];
-    const { service } = await createFixture(successAgent(capturedTasks));
+    const { service, scheduler } = await createFixture(successAgent(capturedTasks));
 
     const result = await service.startGrowthTask({
       seedId: "seed_1",
@@ -235,17 +264,38 @@ describe("GrowthService", () => {
     });
 
     expect(result.task).toMatchObject({
-      status: GROWTH_TASK_STATUSES.completed,
+      status: GROWTH_TASK_STATUSES.running,
       sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      successfulFruitIds: [],
+    });
+    expect(result.task.attempts).toHaveLength(0);
+    expect(capturedTasks).toHaveLength(0);
+    await expect(
+      service.getSourceStatus({ nodeType: "seed", nodeId: "seed-node_seed_1" }),
+    ).resolves.toMatchObject({
+      isGrowing: true,
+      taskId: result.task.id,
+    });
+
+    await scheduler.runAll();
+    const completed = await service.getGrowthTask(result.task.id);
+    expect(completed).toMatchObject({
+      status: GROWTH_TASK_STATUSES.completed,
       successfulFruitIds: ["fruit_1", "fruit_2"],
     });
-    expect(result.task.attempts).toHaveLength(2);
+    expect(completed.attempts).toHaveLength(2);
     expect(capturedTasks).toHaveLength(2);
     expect(capturedTasks[0]?.type).toBe("growth");
+    await expect(
+      service.getSourceStatus({ nodeType: "seed", nodeId: "seed-node_seed_1" }),
+    ).resolves.toMatchObject({
+      isGrowing: false,
+      taskId: null,
+    });
   });
 
   it("lands structured candidate_fruit output through FruitService", async () => {
-    const { service, fruitStorage } = await createFixture(structuredCandidateAgent());
+    const { service, fruitStorage, scheduler } = await createFixture(structuredCandidateAgent());
 
     const result = await service.startGrowthTask({
       seedId: "seed_1",
@@ -255,8 +305,11 @@ describe("GrowthService", () => {
       geneRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
     });
 
-    const fruit = await fruitStorage.findFruitById(result.task.successfulFruitIds[0] ?? "");
-    expect(result.task.status).toBe(GROWTH_TASK_STATUSES.completed);
+    expect(result.task.status).toBe(GROWTH_TASK_STATUSES.running);
+    await scheduler.runAll();
+    const completed = await service.getGrowthTask(result.task.id);
+    const fruit = await fruitStorage.findFruitById(completed.successfulFruitIds[0] ?? "");
+    expect(completed.status).toBe(GROWTH_TASK_STATUSES.completed);
     expect(fruit).toMatchObject({
       summary: "结构化候选摘要",
       geneTags: ["结构化"],
@@ -264,7 +317,7 @@ describe("GrowthService", () => {
   });
 
   it("starts growth from a fruit that belongs to the current seed", async () => {
-    const { service, fruitService } = await createFixture();
+    const { service, fruitService, scheduler } = await createFixture();
     const parent = await fruitService.createFruitFromCandidate({
       markdown: "父果实",
       parentNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
@@ -277,7 +330,9 @@ describe("GrowthService", () => {
       fruitCount: 1,
     });
 
-    expect(result.task).toMatchObject({
+    expect(result.task.status).toBe(GROWTH_TASK_STATUSES.running);
+    await scheduler.runAll();
+    await expect(service.getGrowthTask(result.task.id)).resolves.toMatchObject({
       status: GROWTH_TASK_STATUSES.completed,
       sourceNodeRef: { nodeType: "fruit", nodeId: parent.id },
     });
@@ -338,6 +393,7 @@ describe("GrowthService", () => {
       referenceAuthorization: authorizer,
       idGenerator: createIdGenerator(),
       now: createNow(),
+      scheduleTaskExecution: fixture.scheduler.schedule,
     });
 
     await expect(
@@ -357,6 +413,7 @@ describe("GrowthService", () => {
       nutrientRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
       geneRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
     });
+    await fixture.scheduler.runAll();
 
     expect(capturedTasks[0]?.input).toMatchObject({
       authorizationScope: {
@@ -392,15 +449,18 @@ describe("GrowthService", () => {
 
   it("runs five serial Agent attempts when fruit count is five", async () => {
     const capturedTasks: AgentTask[] = [];
-    const { service } = await createFixture(successAgent(capturedTasks));
+    const { service, scheduler } = await createFixture(successAgent(capturedTasks));
 
-    await service.startGrowthTask({
+    const result = await service.startGrowthTask({
       seedId: "seed_1",
       sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
       generatorId: "generator_1",
       fruitCount: 5,
     });
 
+    expect(result.task.status).toBe(GROWTH_TASK_STATUSES.running);
+    expect(capturedTasks).toHaveLength(0);
+    await scheduler.runAll();
     expect(capturedTasks).toHaveLength(5);
     expect(capturedTasks.map((task) => task.input.attemptIndex)).toEqual([
       1,
@@ -413,7 +473,7 @@ describe("GrowthService", () => {
 
   it("completes partial success without rolling back created fruits", async () => {
     const capturedTasks: AgentTask[] = [];
-    const { service } = await createFixture(partialAgent(capturedTasks));
+    const { service, scheduler } = await createFixture(partialAgent(capturedTasks));
 
     const result = await service.startGrowthTask({
       seedId: "seed_1",
@@ -422,9 +482,12 @@ describe("GrowthService", () => {
       fruitCount: 3,
     });
 
-    expect(result.task.status).toBe(GROWTH_TASK_STATUSES.completed);
-    expect(result.task.successfulFruitIds).toEqual(["fruit_1", "fruit_2"]);
-    expect(result.task.attempts.map((attempt) => attempt.status)).toEqual([
+    expect(result.task.status).toBe(GROWTH_TASK_STATUSES.running);
+    await scheduler.runAll();
+    const completed = await service.getGrowthTask(result.task.id);
+    expect(completed.status).toBe(GROWTH_TASK_STATUSES.completed);
+    expect(completed.successfulFruitIds).toEqual(["fruit_1", "fruit_2"]);
+    expect(completed.attempts.map((attempt) => attempt.status)).toEqual([
       GROWTH_ATTEMPT_STATUSES.succeeded,
       GROWTH_ATTEMPT_STATUSES.failed,
       GROWTH_ATTEMPT_STATUSES.succeeded,
@@ -432,9 +495,9 @@ describe("GrowthService", () => {
   });
 
   it("marks zero-success tasks as failed, saves latest failed input, and supports retry", async () => {
-    const { service } = await createFixture(invalidOutputAgent());
+    const { service, scheduler } = await createFixture(invalidOutputAgent());
 
-    const failed = await service.startGrowthTask({
+    const started = await service.startGrowthTask({
       seedId: "seed_1",
       sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
       userInput: "失败输入",
@@ -442,7 +505,10 @@ describe("GrowthService", () => {
       fruitCount: 2,
     });
 
-    expect(failed.task.status).toBe(GROWTH_TASK_STATUSES.failed);
+    expect(started.task.status).toBe(GROWTH_TASK_STATUSES.running);
+    await scheduler.runAll();
+    const failed = await service.getGrowthTask(started.task.id);
+    expect(failed.status).toBe(GROWTH_TASK_STATUSES.failed);
     await expect(
       service.getLatestFailedInput({
         nodeType: "seed",
@@ -453,15 +519,14 @@ describe("GrowthService", () => {
       generatorId: "generator_1",
     });
 
-    await expect(
-      service.retryLatestFailedTask({
-        nodeType: "seed",
-        nodeId: "seed-node_seed_1",
-      }),
-    ).resolves.toMatchObject({
-      task: {
-        status: GROWTH_TASK_STATUSES.failed,
-      },
+    const retried = await service.retryLatestFailedTask({
+      nodeType: "seed",
+      nodeId: "seed-node_seed_1",
+    });
+    expect(retried.task.status).toBe(GROWTH_TASK_STATUSES.running);
+    await scheduler.runAll();
+    await expect(service.getGrowthTask(retried.task.id)).resolves.toMatchObject({
+      status: GROWTH_TASK_STATUSES.failed,
     });
   });
 
