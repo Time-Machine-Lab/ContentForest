@@ -76,8 +76,8 @@ const selectedNodeId = ref('')
 const transform = reactive({ x: -620, y: -360, scale: 1 })
 const treeSize = reactive({ width: 1180, height: 820 })
 const nodeSize = {
-  seed: { width: 232, height: 132 },
-  fruit: { width: 208, height: 124 },
+  seed: { width: 232, height: 156 },
+  fruit: { width: 208, height: 150 },
 }
 
 const workspaceLoading = ref(false)
@@ -1913,420 +1913,195 @@ button:disabled {
   white-space: nowrap;
 }
 
-/* Restrained node language: clear states, quieter material. */
+/* Liquid Frost node cards, selected from the preview exploration. */
 .cf-tree-node {
-  width: 196px;
-  min-height: 118px;
-  gap: 9px;
-  padding: 12px;
-  border-radius: 12px;
-  border-color: rgba(255, 255, 255, .11);
-  background:
-    linear-gradient(180deg, rgba(30, 34, 36, .95), rgba(13, 16, 18, .96));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .06),
-    0 18px 46px rgba(0, 0, 0, .28);
-  transform: none;
-  transition:
-    transform .18s ease,
-    border-color .18s ease,
-    background .18s ease,
-    box-shadow .18s ease,
-    opacity .18s ease,
-    filter .18s ease;
-}
-
-.cf-tree-node:hover {
-  transform: translateY(-1px);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .08),
-    0 20px 52px rgba(0, 0, 0, .32);
-}
-
-.cf-tree-node::before {
-  inset: 0;
-  z-index: 0;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--node-accent, rgba(255, 255, 255, .18)) 0 4px, transparent 4px);
-  opacity: .9;
-}
-
-.cf-tree-node::after {
-  content: none;
-}
-
-.cf-tree-node.is-seed {
-  --node-accent: rgba(94, 215, 197, .78);
-  width: 224px;
-  min-height: 124px;
-  border-radius: 14px;
-  border-color: rgba(94, 215, 197, .26);
-  background:
-    linear-gradient(180deg, rgba(28, 43, 42, .9), rgba(12, 17, 18, .96));
-}
-
-.cf-tree-node.is-fruit {
-  width: 196px;
-  min-height: 118px;
-}
-
-.cf-tree-node.is-candidate {
-  --node-accent: rgba(217, 174, 95, .76);
-  border-color: rgba(217, 174, 95, .2);
-  background:
-    linear-gradient(180deg, rgba(39, 34, 25, .92), rgba(15, 16, 17, .96));
-}
-
-.cf-tree-node.is-selected {
-  --node-accent: rgba(140, 203, 136, .82);
-  border-color: rgba(140, 203, 136, .3);
-  background:
-    linear-gradient(180deg, rgba(28, 43, 30, .92), rgba(12, 17, 14, .96));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .08),
-    0 18px 48px rgba(0, 0, 0, .3),
-    0 0 0 1px rgba(140, 203, 136, .06);
-}
-
-.cf-tree-node.is-eliminated {
-  --node-accent: rgba(116, 120, 119, .6);
-  border-color: rgba(255, 255, 255, .075);
-  background:
-    linear-gradient(180deg, rgba(30, 32, 33, .82), rgba(12, 13, 14, .94));
-  filter: saturate(.48);
-  opacity: .62;
-}
-
-.cf-tree-node.is-eliminated::after {
-  content: "";
-  left: 14px;
-  right: 14px;
-  top: 50%;
-  z-index: 3;
-  height: 1px;
-  background: rgba(210, 216, 214, .2);
-  transform: rotate(-5deg);
-}
-
-.cf-tree-node.is-growing:not(.is-growth-placeholder),
-.cf-tree-node.is-growth-placeholder {
-  --node-accent: rgba(94, 215, 197, .86);
-  border-color: rgba(94, 215, 197, .34);
-  background:
-    linear-gradient(180deg, rgba(24, 41, 42, .94), rgba(11, 16, 17, .96));
-  animation: cf-node-soft-pulse 1.8s ease-in-out infinite;
-}
-
-.cf-tree-node.is-growing:not(.is-growth-placeholder)::before,
-.cf-tree-node.is-growth-placeholder::before {
-  background:
-    linear-gradient(90deg, var(--node-accent) 0 4px, transparent 4px),
-    linear-gradient(90deg, transparent, rgba(94, 215, 197, .08), transparent);
-  transform: translateX(0);
-  animation: none;
-}
-
-.cf-tree-node.is-growth-placeholder {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .08),
-    0 18px 48px rgba(0, 0, 0, .3),
-    0 0 0 1px rgba(94, 215, 197, .08);
-}
-
-.cf-tree-node.is-active {
-  border-color: rgba(94, 215, 197, .52);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .09),
-    0 0 0 2px rgba(94, 215, 197, .18),
-    0 22px 58px rgba(0, 0, 0, .34);
-}
-
-.cf-node-head {
-  color: rgba(217, 225, 223, .58);
-  font-size: 10px;
-  letter-spacing: 0;
-}
-
-.cf-node-dot {
-  width: 6px;
-  height: 6px;
-  background: var(--node-accent, var(--cf-growth));
-  box-shadow: 0 0 12px color-mix(in srgb, var(--node-accent, var(--cf-growth)) 55%, transparent);
-}
-
-.cf-node-identity {
-  grid-template-columns: 32px 1fr;
-  gap: 9px;
-  min-height: 32px;
-}
-
-.cf-node-orb {
-  width: 32px;
-  height: 32px;
-  border-color: rgba(255, 255, 255, .11);
-  border-radius: 10px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, .08), rgba(255, 255, 255, .02)),
-    rgba(255, 255, 255, .035);
-  box-shadow: none;
-}
-
-.cf-tree-node.is-seed .cf-node-orb {
-  border-radius: 50% 44% 50% 46%;
-  background:
-    radial-gradient(circle at 34% 30%, rgba(255, 255, 255, .16), transparent 20%),
-    rgba(94, 215, 197, .12);
-  transform: rotate(-8deg);
-}
-
-.cf-orb-core {
-  width: 8px;
-  height: 8px;
-  background: var(--node-accent, rgba(94, 215, 197, .72));
-  box-shadow: none;
-}
-
-.cf-orb-vein {
-  opacity: .24;
-}
-
-.cf-node-signature {
-  gap: 4px;
-}
-
-.cf-node-signature span {
-  height: 2px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--node-accent, var(--cf-growth)) 50%, transparent), transparent);
-}
-
-.cf-node-title {
-  min-height: 34px;
-  color: rgba(245, 250, 248, .94);
-  font-size: 13px;
-  font-weight: 760;
-}
-
-.cf-node-tags {
-  justify-content: flex-start;
-}
-
-.cf-node-tag {
-  max-width: 86px;
-  border-color: rgba(255, 255, 255, .08);
-  background: rgba(255, 255, 255, .035);
-  color: rgba(209, 218, 216, .68);
-}
-
-.cf-tree-node.is-seed .cf-node-tag,
-.cf-tree-node.is-growing .cf-node-tag {
-  border-color: rgba(94, 215, 197, .16);
-  background: rgba(94, 215, 197, .065);
-  color: #b9e8df;
-}
-
-.cf-tree-node.is-candidate .cf-node-tag {
-  border-color: rgba(217, 174, 95, .15);
-  background: rgba(217, 174, 95, .06);
-  color: #dfc899;
-}
-
-.cf-tree-node.is-selected .cf-node-tag {
-  border-color: rgba(140, 203, 136, .16);
-  background: rgba(140, 203, 136, .065);
-  color: #c8e7c5;
-}
-
-.cf-tree-node.is-eliminated .cf-node-tag {
-  border-color: rgba(255, 255, 255, .06);
-  background: rgba(255, 255, 255, .025);
-  color: rgba(205, 211, 209, .5);
-}
-
-.cf-growth-vessel {
-  height: 18px;
-  border-color: rgba(94, 215, 197, .12);
-  border-radius: 6px;
-  background: rgba(94, 215, 197, .045);
-}
-
-.cf-vessel-thread {
-  background: linear-gradient(90deg, transparent, rgba(94, 215, 197, .46), transparent);
-}
-
-.cf-vessel-core {
-  width: 5px;
-  height: 5px;
-  border-color: rgba(94, 215, 197, .38);
-  background: rgba(94, 215, 197, .34);
-  box-shadow: 0 0 10px rgba(94, 215, 197, .24);
-}
-
-.cf-vessel-scan {
-  background: linear-gradient(90deg, transparent, rgba(94, 215, 197, .1), transparent);
-}
-
-/* Gallery-grade node cards: refined, stateful, and less noisy. */
-.cf-tree-node {
-  --node-accent: #d6d9d3;
-  --node-accent-soft: rgba(214, 217, 211, .12);
+  --node-accent: #f5b84e;
+  --node-rgb: 245, 184, 78;
   width: 208px;
-  min-height: 124px;
-  gap: 10px;
-  padding: 13px 14px 12px;
-  border: 1px solid rgba(255, 255, 255, .105);
-  border-radius: 14px;
+  min-height: 150px;
+  gap: 11px;
+  padding: 15px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 24px;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .072), rgba(255, 255, 255, .018) 42%, transparent 74%),
-    rgba(15, 18, 20, .92);
+    radial-gradient(circle at 24% 16%, rgba(255, 255, 255, .26), transparent 18%),
+    radial-gradient(circle at 88% 88%, rgba(var(--node-rgb), .22), transparent 35%),
+    linear-gradient(145deg, rgba(255, 255, 255, .12), rgba(255, 255, 255, .035) 43%, rgba(255, 255, 255, .015)),
+    rgba(18, 22, 24, .72);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .075),
-    inset 0 -1px 0 rgba(255, 255, 255, .03),
-    0 22px 54px rgba(0, 0, 0, .31);
-  backdrop-filter: blur(18px) saturate(1.16);
+    inset 0 1px 0 rgba(255, 255, 255, .2),
+    inset 0 -20px 36px rgba(0, 0, 0, .16),
+    0 26px 74px rgba(0, 0, 0, .36);
+  backdrop-filter: blur(22px) saturate(1.45);
+  transform: translateZ(0);
+  transition:
+    transform .22s ease,
+    border-color .22s ease,
+    background .22s ease,
+    box-shadow .22s ease,
+    opacity .22s ease,
+    filter .22s ease;
 }
 
 .cf-tree-node:hover {
-  border-color: color-mix(in srgb, var(--node-accent) 42%, rgba(255, 255, 255, .12));
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, .092), rgba(255, 255, 255, .024) 42%, transparent 74%),
-    rgba(17, 21, 23, .94);
+  border-color: rgba(255, 255, 255, .28);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .1),
-    inset 0 -1px 0 rgba(255, 255, 255, .04),
-    0 26px 64px rgba(0, 0, 0, .36);
-  transform: translateY(-2px);
+    inset 0 1px 0 rgba(255, 255, 255, .24),
+    inset 0 -20px 36px rgba(0, 0, 0, .14),
+    0 30px 86px rgba(0, 0, 0, .42),
+    0 0 0 1px rgba(var(--node-rgb), .1);
+  transform: translateY(-4px) scale(1.01);
 }
 
 .cf-tree-node::before {
-  inset: 8px auto 8px 8px;
-  width: 3px;
+  inset: 10px;
   z-index: 0;
-  border-radius: 999px;
-  background: linear-gradient(180deg, transparent, var(--node-accent) 18%, var(--node-accent) 82%, transparent);
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 18px;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, .16), transparent 36%),
+    linear-gradient(315deg, rgba(var(--node-rgb), .1), transparent 42%);
   opacity: .82;
 }
 
 .cf-tree-node::after {
   content: "";
-  inset: 0;
-  z-index: 0;
-  border-radius: inherit;
+  left: 18px;
+  right: 18px;
+  bottom: 12px;
+  z-index: 1;
+  height: 4px;
+  border-radius: 999px;
   background:
-    linear-gradient(120deg, var(--node-accent-soft), transparent 34%),
-    linear-gradient(90deg, transparent 0 52%, rgba(255, 255, 255, .026) 52% 53%, transparent 53%);
-  opacity: .72;
+    linear-gradient(90deg, transparent, rgba(var(--node-rgb), .86), transparent),
+    rgba(255, 255, 255, .08);
+  box-shadow: 0 0 18px rgba(var(--node-rgb), .28);
 }
 
 .cf-tree-node > * {
+  position: relative;
   z-index: 2;
 }
 
 .cf-tree-node.is-seed {
-  --node-accent: #64d8c8;
-  --node-accent-soft: rgba(100, 216, 200, .12);
+  --node-accent: #5ed7c5;
+  --node-rgb: 94, 215, 197;
   width: 232px;
-  min-height: 132px;
-  border-radius: 18px 14px 18px 14px;
-  border-color: rgba(100, 216, 200, .2);
-  background:
-    linear-gradient(145deg, rgba(100, 216, 200, .11), rgba(255, 255, 255, .025) 40%, transparent 76%),
-    rgba(12, 19, 20, .94);
-}
-
-.cf-tree-node.is-fruit {
-  border-radius: 14px;
+  min-height: 156px;
+  border-radius: 28px;
 }
 
 .cf-tree-node.is-candidate {
-  --node-accent: #d5a95f;
-  --node-accent-soft: rgba(213, 169, 95, .115);
-  border-color: rgba(213, 169, 95, .18);
+  --node-accent: #f0c36b;
+  --node-rgb: 240, 195, 107;
 }
 
 .cf-tree-node.is-selected {
-  --node-accent: #9ad78f;
-  --node-accent-soft: rgba(154, 215, 143, .125);
-  border-color: rgba(154, 215, 143, .24);
+  --node-accent: #9de49b;
+  --node-rgb: 157, 228, 155;
+  border-color: rgba(157, 228, 155, .28);
 }
 
 .cf-tree-node.is-eliminated {
-  --node-accent: #7b817f;
-  --node-accent-soft: rgba(123, 129, 127, .08);
-  border-color: rgba(255, 255, 255, .07);
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, .04), rgba(255, 255, 255, .012) 46%, transparent),
-    rgba(13, 15, 16, .88);
+  --node-accent: #8f9896;
+  --node-rgb: 143, 152, 150;
+  border-color: rgba(255, 255, 255, .1);
   filter: saturate(.52) contrast(.92);
-  opacity: .64;
+  opacity: .62;
 }
 
 .cf-tree-node.is-eliminated::after {
-  inset: 0;
-  background:
-    linear-gradient(120deg, var(--node-accent-soft), transparent 34%),
-    linear-gradient(168deg, transparent 0 48%, rgba(218, 223, 220, .16) 48% 49%, transparent 49%);
+  top: 50%;
+  bottom: auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(221, 226, 224, .34), transparent);
+  box-shadow: none;
+  transform: rotate(-5deg);
 }
 
 .cf-tree-node.is-growing:not(.is-growth-placeholder),
 .cf-tree-node.is-growth-placeholder {
-  --node-accent: #71dece;
-  --node-accent-soft: rgba(113, 222, 206, .14);
-  border-color: rgba(113, 222, 206, .28);
-  animation: cf-node-soft-pulse 2.1s ease-in-out infinite;
+  --node-accent: #7fcfff;
+  --node-rgb: 127, 207, 255;
+  border-color: rgba(127, 207, 255, .32);
+  animation: cf-liquid-node-breathe 1.9s ease-in-out infinite;
 }
 
-.cf-tree-node.is-growth-placeholder {
+.cf-tree-node.is-growth-placeholder::before {
+  inset: 10px;
+  width: auto;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 18px;
   background:
-    linear-gradient(145deg, rgba(113, 222, 206, .12), rgba(255, 255, 255, .025) 42%, transparent 76%),
-    rgba(12, 19, 20, .94);
+    linear-gradient(120deg, rgba(255, 255, 255, .16), transparent 36%),
+    linear-gradient(315deg, rgba(var(--node-rgb), .1), transparent 42%);
+  opacity: .82;
+  transform: none;
+  animation: none;
+}
+
+.cf-tree-node.is-growth-placeholder::after {
+  content: "";
+  inset: auto 18px 12px;
+  height: 4px;
+  border: 0;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, transparent, rgba(var(--node-rgb), .86), transparent),
+    rgba(255, 255, 255, .08);
+  box-shadow: 0 0 18px rgba(var(--node-rgb), .28);
+  transform: none;
+  animation: none;
 }
 
 .cf-tree-node.is-active {
-  border-color: color-mix(in srgb, var(--node-accent) 58%, rgba(255, 255, 255, .1));
+  border-color: rgba(var(--node-rgb), .55);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .1),
-    0 0 0 1px color-mix(in srgb, var(--node-accent) 22%, transparent),
-    0 28px 68px rgba(0, 0, 0, .38);
+    inset 0 1px 0 rgba(255, 255, 255, .26),
+    inset 0 -20px 36px rgba(0, 0, 0, .12),
+    0 0 0 2px rgba(var(--node-rgb), .18),
+    0 32px 88px rgba(0, 0, 0, .44);
 }
 
 .cf-node-head {
-  align-items: center;
-  color: rgba(230, 235, 233, .54);
-  font-size: 9px;
+  color: rgba(241, 248, 245, .66);
+  font-size: 10px;
   font-weight: 850;
   letter-spacing: .08em;
 }
 
 .cf-node-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   background: var(--node-accent);
-  box-shadow: 0 0 14px color-mix(in srgb, var(--node-accent) 38%, transparent);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, .65),
+    0 0 16px rgba(var(--node-rgb), .38);
 }
 
 .cf-node-identity {
-  grid-template-columns: 34px 1fr;
-  gap: 11px;
-  min-height: 34px;
+  grid-template-columns: 38px 1fr;
+  gap: 12px;
+  min-height: 38px;
 }
 
 .cf-node-orb {
-  width: 34px;
-  height: 34px;
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 11px;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 14px;
   background:
-    linear-gradient(145deg, color-mix(in srgb, var(--node-accent) 18%, transparent), rgba(255, 255, 255, .035)),
-    rgba(255, 255, 255, .028);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
-  transform: none;
+    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, .45), transparent 18%),
+    radial-gradient(circle at 78% 82%, rgba(var(--node-rgb), .34), transparent 36%),
+    rgba(255, 255, 255, .07);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .2),
+    inset 0 -8px 14px rgba(0, 0, 0, .12);
 }
 
 .cf-tree-node.is-seed .cf-node-orb {
-  border-radius: 50% 46% 48% 44%;
-  background:
-    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, .18), transparent 18%),
-    color-mix(in srgb, var(--node-accent) 17%, rgba(255, 255, 255, .025));
+  border-radius: 50% 45% 53% 47%;
   transform: rotate(-10deg);
 }
 
@@ -2334,11 +2109,11 @@ button:disabled {
   width: 8px;
   height: 8px;
   background: var(--node-accent);
-  box-shadow: none;
+  box-shadow: 0 0 14px rgba(var(--node-rgb), .42);
 }
 
 .cf-orb-vein {
-  opacity: .18;
+  opacity: .2;
 }
 
 .cf-node-signature {
@@ -2347,53 +2122,88 @@ button:disabled {
 
 .cf-node-signature span {
   height: 2px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--node-accent) 42%, rgba(255, 255, 255, .1)), transparent);
+  background: linear-gradient(90deg, rgba(var(--node-rgb), .48), transparent);
 }
 
 .cf-node-signature span:nth-child(2) {
-  width: 62%;
+  width: 68%;
 }
 
 .cf-node-signature span:nth-child(3) {
-  width: 36%;
+  width: 42%;
 }
 
 .cf-node-title {
-  min-height: 35px;
-  color: rgba(246, 250, 248, .95);
+  min-height: 38px;
+  color: rgba(250, 253, 251, .95);
   font-size: 13px;
   font-weight: 780;
-  line-height: 1.38;
+  line-height: 1.4;
 }
 
 .cf-node-tags {
   justify-content: flex-start;
-  align-items: center;
 }
 
 .cf-node-tag {
-  max-width: 88px;
-  min-height: 22px;
+  max-width: 92px;
+  min-height: 23px;
   display: inline-flex;
   align-items: center;
-  border-color: color-mix(in srgb, var(--node-accent) 18%, rgba(255, 255, 255, .06));
+  border-color: rgba(255, 255, 255, .14);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--node-accent) 8%, transparent);
-  color: color-mix(in srgb, var(--node-accent) 58%, #dce4e1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .1), rgba(255, 255, 255, .035)),
+    rgba(var(--node-rgb), .07);
+  color: color-mix(in srgb, var(--node-accent) 55%, #f0f7f4);
   font-size: 10px;
+}
+
+.cf-tree-node.is-growth-placeholder .cf-node-title {
+  color: rgba(250, 253, 251, .95);
+  text-shadow: none;
+}
+
+.cf-tree-node.is-growth-placeholder .cf-node-tags {
+  justify-content: flex-start;
+}
+
+.cf-tree-node.is-growth-placeholder .cf-node-tag {
+  max-width: 92px;
+  border-color: rgba(255, 255, 255, .14);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .1), rgba(255, 255, 255, .035)),
+    rgba(var(--node-rgb), .07);
+  color: color-mix(in srgb, var(--node-accent) 55%, #f0f7f4);
 }
 
 .cf-tree-node.is-eliminated .cf-node-title,
 .cf-tree-node.is-eliminated .cf-node-tag,
 .cf-tree-node.is-eliminated .cf-node-head {
-  color: rgba(214, 220, 218, .48);
+  color: rgba(222, 228, 226, .52);
 }
 
 .cf-growth-vessel {
   height: 18px;
-  border-color: rgba(113, 222, 206, .14);
+  border-color: rgba(127, 207, 255, .18);
   border-radius: 999px;
-  background: rgba(113, 222, 206, .045);
+  background: rgba(127, 207, 255, .06);
+}
+
+.cf-vessel-thread {
+  background: linear-gradient(90deg, transparent, rgba(127, 207, 255, .5), transparent);
+}
+
+.cf-vessel-core {
+  width: 5px;
+  height: 5px;
+  border-color: rgba(127, 207, 255, .42);
+  background: rgba(127, 207, 255, .38);
+  box-shadow: 0 0 10px rgba(127, 207, 255, .3);
+}
+
+.cf-vessel-scan {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .13), transparent);
 }
 
 .cf-node-detail {
@@ -3010,6 +2820,25 @@ button:disabled {
       inset 0 1px 0 rgba(255, 255, 255, .09),
       0 20px 54px rgba(0, 0, 0, .32),
       0 0 0 1px rgba(94, 215, 197, .12);
+  }
+}
+
+@keyframes cf-liquid-node-breathe {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, .2),
+      inset 0 -20px 36px rgba(0, 0, 0, .16),
+      0 26px 74px rgba(0, 0, 0, .36),
+      0 0 0 1px rgba(var(--node-rgb), .06);
+  }
+
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, .24),
+      inset 0 -20px 36px rgba(0, 0, 0, .14),
+      0 30px 82px rgba(0, 0, 0, .4),
+      0 0 0 1px rgba(var(--node-rgb), .16);
   }
 }
 
