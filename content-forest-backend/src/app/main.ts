@@ -68,6 +68,153 @@ async function handleApiRequest(
     return true;
   }
 
+  const seedGeneLibraryMatch = pathname.match(/^\/api\/seeds\/([^/]+)\/gene-library$/);
+  if (seedGeneLibraryMatch && method === "GET") {
+    const result = await app.geneController.getSeedGeneLibrary(
+      decodeURIComponent(seedGeneLibraryMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  if (seedGeneLibraryMatch && method === "POST") {
+    const result = await app.geneController.prepareSeedGeneLibrary(
+      decodeURIComponent(seedGeneLibraryMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const seedGeneRemindersMatch = pathname.match(/^\/api\/seeds\/([^/]+)\/gene-reminders$/);
+  if (seedGeneRemindersMatch && method === "GET") {
+    const result = await app.geneController.listPendingReminders(
+      decodeURIComponent(seedGeneRemindersMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  if (seedGeneRemindersMatch && method === "POST") {
+    const result = await app.geneController.createReminderFromFruitEvidence(
+      decodeURIComponent(seedGeneRemindersMatch[1] ?? ""),
+      toCreateGeneReminderInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const geneReminderIgnoreMatch = pathname.match(/^\/api\/gene-reminders\/([^/]+)\/ignore$/);
+  if (geneReminderIgnoreMatch && method === "POST") {
+    const result = await app.geneController.ignoreReminder(
+      decodeURIComponent(geneReminderIgnoreMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const seedGeneTaskMatch = pathname.match(/^\/api\/seeds\/([^/]+)\/gene-extraction-tasks$/);
+  if (seedGeneTaskMatch && method === "POST") {
+    const result = await app.geneController.startExtractionTask(
+      decodeURIComponent(seedGeneTaskMatch[1] ?? ""),
+      toStartGeneExtractionInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const seedGeneSuggestionsMatch = pathname.match(/^\/api\/seeds\/([^/]+)\/gene-suggestions$/);
+  if (seedGeneSuggestionsMatch && method === "GET") {
+    const result = await app.geneController.listPendingSuggestions(
+      decodeURIComponent(seedGeneSuggestionsMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const geneSuggestionConfirmMatch = pathname.match(/^\/api\/gene-suggestions\/([^/]+)\/confirm$/);
+  if (geneSuggestionConfirmMatch && method === "POST") {
+    const result = await app.geneController.confirmSuggestion(
+      decodeURIComponent(geneSuggestionConfirmMatch[1] ?? ""),
+      toConfirmGeneSuggestionInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const geneSuggestionDismissMatch = pathname.match(/^\/api\/gene-suggestions\/([^/]+)\/dismiss$/);
+  if (geneSuggestionDismissMatch && method === "POST") {
+    const result = await app.geneController.dismissSuggestion(
+      decodeURIComponent(geneSuggestionDismissMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const geneSuggestionMatch = pathname.match(/^\/api\/gene-suggestions\/([^/]+)$/);
+  if (geneSuggestionMatch && method === "GET") {
+    const result = await app.geneController.getSuggestion(
+      decodeURIComponent(geneSuggestionMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  if (geneSuggestionMatch && method === "PATCH") {
+    const result = await app.geneController.editSuggestion(
+      decodeURIComponent(geneSuggestionMatch[1] ?? ""),
+      toEditGeneSuggestionInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const seedGeneReferableInsightsMatch = pathname.match(
+    /^\/api\/seeds\/([^/]+)\/gene-insights\/referable$/,
+  );
+  if (seedGeneReferableInsightsMatch && method === "GET") {
+    const result = await app.geneController.listReferableInsights(
+      decodeURIComponent(seedGeneReferableInsightsMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const seedGeneInsightsMatch = pathname.match(/^\/api\/seeds\/([^/]+)\/gene-insights$/);
+  if (seedGeneInsightsMatch && method === "GET") {
+    const result = await app.geneController.listInsights(
+      decodeURIComponent(seedGeneInsightsMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const geneInsightArchiveMatch = pathname.match(/^\/api\/gene-insights\/([^/]+)\/archive$/);
+  if (geneInsightArchiveMatch && method === "POST") {
+    const result = await app.geneController.archiveInsight(
+      decodeURIComponent(geneInsightArchiveMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const geneInsightMatch = pathname.match(/^\/api\/gene-insights\/([^/]+)$/);
+  if (geneInsightMatch && method === "GET") {
+    const result = await app.geneController.getInsight(
+      decodeURIComponent(geneInsightMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  if (geneInsightMatch && method === "PATCH") {
+    const result = await app.geneController.editInsight(
+      decodeURIComponent(geneInsightMatch[1] ?? ""),
+      toEditGeneInsightInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
   if (pathname === "/api/generators" && method === "GET") {
     const result = await app.generatorController.listGenerators();
     sendJson(response, result.status, result.body);
@@ -331,6 +478,128 @@ function toUpdateFruitContentInput(body: Record<string, unknown>): {
 
   return {
     markdown: body.markdown,
+  };
+}
+
+function toCreateGeneReminderInput(body: Record<string, unknown>): {
+  fruitId: string;
+  action: "selected" | "eliminated";
+} {
+  if (
+    typeof body.fruitId !== "string" ||
+    (body.action !== "selected" && body.action !== "eliminated")
+  ) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "创建汲取提醒需要提供 fruitId 和 action",
+      400,
+    );
+  }
+  return {
+    fruitId: body.fruitId,
+    action: body.action,
+  };
+}
+
+function toStartGeneExtractionInput(body: Record<string, unknown>): {
+  reminderId?: string;
+  evidenceSources: Array<{
+    sourceType: "fruit_selected" | "fruit_eliminated" | "publication" | "feedback";
+    sourceId: string;
+    strength: "weak" | "medium" | "strong";
+  }>;
+} {
+  const evidenceSources = Array.isArray(body.evidenceSources)
+    ? body.evidenceSources
+    : [];
+  return {
+    reminderId: typeof body.reminderId === "string" ? body.reminderId : undefined,
+    evidenceSources: evidenceSources.map(toGeneEvidenceSource),
+  };
+}
+
+function toGeneEvidenceSource(value: unknown): {
+  sourceType: "fruit_selected" | "fruit_eliminated" | "publication" | "feedback";
+  sourceId: string;
+  strength: "weak" | "medium" | "strong";
+} {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("sourceType" in value) ||
+    !("sourceId" in value) ||
+    !("strength" in value)
+  ) {
+    throw new ApplicationError("VALIDATION_ERROR", "证据来源格式不正确", 400);
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    (record.sourceType !== "fruit_selected" &&
+      record.sourceType !== "fruit_eliminated" &&
+      record.sourceType !== "publication" &&
+      record.sourceType !== "feedback") ||
+    typeof record.sourceId !== "string" ||
+    (record.strength !== "weak" &&
+      record.strength !== "medium" &&
+      record.strength !== "strong")
+  ) {
+    throw new ApplicationError("VALIDATION_ERROR", "证据来源格式不正确", 400);
+  }
+  return {
+    sourceType: record.sourceType,
+    sourceId: record.sourceId,
+    strength: record.strength,
+  };
+}
+
+function toEditGeneSuggestionInput(body: Record<string, unknown>): {
+  title: string;
+  bodyMarkdown: string;
+  lineage?: string;
+  niche?: string;
+} {
+  if (typeof body.title !== "string" || typeof body.bodyMarkdown !== "string") {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "编辑基因建议需要提供标题和 Markdown 正文",
+      400,
+    );
+  }
+  return {
+    title: body.title,
+    bodyMarkdown: body.bodyMarkdown,
+    lineage: typeof body.lineage === "string" ? body.lineage : undefined,
+    niche: typeof body.niche === "string" ? body.niche : undefined,
+  };
+}
+
+function toConfirmGeneSuggestionInput(body: Record<string, unknown>): {
+  title?: string;
+  bodyMarkdown?: string;
+  lineage?: string;
+  niche?: string;
+} {
+  return {
+    title: typeof body.title === "string" ? body.title : undefined,
+    bodyMarkdown:
+      typeof body.bodyMarkdown === "string" ? body.bodyMarkdown : undefined,
+    lineage: typeof body.lineage === "string" ? body.lineage : undefined,
+    niche: typeof body.niche === "string" ? body.niche : undefined,
+  };
+}
+
+function toEditGeneInsightInput(body: Record<string, unknown>): {
+  bodyMarkdown: string;
+} {
+  if (typeof body.bodyMarkdown !== "string") {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "编辑基因经验需要提供 Markdown 正文",
+      400,
+    );
+  }
+  return {
+    bodyMarkdown: body.bodyMarkdown,
   };
 }
 

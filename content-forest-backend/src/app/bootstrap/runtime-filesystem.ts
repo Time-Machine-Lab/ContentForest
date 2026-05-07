@@ -12,6 +12,8 @@ export const STANDARD_CONTENT_DIRECTORIES = [
   "nutrients",
   "nutrients/public",
   "nutrients/seed-scoped",
+  "genes",
+  "genes/seed-scoped",
   "generators",
   "attachments",
   "tmp",

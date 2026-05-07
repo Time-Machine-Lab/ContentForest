@@ -5,6 +5,7 @@ export type ApplicationErrorCode =
   | "AGENT_RUNTIME_ERROR"
   | "AGENT_TOOL_ERROR"
   | "AGENT_SKILL_ERROR"
+  | "AGENT_TASK_FAILED"
   | "AGENT_LLM_ERROR"
   | "CONFIGURATION_ERROR";
 

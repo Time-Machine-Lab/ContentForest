@@ -30,6 +30,11 @@ export interface UpdateFruitContentInput {
 export interface FruitServiceDependencies {
   storage: FruitStoragePort;
   contentAccess: FruitMarkdownContentAccessPort;
+  onFruitSelectionChanged?: (input: {
+    seedId: string;
+    fruitId: string;
+    selectionState: FruitSelectionState;
+  }) => Promise<void>;
   idGenerator?: IdGenerator;
   now?: () => Date;
 }
@@ -37,12 +42,20 @@ export interface FruitServiceDependencies {
 export class FruitService {
   private readonly storage: FruitStoragePort;
   private readonly contentAccess: FruitMarkdownContentAccessPort;
+  private readonly onFruitSelectionChanged:
+    | ((input: {
+        seedId: string;
+        fruitId: string;
+        selectionState: FruitSelectionState;
+      }) => Promise<void>)
+    | undefined;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
 
   public constructor(dependencies: FruitServiceDependencies) {
     this.storage = dependencies.storage;
     this.contentAccess = dependencies.contentAccess;
+    this.onFruitSelectionChanged = dependencies.onFruitSelectionChanged;
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
   }
@@ -169,12 +182,55 @@ export class FruitService {
     selectionState: FruitSelectionState,
   ): Promise<FruitDetail> {
     const record = await this.requireFruit(fruitId);
-    await this.storage.saveFruit({
+    const updatedRecord = {
       ...record,
       selectionState,
       updatedAt: this.timestamp(),
-    });
+    };
+    await this.storage.saveFruit(updatedRecord);
+    if (
+      this.onFruitSelectionChanged !== undefined &&
+      (selectionState === FRUIT_SELECTION_STATES.selected ||
+        selectionState === FRUIT_SELECTION_STATES.eliminated)
+    ) {
+      const seedId = await this.resolveSeedId(updatedRecord);
+      if (seedId !== null) {
+        await this.onFruitSelectionChanged({
+          seedId,
+          fruitId: updatedRecord.id,
+          selectionState,
+        });
+      }
+    }
     return this.getFruit(fruitId);
+  }
+
+  private async resolveSeedId(record: FruitRecord): Promise<string | null> {
+    return this.resolveSeedIdFromParent(record.parentNodeRef, new Set([record.id]));
+  }
+
+  private async resolveSeedIdFromParent(
+    parentNodeRef: ParentNodeRef,
+    visitedFruitIds: Set<string>,
+  ): Promise<string | null> {
+    if (parentNodeRef.nodeType === "seed") {
+      return this.seedIdFromSeedNodeId(parentNodeRef.nodeId);
+    }
+    if (visitedFruitIds.has(parentNodeRef.nodeId)) {
+      return null;
+    }
+    visitedFruitIds.add(parentNodeRef.nodeId);
+    const parentFruit = await this.storage.findFruitById(parentNodeRef.nodeId);
+    if (parentFruit === null) {
+      return null;
+    }
+    return this.resolveSeedIdFromParent(parentFruit.parentNodeRef, visitedFruitIds);
+  }
+
+  private seedIdFromSeedNodeId(seedNodeId: string): string {
+    return seedNodeId.startsWith("seed-node_")
+      ? seedNodeId.slice("seed-node_".length)
+      : seedNodeId;
   }
 
   private async requireFruit(fruitId: string): Promise<FruitRecord> {

@@ -29,6 +29,7 @@ export interface UpdateSeedInput {
 export interface SeedServiceDependencies {
   storage: SeedStoragePort;
   contentAccess: SeedMarkdownContentAccessPort;
+  afterSeedCreated?: (seedId: string) => Promise<void>;
   idGenerator?: IdGenerator;
   now?: () => Date;
 }
@@ -36,12 +37,14 @@ export interface SeedServiceDependencies {
 export class SeedService {
   private readonly storage: SeedStoragePort;
   private readonly contentAccess: SeedMarkdownContentAccessPort;
+  private readonly afterSeedCreated: ((seedId: string) => Promise<void>) | undefined;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
 
   public constructor(dependencies: SeedServiceDependencies) {
     this.storage = dependencies.storage;
     this.contentAccess = dependencies.contentAccess;
+    this.afterSeedCreated = dependencies.afterSeedCreated;
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
   }
@@ -68,6 +71,9 @@ export class SeedService {
     };
 
     await this.storage.createSeed(record);
+    if (this.afterSeedCreated !== undefined) {
+      await this.afterSeedCreated(seedId);
+    }
     return this.toDetail(record, markdown);
   }
 
@@ -230,4 +236,3 @@ export class SeedService {
     };
   }
 }
-
