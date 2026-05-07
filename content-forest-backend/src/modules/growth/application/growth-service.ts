@@ -307,6 +307,7 @@ export class GrowthService {
       if (!result.ok) {
         return this.failAttempt(attempt, result.error.message, {
           error: result.error,
+          trace: result.trace,
         });
       }
 

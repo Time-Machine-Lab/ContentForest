@@ -26,6 +26,7 @@ interface TreeNode {
   updatedAt: string
   status: NodeStatus
   taskId: string | null
+  isPlaceholder?: boolean
   failedInput: {
     hasFailedInput: boolean
     taskId: string | null
@@ -75,8 +76,8 @@ const selectedNodeId = ref('')
 const transform = reactive({ x: -620, y: -360, scale: 1 })
 const treeSize = reactive({ width: 1180, height: 820 })
 const nodeSize = {
-  seed: { width: 220, height: 104 },
-  fruit: { width: 184, height: 92 },
+  seed: { width: 232, height: 132 },
+  fruit: { width: 208, height: 124 },
 }
 
 const workspaceLoading = ref(false)
@@ -100,7 +101,7 @@ const fruitCount = ref(3)
 const mutationRate = ref(18)
 const fruitCountOptions = [1, 2, 3, 4, 5, 6]
 
-let pollTimer: ReturnType<typeof setTimeout> | null = null
+const pollTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 const isReadOnly = computed(() => Boolean(snapshot.value?.workspaceReadOnly || route.query.readonly === '1'))
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) ?? nodes.value[0] ?? null)
@@ -111,14 +112,24 @@ const canShowGrowthComposer = computed(() => {
   return node.selectionState === 'selected'
 })
 const visibleComposer = computed(() => Boolean(canShowGrowthComposer.value && !isReadOnly.value && selectedNode.value?.status !== 'growing'))
-const selectedCrumb = computed(() => selectedNode.value ? `工作区 / 内容树 / ${selectedNode.value.summary}` : '工作区 / 内容树')
 const selectedGenerator = computed(() => snapshot.value?.resources.generators.find((item) => item.id === selectedGeneratorId.value) ?? null)
 const generatorName = computed(() => selectedGenerator.value?.name ?? '未选择生成器')
-const branchEdges = computed(() => snapshot.value?.edges.map((edge, index) => ({
-  parentId: edge.parentNodeRef.nodeId,
-  childId: edge.childNodeRef.nodeId,
-  className: index === 0 ? 'is-primary' : index % 2 === 0 ? 'is-secondary' : 'is-weak',
-})) ?? [])
+const branchEdges = computed(() => {
+  const snapshotEdges = snapshot.value?.edges.map((edge, index) => ({
+    parentId: edge.parentNodeRef.nodeId,
+    childId: edge.childNodeRef.nodeId,
+    className: index === 0 ? 'is-primary' : index % 2 === 0 ? 'is-secondary' : 'is-weak',
+  })) ?? []
+  const existing = new Set(snapshotEdges.map((edge) => `${edge.parentId}->${edge.childId}`))
+  const runtimeEdges = nodes.value
+    .filter((node) => node.parentNodeRef && !existing.has(`${node.parentNodeRef.nodeId}->${node.id}`))
+    .map((node) => ({
+      parentId: node.parentNodeRef?.nodeId || '',
+      childId: node.id,
+      className: node.isPlaceholder ? 'is-growth-stream' : 'is-weak',
+    }))
+  return [...snapshotEdges, ...runtimeEdges]
+})
 const branchPaths = computed(() => branchEdges.value.map((edge) => {
   const parent = findNode(edge.parentId)
   const child = findNode(edge.childId)
@@ -177,7 +188,7 @@ watch(seedId, () => {
 }, { immediate: true })
 
 onBeforeUnmount(() => {
-  stopPolling()
+  stopAllPolling()
 })
 
 function errorMessage(error: unknown) {
@@ -199,7 +210,7 @@ async function loadWorkspace(preferredNodeId = selectedNodeId.value) {
   try {
     const nextSnapshot = await workspaceApi.getSeedWorkspace(seedId.value)
     snapshot.value = nextSnapshot
-    nodes.value = layoutSnapshot(nextSnapshot, nodes.value)
+    nodes.value = mergeRunningPlaceholders(layoutSnapshot(nextSnapshot, nodes.value), nodes.value)
 
     const routeNodeId = typeof route.query.node === 'string' ? route.query.node : ''
     const nextSelectedId = preferredNodeId || routeNodeId || nextSnapshot.seed.rootNodeId || nodes.value[0]?.id || ''
@@ -234,8 +245,10 @@ function layoutSnapshot(nextSnapshot: WorkspaceSnapshot, previousNodes: TreeNode
   })
 
   const widestLevel = Math.max(1, ...Array.from(levels.values()).map((level) => level.length))
-  treeSize.width = Math.max(1180, widestLevel * 250 + 260)
-  treeSize.height = Math.max(820, (maxDepth + 2) * 178)
+  const horizontalGap = 340
+  const verticalGap = 228
+  treeSize.width = Math.max(1380, widestLevel * horizontalGap + 520)
+  treeSize.height = Math.max(960, (maxDepth + 2) * verticalGap)
 
   return nextSnapshot.nodes.map((node) => {
     const previousPosition = previousPositions.get(node.nodeId)
@@ -243,13 +256,28 @@ function layoutSnapshot(nextSnapshot: WorkspaceSnapshot, previousNodes: TreeNode
     const siblings = levels.get(depth) ?? [node]
     const index = siblings.findIndex((item) => item.nodeId === node.nodeId)
     const size = node.nodeType === 'seed' ? nodeSize.seed : nodeSize.fruit
-    const gap = node.nodeType === 'seed' ? 250 : 244
+    const gap = horizontalGap
     const levelWidth = (siblings.length - 1) * gap
     const x = treeSize.width / 2 - levelWidth / 2 + Math.max(0, index) * gap - size.width / 2
-    const y = treeSize.height - 154 - depth * 172
+    const y = treeSize.height - 190 - depth * verticalGap
 
     return mapWorkspaceNode(node, previousPosition ?? { x, y })
   })
+}
+
+function mergeRunningPlaceholders(nextNodes: TreeNode[], previousNodes: TreeNode[]) {
+  const nextNodeIds = new Set(nextNodes.map((node) => node.id))
+  const growingSourceIds = new Set(nextNodes.filter((node) => node.status === 'growing').map((node) => node.id))
+  const preservedPlaceholders = previousNodes.filter((node) => {
+    return Boolean(
+      node.isPlaceholder
+      && node.parentNodeRef
+      && growingSourceIds.has(node.parentNodeRef.nodeId)
+      && !nextNodeIds.has(node.id),
+    )
+  })
+
+  return [...nextNodes, ...preservedPlaceholders]
 }
 
 function calculateDepths(nextSnapshot: WorkspaceSnapshot) {
@@ -404,6 +432,7 @@ function nodeClasses(node: TreeNode) {
     `is-${node.nodeType}`,
     node.selectionState ? `is-${node.selectionState}` : '',
     node.status !== 'idle' ? `is-${node.status}` : '',
+    node.isPlaceholder ? 'is-growth-placeholder' : '',
     selectedNodeId.value === node.id ? 'is-active' : '',
   ]
 }
@@ -571,6 +600,8 @@ async function startGrowth() {
   growthLoading.value = true
   growthError.value = ''
   growthDetailOpen.value = false
+  generatorMenuOpen.value = false
+  fruitCountMenuOpen.value = false
 
   try {
     const nutrientRefs = referencedResources.value
@@ -579,7 +610,7 @@ async function startGrowth() {
     const geneRefs = referencedResources.value
       .filter((resource) => resource.kind === 'gene')
       .map((resource) => ({ resourceType: 'gene' as const, resourceId: resource.id }))
-    const result = await growthApi.startGrowthTask({
+    const payload = {
       seedId: seedId.value,
       sourceNodeRef: { nodeType: source.nodeType, nodeId: source.id },
       userInput: growthIntent.value.trim(),
@@ -588,27 +619,74 @@ async function startGrowth() {
       nutrientRefs,
       geneRefs,
       detailParams: { mutationRate: mutationRate.value / 100 },
-    })
-
+    }
+    source.status = 'growing'
+    source.taskId = 'pending'
+    addGrowthPlaceholders(source, fruitCount.value)
+    console.info('[ContentForest] start growth task payload', payload)
+    const result = await growthApi.startGrowthTask(payload)
     source.status = 'growing'
     source.taskId = result.task.id
     pollGrowthTask(result.task)
   } catch (error) {
+    removeGrowthPlaceholders(source.id)
+    source.status = 'failed'
+    source.taskId = null
     growthError.value = errorMessage(error)
   } finally {
     growthLoading.value = false
   }
 }
 
+function addGrowthPlaceholders(source: TreeNode, count: number) {
+  removeGrowthPlaceholders(source.id)
+  const size = getNodeSize(source)
+  const childY = source.y - 218
+  const spread = Math.min(560, Math.max(220, count * 132))
+  const startX = source.x + size.width / 2 - spread / 2
+  const placeholders = Array.from({ length: count }, (_, index): TreeNode => ({
+    id: `pending-${source.id}-${Date.now()}-${index}`,
+    nodeType: 'fruit',
+    title: `果实生成中 ${index + 1}`,
+    summary: `生成中 ${index + 1}`,
+    markdown: '',
+    x: startX + index * (spread / Math.max(1, count - 1)) - nodeSize.fruit.width / 2,
+    y: childY,
+    selectionState: 'candidate',
+    parentNodeRef: { nodeType: source.nodeType, nodeId: source.id },
+    contentLocation: '',
+    geneTags: ['胚芽装配', '脉冲生成'],
+    records: ['枝化生长任务已提交，等待后端返回真实果实'],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'growing',
+    taskId: null,
+    isPlaceholder: true,
+    failedInput: {
+      hasFailedInput: false,
+      taskId: null,
+      failureReason: null,
+      updatedAt: null,
+    },
+  }))
+  nodes.value = [...nodes.value, ...placeholders]
+}
+
+function removeGrowthPlaceholders(sourceNodeId: string) {
+  nodes.value = nodes.value.filter((node) => !(node.isPlaceholder && node.parentNodeRef?.nodeId === sourceNodeId))
+}
+
 function pollGrowthTask(task: GrowthTaskDetail) {
-  stopPolling()
+  stopGrowthPolling(task.id)
 
   if (task.status !== 'running') {
+    removeGrowthPlaceholders(task.sourceNodeRef.nodeId)
     void loadWorkspace(task.sourceNodeRef.nodeId)
     return
   }
 
-  pollTimer = setTimeout(async () => {
+  const timer = setTimeout(async () => {
+    pollTimers.delete(task.id)
     try {
       const nextTask = await growthApi.getGrowthTask(task.id)
       if (nextTask.status === 'running') {
@@ -617,16 +695,24 @@ function pollGrowthTask(task: GrowthTaskDetail) {
       }
 
       if (nextTask.status === 'failed') growthError.value = nextTask.failureReason || '枝化生长失败，可恢复输入后重试'
+      removeGrowthPlaceholders(nextTask.sourceNodeRef.nodeId)
       await loadWorkspace(nextTask.sourceNodeRef.nodeId)
     } catch (error) {
       growthError.value = errorMessage(error)
     }
   }, 1800)
+  pollTimers.set(task.id, timer)
 }
 
-function stopPolling() {
-  if (pollTimer) clearTimeout(pollTimer)
-  pollTimer = null
+function stopGrowthPolling(taskId: string) {
+  const timer = pollTimers.get(taskId)
+  if (timer) clearTimeout(timer)
+  pollTimers.delete(taskId)
+}
+
+function stopAllPolling() {
+  pollTimers.forEach((timer) => clearTimeout(timer))
+  pollTimers.clear()
 }
 
 async function restoreFailedInput() {
@@ -666,6 +752,7 @@ async function retryGrowth() {
     const result = await growthApi.retryGrowthSource(node.nodeType as GrowthNodeType, node.id)
     node.status = 'growing'
     node.taskId = result.task.id
+    addGrowthPlaceholders(node, result.task.fruitCount || fruitCount.value)
     pollGrowthTask(result.task)
   } catch (error) {
     growthError.value = errorMessage(error)
@@ -690,10 +777,8 @@ function formatDateTime(value: string) {
     <header class="cf-workspace-topbar">
       <div class="cf-workspace-crumb">
         <strong>{{ snapshot?.seed.title || '内容森林工作区' }}</strong>
-        <span>{{ selectedCrumb }}</span>
       </div>
       <div class="cf-workspace-actions">
-        <span class="cf-workspace-chip">{{ isReadOnly ? 'READ ONLY' : 'API LIVE' }}</span>
         <NuxtLink class="cf-secondary-action" to="/seeds">返回种子库</NuxtLink>
         <button class="cf-workspace-tool" type="button" @click="resetView">适应视图</button>
       </div>
@@ -760,7 +845,25 @@ function formatDateTime(value: string) {
             <span>{{ node.nodeType === 'seed' ? 'SEED' : 'FRUIT' }}</span>
             <span class="cf-node-dot" />
           </span>
+          <span class="cf-node-identity" aria-hidden="true">
+            <span class="cf-node-orb">
+              <span class="cf-orb-core" />
+              <span class="cf-orb-vein is-a" />
+              <span class="cf-orb-vein is-b" />
+            </span>
+            <span class="cf-node-signature">
+              <span />
+              <span />
+              <span />
+            </span>
+          </span>
           <span class="cf-node-title">{{ node.title }}</span>
+          <span v-if="node.isPlaceholder" class="cf-growth-vessel" aria-hidden="true">
+            <span class="cf-vessel-thread is-a" />
+            <span class="cf-vessel-thread is-b" />
+            <span class="cf-vessel-core" />
+            <span class="cf-vessel-scan" />
+          </span>
           <span class="cf-node-tags">
             <span class="cf-node-tag">{{ nodeStateLabel(node) }}</span>
             <span v-if="node.geneTags[0]" class="cf-node-tag">{{ node.geneTags[0] }}</span>
@@ -1015,32 +1118,72 @@ button:disabled {
   top: 14px;
   left: 16px;
   right: 424px;
-  min-height: 58px;
+  min-height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding: 10px 12px 10px 16px;
-  border: 1px solid var(--cf-border-soft);
-  border-radius: 8px;
-  background: rgba(10, 13, 15, .78);
-  backdrop-filter: blur(24px);
+  overflow: hidden;
+  padding: 8px 10px 8px 18px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(94, 215, 197, .11), transparent 32%),
+    linear-gradient(180deg, rgba(21, 25, 27, .84), rgba(9, 12, 14, .72));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .08),
+    0 18px 70px rgba(0, 0, 0, .32);
+  backdrop-filter: blur(26px) saturate(1.18);
+}
+
+.cf-workspace-topbar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, .08), transparent),
+    radial-gradient(circle at 16% 0%, rgba(94, 215, 197, .22), transparent 34%);
+  opacity: .74;
 }
 
 .cf-workspace-crumb {
+  position: relative;
+  z-index: 1;
   min-width: 0;
 }
 
-.cf-workspace-crumb strong,
+.cf-workspace-crumb strong {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  overflow: hidden;
+  max-width: 520px;
+  color: #f4fbf8;
+  font-size: 16px;
+  letter-spacing: 0;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  text-shadow: 0 0 24px rgba(94, 215, 197, .18);
+  white-space: nowrap;
+}
+
+.cf-workspace-crumb strong::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--cf-growth);
+  box-shadow: 0 0 0 5px rgba(94, 215, 197, .09), 0 0 22px rgba(94, 215, 197, .56);
+}
+
 .cf-workspace-crumb span {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.cf-workspace-crumb strong {
-  font-size: 14px;
 }
 
 .cf-workspace-crumb span,
@@ -1059,6 +1202,13 @@ button:disabled {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.cf-workspace-actions {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  gap: 10px;
 }
 
 .cf-workspace-chip,
@@ -1081,6 +1231,62 @@ button:disabled {
 .cf-secondary-action,
 .cf-state-action {
   cursor: pointer;
+}
+
+.cf-workspace-topbar .cf-workspace-tool,
+.cf-workspace-topbar .cf-secondary-action {
+  position: relative;
+  overflow: hidden;
+  min-height: 38px;
+  padding: 0 14px;
+  border-color: rgba(255, 255, 255, .12);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .075), rgba(255, 255, 255, .035)),
+    rgba(10, 13, 15, .7);
+  color: #cbd7d5;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+  transition:
+    transform .22s ease,
+    border-color .22s ease,
+    background .22s ease,
+    box-shadow .22s ease,
+    color .22s ease;
+}
+
+.cf-workspace-topbar .cf-workspace-tool::before,
+.cf-workspace-topbar .cf-secondary-action::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 0%, rgba(94, 215, 197, .2) 42%, transparent 72%);
+  opacity: 0;
+  transform: translateX(-80%);
+  transition: opacity .22s ease, transform .42s ease;
+}
+
+.cf-workspace-topbar .cf-workspace-tool:hover,
+.cf-workspace-topbar .cf-secondary-action:hover {
+  border-color: rgba(94, 215, 197, .38);
+  background:
+    linear-gradient(180deg, rgba(94, 215, 197, .14), rgba(255, 255, 255, .045)),
+    rgba(12, 16, 17, .82);
+  color: #f5fffb;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .14),
+    0 10px 34px rgba(94, 215, 197, .13);
+  transform: translateY(-2px);
+}
+
+.cf-workspace-topbar .cf-workspace-tool:hover::before,
+.cf-workspace-topbar .cf-secondary-action:hover::before {
+  opacity: 1;
+  transform: translateX(90%);
+}
+
+.cf-workspace-topbar .cf-workspace-tool:active,
+.cf-workspace-topbar .cf-secondary-action:active {
+  transform: translateY(0) scale(.98);
 }
 
 .cf-tree-canvas {
@@ -1178,6 +1384,7 @@ button:disabled {
   fill: none;
   stroke: rgba(94, 215, 197, .42);
   stroke-width: 2;
+  stroke-linecap: round;
 }
 
 .cf-branch.is-secondary {
@@ -1186,6 +1393,14 @@ button:disabled {
 
 .cf-branch.is-weak {
   stroke: rgba(240, 195, 107, .28);
+}
+
+.cf-branch.is-growth-stream {
+  stroke: rgba(240, 195, 107, .72);
+  stroke-width: 2.4;
+  stroke-dasharray: 10 12;
+  filter: drop-shadow(0 0 7px rgba(240, 195, 107, .34));
+  animation: cf-branch-flow 1.05s linear infinite;
 }
 
 .cf-branch-joint {
@@ -1208,6 +1423,20 @@ button:disabled {
   text-align: left;
   cursor: grab;
   box-shadow: 0 20px 58px rgba(0, 0, 0, .26);
+  isolation: isolate;
+  transition: border-color .2s ease, background .2s ease, box-shadow .2s ease, opacity .2s ease;
+}
+
+.cf-tree-node > * {
+  position: relative;
+  z-index: 2;
+}
+
+.cf-tree-node::before,
+.cf-tree-node::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
 }
 
 .cf-tree-node.is-seed {
@@ -1227,6 +1456,62 @@ button:disabled {
 
 .cf-tree-node.is-growing {
   animation: cf-pulse 1.2s ease-in-out infinite;
+}
+
+.cf-tree-node.is-growth-placeholder {
+  overflow: hidden;
+  border-color: rgba(240, 195, 107, .62);
+  background:
+    linear-gradient(125deg, rgba(240, 195, 107, .15), transparent 42%),
+    linear-gradient(180deg, rgba(24, 29, 30, .98), rgba(13, 18, 18, .94));
+  box-shadow:
+    0 0 0 1px rgba(240, 195, 107, .16),
+    0 0 34px rgba(240, 195, 107, .16),
+    0 24px 70px rgba(0, 0, 0, .36);
+  animation: cf-growth-breathe 1.4s ease-in-out infinite;
+}
+
+.cf-tree-node.is-growth-placeholder::before {
+  inset: -1px;
+  z-index: 0;
+  background:
+    linear-gradient(90deg, transparent, rgba(240, 195, 107, .18), transparent),
+    repeating-linear-gradient(90deg, transparent 0 13px, rgba(94, 215, 197, .08) 13px 14px),
+    repeating-linear-gradient(0deg, transparent 0 11px, rgba(240, 195, 107, .07) 11px 12px);
+  transform: translateX(-66%);
+  animation: cf-growth-grid-scan 1.8s ease-in-out infinite;
+}
+
+.cf-tree-node.is-growth-placeholder::after {
+  inset: -7px;
+  z-index: -1;
+  border: 1px solid rgba(240, 195, 107, .35);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px rgba(94, 215, 197, .08),
+    0 0 26px rgba(240, 195, 107, .18);
+  animation: cf-growth-shell 1.55s ease-in-out infinite;
+}
+
+.cf-tree-node.is-growth-placeholder .cf-node-dot {
+  background: #f0c36b;
+  animation: cf-dot-breathe .95s ease-in-out infinite;
+}
+
+.cf-tree-node.is-growth-placeholder .cf-node-title {
+  color: #fff4d2;
+  text-shadow: 0 0 18px rgba(240, 195, 107, .18);
+}
+
+.cf-tree-node.is-growth-placeholder .cf-node-tags {
+  justify-content: flex-start;
+}
+
+.cf-tree-node.is-growth-placeholder .cf-node-tag {
+  max-width: none;
+  border-color: rgba(240, 195, 107, .22);
+  background: rgba(240, 195, 107, .07);
+  color: #ffe0b2;
 }
 
 .cf-tree-node.is-failed {
@@ -1266,6 +1551,356 @@ button:disabled {
   line-height: 1.35;
 }
 
+.cf-tree-node {
+  min-height: 132px;
+  gap: 10px;
+  padding: 12px 13px;
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .06), transparent 34%),
+    linear-gradient(180deg, rgba(24, 29, 31, .97), rgba(11, 15, 17, .96));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .08),
+    0 24px 68px rgba(0, 0, 0, .32);
+  transform-origin: center;
+  transition:
+    transform .22s ease,
+    border-color .22s ease,
+    background .22s ease,
+    box-shadow .22s ease,
+    opacity .22s ease,
+    filter .22s ease;
+}
+
+.cf-tree-node:hover {
+  transform: translateY(-3px);
+}
+
+.cf-tree-node.is-seed {
+  width: 236px;
+  min-height: 142px;
+  border-radius: 18px;
+  border-color: rgba(94, 215, 197, .46);
+  background:
+    radial-gradient(circle at 22% 18%, rgba(94, 215, 197, .28), transparent 30%),
+    linear-gradient(135deg, rgba(94, 215, 197, .18), rgba(157, 228, 155, .05) 44%, rgba(11, 15, 17, .98)),
+    rgba(13, 18, 19, .98);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .1),
+    0 0 0 1px rgba(94, 215, 197, .08),
+    0 26px 76px rgba(0, 0, 0, .36),
+    0 0 38px rgba(94, 215, 197, .1);
+}
+
+.cf-tree-node.is-seed::before {
+  inset: auto 16px 12px 16px;
+  height: 26px;
+  z-index: 0;
+  border-bottom: 1px solid rgba(94, 215, 197, .28);
+  border-radius: 0 0 999px 999px;
+  background:
+    linear-gradient(90deg, transparent, rgba(94, 215, 197, .18), transparent),
+    repeating-linear-gradient(90deg, transparent 0 23px, rgba(157, 228, 155, .12) 23px 24px);
+  opacity: .86;
+}
+
+.cf-tree-node.is-seed::after {
+  right: 12px;
+  bottom: 12px;
+  width: 50px;
+  height: 50px;
+  z-index: 0;
+  border: 1px solid rgba(94, 215, 197, .14);
+  border-radius: 50%;
+  background: radial-gradient(circle, transparent 42%, rgba(94, 215, 197, .11) 43%, transparent 58%);
+}
+
+.cf-tree-node.is-fruit {
+  width: 198px;
+  min-height: 136px;
+  border-radius: 16px 16px 22px 22px;
+}
+
+.cf-tree-node.is-fruit::before {
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, .08), transparent 30%),
+    radial-gradient(circle at 82% 16%, rgba(255, 255, 255, .08), transparent 23%);
+  opacity: .72;
+}
+
+.cf-tree-node.is-candidate {
+  border-color: rgba(240, 195, 107, .34);
+  background:
+    radial-gradient(circle at 24% 18%, rgba(240, 195, 107, .18), transparent 31%),
+    linear-gradient(160deg, rgba(240, 195, 107, .09), rgba(94, 215, 197, .04) 46%, rgba(14, 17, 20, .98));
+}
+
+.cf-tree-node.is-selected {
+  border-color: rgba(157, 228, 155, .58);
+  background:
+    radial-gradient(circle at 25% 17%, rgba(157, 228, 155, .32), transparent 30%),
+    linear-gradient(155deg, rgba(157, 228, 155, .18), rgba(94, 215, 197, .08) 44%, rgba(10, 15, 13, .98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .12),
+    0 0 0 1px rgba(157, 228, 155, .12),
+    0 24px 76px rgba(0, 0, 0, .35),
+    0 0 42px rgba(157, 228, 155, .16);
+}
+
+.cf-tree-node.is-eliminated {
+  border-color: rgba(150, 154, 150, .2);
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 11px),
+    linear-gradient(160deg, rgba(78, 84, 82, .18), rgba(12, 14, 15, .96));
+  filter: saturate(.3);
+  opacity: .66;
+}
+
+.cf-tree-node.is-eliminated::after {
+  left: 14px;
+  right: 14px;
+  top: 50%;
+  z-index: 3;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(220, 225, 222, .42), transparent);
+  transform: rotate(-8deg);
+}
+
+.cf-tree-node.is-growing:not(.is-growth-placeholder) {
+  border-color: rgba(94, 215, 197, .64);
+  background:
+    linear-gradient(90deg, rgba(94, 215, 197, .14), transparent 34%, rgba(240, 195, 107, .1)),
+    linear-gradient(180deg, rgba(21, 27, 28, .98), rgba(8, 13, 14, .98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .12),
+    0 0 0 1px rgba(94, 215, 197, .16),
+    0 0 48px rgba(94, 215, 197, .18),
+    0 24px 76px rgba(0, 0, 0, .38);
+}
+
+.cf-tree-node.is-growing:not(.is-growth-placeholder)::before {
+  inset: -1px;
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, transparent, rgba(94, 215, 197, .18), transparent),
+    repeating-linear-gradient(90deg, transparent 0 16px, rgba(94, 215, 197, .08) 16px 17px);
+  transform: translateX(-70%);
+  animation: cf-growth-grid-scan 1.65s ease-in-out infinite;
+}
+
+.cf-node-identity {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 10px;
+  align-items: center;
+  min-height: 42px;
+}
+
+.cf-node-orb {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 36% 32%, rgba(255, 255, 255, .35), transparent 17%),
+    radial-gradient(circle, rgba(94, 215, 197, .18), rgba(8, 12, 13, .88) 70%);
+  box-shadow: inset 0 0 18px rgba(255, 255, 255, .05), 0 0 24px rgba(94, 215, 197, .12);
+}
+
+.cf-orb-core,
+.cf-orb-vein {
+  position: absolute;
+  pointer-events: none;
+}
+
+.cf-orb-core {
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(94, 215, 197, .72);
+  box-shadow: 0 0 18px rgba(94, 215, 197, .55);
+  transform: translate(-50%, -50%);
+}
+
+.cf-orb-vein {
+  left: 8px;
+  right: 8px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .42), transparent);
+  transform-origin: center;
+}
+
+.cf-orb-vein.is-a {
+  top: 16px;
+  transform: rotate(32deg);
+}
+
+.cf-orb-vein.is-b {
+  bottom: 15px;
+  transform: rotate(-34deg);
+}
+
+.cf-node-signature {
+  display: grid;
+  gap: 5px;
+  align-content: center;
+}
+
+.cf-node-signature span {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(94, 215, 197, .42), transparent);
+}
+
+.cf-node-signature span:nth-child(2) {
+  width: 72%;
+  background: linear-gradient(90deg, rgba(255, 255, 255, .2), transparent);
+}
+
+.cf-node-signature span:nth-child(3) {
+  width: 46%;
+  background: linear-gradient(90deg, rgba(240, 195, 107, .32), transparent);
+}
+
+.cf-tree-node.is-seed .cf-node-orb {
+  border-radius: 48% 52% 46% 54%;
+  background:
+    radial-gradient(circle at 33% 28%, rgba(255, 255, 255, .38), transparent 16%),
+    radial-gradient(ellipse at center, rgba(94, 215, 197, .36), rgba(19, 43, 39, .92) 66%);
+  box-shadow: inset 0 -8px 18px rgba(0, 0, 0, .22), 0 0 30px rgba(94, 215, 197, .2);
+  transform: rotate(-12deg);
+}
+
+.cf-tree-node.is-candidate .cf-node-orb {
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 246, 213, .38), transparent 17%),
+    radial-gradient(circle, rgba(240, 195, 107, .34), rgba(38, 27, 13, .92) 69%);
+}
+
+.cf-tree-node.is-candidate .cf-orb-core {
+  background: rgba(240, 195, 107, .74);
+  box-shadow: 0 0 18px rgba(240, 195, 107, .48);
+}
+
+.cf-tree-node.is-selected .cf-node-orb {
+  border-color: rgba(157, 228, 155, .34);
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, .46), transparent 17%),
+    radial-gradient(circle, rgba(157, 228, 155, .42), rgba(13, 38, 19, .94) 69%);
+  box-shadow: inset 0 -8px 18px rgba(0, 0, 0, .18), 0 0 32px rgba(157, 228, 155, .26);
+}
+
+.cf-tree-node.is-selected .cf-orb-core {
+  background: rgba(157, 228, 155, .9);
+  box-shadow: 0 0 22px rgba(157, 228, 155, .62);
+}
+
+.cf-tree-node.is-eliminated .cf-node-orb {
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, .12), transparent 18%),
+    radial-gradient(circle, rgba(132, 137, 134, .22), rgba(17, 18, 18, .95) 69%);
+  box-shadow: inset 0 -8px 18px rgba(0, 0, 0, .38);
+}
+
+.cf-tree-node.is-eliminated .cf-orb-core {
+  background: rgba(145, 149, 146, .42);
+  box-shadow: none;
+}
+
+.cf-tree-node.is-growing .cf-node-orb {
+  animation: cf-orb-growing 1.15s ease-in-out infinite;
+}
+
+.cf-tree-node.is-growth-placeholder {
+  border-color: rgba(240, 195, 107, .72);
+  background:
+    linear-gradient(125deg, rgba(240, 195, 107, .2), transparent 42%),
+    linear-gradient(180deg, rgba(24, 29, 30, .98), rgba(13, 18, 18, .94));
+  box-shadow:
+    0 0 0 1px rgba(240, 195, 107, .18),
+    0 0 42px rgba(240, 195, 107, .18),
+    0 24px 70px rgba(0, 0, 0, .36);
+}
+
+.cf-tree-node.is-growth-placeholder .cf-node-orb {
+  border-color: rgba(240, 195, 107, .34);
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 246, 213, .42), transparent 17%),
+    radial-gradient(circle, rgba(240, 195, 107, .38), rgba(38, 27, 13, .94) 69%);
+}
+
+.cf-tree-node.is-growth-placeholder .cf-node-signature span {
+  background: linear-gradient(90deg, rgba(240, 195, 107, .52), transparent);
+}
+
+.cf-tree-node.is-active {
+  border-color: rgba(94, 215, 197, .7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .12),
+    0 0 0 2px rgba(94, 215, 197, .3),
+    0 24px 82px rgba(0, 0, 0, .4),
+    0 0 48px rgba(94, 215, 197, .16);
+}
+
+.cf-growth-vessel {
+  position: relative;
+  height: 24px;
+  overflow: hidden;
+  border: 1px solid rgba(240, 195, 107, .18);
+  border-radius: 7px;
+  background:
+    linear-gradient(90deg, rgba(94, 215, 197, .08), transparent 35%, rgba(240, 195, 107, .1)),
+    rgba(255, 255, 255, .025);
+}
+
+.cf-vessel-thread {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(240, 195, 107, .72), rgba(94, 215, 197, .55), transparent);
+  transform-origin: left center;
+}
+
+.cf-vessel-thread.is-a {
+  top: 8px;
+  animation: cf-thread-grow 1.2s ease-in-out infinite;
+}
+
+.cf-vessel-thread.is-b {
+  top: 15px;
+  animation: cf-thread-grow 1.2s .18s ease-in-out infinite reverse;
+}
+
+.cf-vessel-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border: 1px solid rgba(255, 244, 210, .8);
+  border-radius: 50%;
+  background: rgba(240, 195, 107, .36);
+  box-shadow: 0 0 16px rgba(240, 195, 107, .5);
+  transform: translate(-50%, -50%);
+  animation: cf-core-seed 1s ease-in-out infinite;
+}
+
+.cf-vessel-scan {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .18), transparent);
+  transform: translateX(-120%);
+  animation: cf-vessel-scan 1.5s ease-in-out infinite;
+}
+
 .cf-node-tag {
   overflow: hidden;
   max-width: 84px;
@@ -1276,6 +1911,489 @@ button:disabled {
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Restrained node language: clear states, quieter material. */
+.cf-tree-node {
+  width: 196px;
+  min-height: 118px;
+  gap: 9px;
+  padding: 12px;
+  border-radius: 12px;
+  border-color: rgba(255, 255, 255, .11);
+  background:
+    linear-gradient(180deg, rgba(30, 34, 36, .95), rgba(13, 16, 18, .96));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .06),
+    0 18px 46px rgba(0, 0, 0, .28);
+  transform: none;
+  transition:
+    transform .18s ease,
+    border-color .18s ease,
+    background .18s ease,
+    box-shadow .18s ease,
+    opacity .18s ease,
+    filter .18s ease;
+}
+
+.cf-tree-node:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .08),
+    0 20px 52px rgba(0, 0, 0, .32);
+}
+
+.cf-tree-node::before {
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--node-accent, rgba(255, 255, 255, .18)) 0 4px, transparent 4px);
+  opacity: .9;
+}
+
+.cf-tree-node::after {
+  content: none;
+}
+
+.cf-tree-node.is-seed {
+  --node-accent: rgba(94, 215, 197, .78);
+  width: 224px;
+  min-height: 124px;
+  border-radius: 14px;
+  border-color: rgba(94, 215, 197, .26);
+  background:
+    linear-gradient(180deg, rgba(28, 43, 42, .9), rgba(12, 17, 18, .96));
+}
+
+.cf-tree-node.is-fruit {
+  width: 196px;
+  min-height: 118px;
+}
+
+.cf-tree-node.is-candidate {
+  --node-accent: rgba(217, 174, 95, .76);
+  border-color: rgba(217, 174, 95, .2);
+  background:
+    linear-gradient(180deg, rgba(39, 34, 25, .92), rgba(15, 16, 17, .96));
+}
+
+.cf-tree-node.is-selected {
+  --node-accent: rgba(140, 203, 136, .82);
+  border-color: rgba(140, 203, 136, .3);
+  background:
+    linear-gradient(180deg, rgba(28, 43, 30, .92), rgba(12, 17, 14, .96));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .08),
+    0 18px 48px rgba(0, 0, 0, .3),
+    0 0 0 1px rgba(140, 203, 136, .06);
+}
+
+.cf-tree-node.is-eliminated {
+  --node-accent: rgba(116, 120, 119, .6);
+  border-color: rgba(255, 255, 255, .075);
+  background:
+    linear-gradient(180deg, rgba(30, 32, 33, .82), rgba(12, 13, 14, .94));
+  filter: saturate(.48);
+  opacity: .62;
+}
+
+.cf-tree-node.is-eliminated::after {
+  content: "";
+  left: 14px;
+  right: 14px;
+  top: 50%;
+  z-index: 3;
+  height: 1px;
+  background: rgba(210, 216, 214, .2);
+  transform: rotate(-5deg);
+}
+
+.cf-tree-node.is-growing:not(.is-growth-placeholder),
+.cf-tree-node.is-growth-placeholder {
+  --node-accent: rgba(94, 215, 197, .86);
+  border-color: rgba(94, 215, 197, .34);
+  background:
+    linear-gradient(180deg, rgba(24, 41, 42, .94), rgba(11, 16, 17, .96));
+  animation: cf-node-soft-pulse 1.8s ease-in-out infinite;
+}
+
+.cf-tree-node.is-growing:not(.is-growth-placeholder)::before,
+.cf-tree-node.is-growth-placeholder::before {
+  background:
+    linear-gradient(90deg, var(--node-accent) 0 4px, transparent 4px),
+    linear-gradient(90deg, transparent, rgba(94, 215, 197, .08), transparent);
+  transform: translateX(0);
+  animation: none;
+}
+
+.cf-tree-node.is-growth-placeholder {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .08),
+    0 18px 48px rgba(0, 0, 0, .3),
+    0 0 0 1px rgba(94, 215, 197, .08);
+}
+
+.cf-tree-node.is-active {
+  border-color: rgba(94, 215, 197, .52);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .09),
+    0 0 0 2px rgba(94, 215, 197, .18),
+    0 22px 58px rgba(0, 0, 0, .34);
+}
+
+.cf-node-head {
+  color: rgba(217, 225, 223, .58);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.cf-node-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--node-accent, var(--cf-growth));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--node-accent, var(--cf-growth)) 55%, transparent);
+}
+
+.cf-node-identity {
+  grid-template-columns: 32px 1fr;
+  gap: 9px;
+  min-height: 32px;
+}
+
+.cf-node-orb {
+  width: 32px;
+  height: 32px;
+  border-color: rgba(255, 255, 255, .11);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .08), rgba(255, 255, 255, .02)),
+    rgba(255, 255, 255, .035);
+  box-shadow: none;
+}
+
+.cf-tree-node.is-seed .cf-node-orb {
+  border-radius: 50% 44% 50% 46%;
+  background:
+    radial-gradient(circle at 34% 30%, rgba(255, 255, 255, .16), transparent 20%),
+    rgba(94, 215, 197, .12);
+  transform: rotate(-8deg);
+}
+
+.cf-orb-core {
+  width: 8px;
+  height: 8px;
+  background: var(--node-accent, rgba(94, 215, 197, .72));
+  box-shadow: none;
+}
+
+.cf-orb-vein {
+  opacity: .24;
+}
+
+.cf-node-signature {
+  gap: 4px;
+}
+
+.cf-node-signature span {
+  height: 2px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--node-accent, var(--cf-growth)) 50%, transparent), transparent);
+}
+
+.cf-node-title {
+  min-height: 34px;
+  color: rgba(245, 250, 248, .94);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.cf-node-tags {
+  justify-content: flex-start;
+}
+
+.cf-node-tag {
+  max-width: 86px;
+  border-color: rgba(255, 255, 255, .08);
+  background: rgba(255, 255, 255, .035);
+  color: rgba(209, 218, 216, .68);
+}
+
+.cf-tree-node.is-seed .cf-node-tag,
+.cf-tree-node.is-growing .cf-node-tag {
+  border-color: rgba(94, 215, 197, .16);
+  background: rgba(94, 215, 197, .065);
+  color: #b9e8df;
+}
+
+.cf-tree-node.is-candidate .cf-node-tag {
+  border-color: rgba(217, 174, 95, .15);
+  background: rgba(217, 174, 95, .06);
+  color: #dfc899;
+}
+
+.cf-tree-node.is-selected .cf-node-tag {
+  border-color: rgba(140, 203, 136, .16);
+  background: rgba(140, 203, 136, .065);
+  color: #c8e7c5;
+}
+
+.cf-tree-node.is-eliminated .cf-node-tag {
+  border-color: rgba(255, 255, 255, .06);
+  background: rgba(255, 255, 255, .025);
+  color: rgba(205, 211, 209, .5);
+}
+
+.cf-growth-vessel {
+  height: 18px;
+  border-color: rgba(94, 215, 197, .12);
+  border-radius: 6px;
+  background: rgba(94, 215, 197, .045);
+}
+
+.cf-vessel-thread {
+  background: linear-gradient(90deg, transparent, rgba(94, 215, 197, .46), transparent);
+}
+
+.cf-vessel-core {
+  width: 5px;
+  height: 5px;
+  border-color: rgba(94, 215, 197, .38);
+  background: rgba(94, 215, 197, .34);
+  box-shadow: 0 0 10px rgba(94, 215, 197, .24);
+}
+
+.cf-vessel-scan {
+  background: linear-gradient(90deg, transparent, rgba(94, 215, 197, .1), transparent);
+}
+
+/* Gallery-grade node cards: refined, stateful, and less noisy. */
+.cf-tree-node {
+  --node-accent: #d6d9d3;
+  --node-accent-soft: rgba(214, 217, 211, .12);
+  width: 208px;
+  min-height: 124px;
+  gap: 10px;
+  padding: 13px 14px 12px;
+  border: 1px solid rgba(255, 255, 255, .105);
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .072), rgba(255, 255, 255, .018) 42%, transparent 74%),
+    rgba(15, 18, 20, .92);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .075),
+    inset 0 -1px 0 rgba(255, 255, 255, .03),
+    0 22px 54px rgba(0, 0, 0, .31);
+  backdrop-filter: blur(18px) saturate(1.16);
+}
+
+.cf-tree-node:hover {
+  border-color: color-mix(in srgb, var(--node-accent) 42%, rgba(255, 255, 255, .12));
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .092), rgba(255, 255, 255, .024) 42%, transparent 74%),
+    rgba(17, 21, 23, .94);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .1),
+    inset 0 -1px 0 rgba(255, 255, 255, .04),
+    0 26px 64px rgba(0, 0, 0, .36);
+  transform: translateY(-2px);
+}
+
+.cf-tree-node::before {
+  inset: 8px auto 8px 8px;
+  width: 3px;
+  z-index: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, transparent, var(--node-accent) 18%, var(--node-accent) 82%, transparent);
+  opacity: .82;
+}
+
+.cf-tree-node::after {
+  content: "";
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(120deg, var(--node-accent-soft), transparent 34%),
+    linear-gradient(90deg, transparent 0 52%, rgba(255, 255, 255, .026) 52% 53%, transparent 53%);
+  opacity: .72;
+}
+
+.cf-tree-node > * {
+  z-index: 2;
+}
+
+.cf-tree-node.is-seed {
+  --node-accent: #64d8c8;
+  --node-accent-soft: rgba(100, 216, 200, .12);
+  width: 232px;
+  min-height: 132px;
+  border-radius: 18px 14px 18px 14px;
+  border-color: rgba(100, 216, 200, .2);
+  background:
+    linear-gradient(145deg, rgba(100, 216, 200, .11), rgba(255, 255, 255, .025) 40%, transparent 76%),
+    rgba(12, 19, 20, .94);
+}
+
+.cf-tree-node.is-fruit {
+  border-radius: 14px;
+}
+
+.cf-tree-node.is-candidate {
+  --node-accent: #d5a95f;
+  --node-accent-soft: rgba(213, 169, 95, .115);
+  border-color: rgba(213, 169, 95, .18);
+}
+
+.cf-tree-node.is-selected {
+  --node-accent: #9ad78f;
+  --node-accent-soft: rgba(154, 215, 143, .125);
+  border-color: rgba(154, 215, 143, .24);
+}
+
+.cf-tree-node.is-eliminated {
+  --node-accent: #7b817f;
+  --node-accent-soft: rgba(123, 129, 127, .08);
+  border-color: rgba(255, 255, 255, .07);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .04), rgba(255, 255, 255, .012) 46%, transparent),
+    rgba(13, 15, 16, .88);
+  filter: saturate(.52) contrast(.92);
+  opacity: .64;
+}
+
+.cf-tree-node.is-eliminated::after {
+  inset: 0;
+  background:
+    linear-gradient(120deg, var(--node-accent-soft), transparent 34%),
+    linear-gradient(168deg, transparent 0 48%, rgba(218, 223, 220, .16) 48% 49%, transparent 49%);
+}
+
+.cf-tree-node.is-growing:not(.is-growth-placeholder),
+.cf-tree-node.is-growth-placeholder {
+  --node-accent: #71dece;
+  --node-accent-soft: rgba(113, 222, 206, .14);
+  border-color: rgba(113, 222, 206, .28);
+  animation: cf-node-soft-pulse 2.1s ease-in-out infinite;
+}
+
+.cf-tree-node.is-growth-placeholder {
+  background:
+    linear-gradient(145deg, rgba(113, 222, 206, .12), rgba(255, 255, 255, .025) 42%, transparent 76%),
+    rgba(12, 19, 20, .94);
+}
+
+.cf-tree-node.is-active {
+  border-color: color-mix(in srgb, var(--node-accent) 58%, rgba(255, 255, 255, .1));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .1),
+    0 0 0 1px color-mix(in srgb, var(--node-accent) 22%, transparent),
+    0 28px 68px rgba(0, 0, 0, .38);
+}
+
+.cf-node-head {
+  align-items: center;
+  color: rgba(230, 235, 233, .54);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .08em;
+}
+
+.cf-node-dot {
+  width: 7px;
+  height: 7px;
+  background: var(--node-accent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--node-accent) 38%, transparent);
+}
+
+.cf-node-identity {
+  grid-template-columns: 34px 1fr;
+  gap: 11px;
+  min-height: 34px;
+}
+
+.cf-node-orb {
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 11px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--node-accent) 18%, transparent), rgba(255, 255, 255, .035)),
+    rgba(255, 255, 255, .028);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+  transform: none;
+}
+
+.cf-tree-node.is-seed .cf-node-orb {
+  border-radius: 50% 46% 48% 44%;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, .18), transparent 18%),
+    color-mix(in srgb, var(--node-accent) 17%, rgba(255, 255, 255, .025));
+  transform: rotate(-10deg);
+}
+
+.cf-orb-core {
+  width: 8px;
+  height: 8px;
+  background: var(--node-accent);
+  box-shadow: none;
+}
+
+.cf-orb-vein {
+  opacity: .18;
+}
+
+.cf-node-signature {
+  gap: 5px;
+}
+
+.cf-node-signature span {
+  height: 2px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--node-accent) 42%, rgba(255, 255, 255, .1)), transparent);
+}
+
+.cf-node-signature span:nth-child(2) {
+  width: 62%;
+}
+
+.cf-node-signature span:nth-child(3) {
+  width: 36%;
+}
+
+.cf-node-title {
+  min-height: 35px;
+  color: rgba(246, 250, 248, .95);
+  font-size: 13px;
+  font-weight: 780;
+  line-height: 1.38;
+}
+
+.cf-node-tags {
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.cf-node-tag {
+  max-width: 88px;
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  border-color: color-mix(in srgb, var(--node-accent) 18%, rgba(255, 255, 255, .06));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--node-accent) 8%, transparent);
+  color: color-mix(in srgb, var(--node-accent) 58%, #dce4e1);
+  font-size: 10px;
+}
+
+.cf-tree-node.is-eliminated .cf-node-title,
+.cf-tree-node.is-eliminated .cf-node-tag,
+.cf-tree-node.is-eliminated .cf-node-head {
+  color: rgba(214, 220, 218, .48);
+}
+
+.cf-growth-vessel {
+  height: 18px;
+  border-color: rgba(113, 222, 206, .14);
+  border-radius: 999px;
+  background: rgba(113, 222, 206, .045);
 }
 
 .cf-node-detail {
@@ -1769,6 +2887,129 @@ button:disabled {
 
   50% {
     box-shadow: 0 0 0 6px rgba(94, 215, 197, .08), 0 20px 58px rgba(0, 0, 0, .26);
+  }
+}
+
+@keyframes cf-growth-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    filter: saturate(1);
+  }
+
+  50% {
+    transform: translateY(-3px) scale(1.018);
+    filter: saturate(1.22);
+  }
+}
+
+@keyframes cf-growth-grid-scan {
+  0% {
+    opacity: .26;
+    transform: translateX(-68%);
+  }
+
+  45% {
+    opacity: .72;
+  }
+
+  100% {
+    opacity: .18;
+    transform: translateX(68%);
+  }
+}
+
+@keyframes cf-growth-shell {
+  0%,
+  100% {
+    opacity: .22;
+    transform: scale(.98);
+  }
+
+  50% {
+    opacity: .74;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes cf-branch-flow {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+@keyframes cf-dot-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 4px rgba(240, 195, 107, .08);
+  }
+
+  50% {
+    box-shadow: 0 0 0 10px rgba(240, 195, 107, .18);
+  }
+}
+
+@keyframes cf-thread-grow {
+  0%,
+  100% {
+    opacity: .28;
+    transform: scaleX(.36);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes cf-core-seed {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(.86);
+  }
+
+  50% {
+    transform: translate(-50%, -50%) scale(1.2);
+  }
+}
+
+@keyframes cf-vessel-scan {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes cf-orb-growing {
+  0%,
+  100% {
+    box-shadow: inset 0 0 18px rgba(255, 255, 255, .05), 0 0 18px rgba(94, 215, 197, .16);
+    transform: scale(1);
+  }
+
+  50% {
+    box-shadow: inset 0 0 24px rgba(255, 255, 255, .08), 0 0 34px rgba(94, 215, 197, .34);
+    transform: scale(1.08);
+  }
+}
+
+@keyframes cf-node-soft-pulse {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, .08),
+      0 18px 48px rgba(0, 0, 0, .3),
+      0 0 0 1px rgba(94, 215, 197, .06);
+  }
+
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, .09),
+      0 20px 54px rgba(0, 0, 0, .32),
+      0 0 0 1px rgba(94, 215, 197, .12);
   }
 }
 
