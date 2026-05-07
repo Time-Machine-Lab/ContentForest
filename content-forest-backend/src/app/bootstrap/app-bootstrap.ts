@@ -5,6 +5,7 @@ import type { GeneController } from "../../interface/http/gene-controller.js";
 import type { GrowthController } from "../../interface/http/growth-controller.js";
 import type { PublicationController } from "../../interface/http/publication-controller.js";
 import type { NutrientController } from "../../interface/http/nutrient-controller.js";
+import type { WorkspaceController } from "../../interface/http/workspace-controller.js";
 import { GeneratorController as HttpGeneratorController } from "../../interface/http/generator-controller.js";
 import { FruitController as HttpFruitController } from "../../interface/http/fruit-controller.js";
 import { GeneController as HttpGeneController } from "../../interface/http/gene-controller.js";
@@ -12,6 +13,7 @@ import { GrowthController as HttpGrowthController } from "../../interface/http/g
 import { PublicationController as HttpPublicationController } from "../../interface/http/publication-controller.js";
 import { NutrientController as HttpNutrientController } from "../../interface/http/nutrient-controller.js";
 import { SeedController as HttpSeedController } from "../../interface/http/seed-controller.js";
+import { WorkspaceController as HttpWorkspaceController } from "../../interface/http/workspace-controller.js";
 import { AgentRuntime } from "../../agent/runtime/agent-runtime.js";
 import { FakeLlmAdapter } from "../../agent/runtime/fake-llm-adapter.js";
 import type { LlmAdapter } from "../../agent/runtime/llm-adapter.js";
@@ -43,6 +45,7 @@ import { GrowthService } from "../../modules/growth/application/growth-service.j
 import { NutrientService } from "../../modules/nutrient/application/nutrient-service.js";
 import { PublicationService } from "../../modules/publication/application/publication-service.js";
 import { SeedService } from "../../modules/seed/application/seed-service.js";
+import { WorkspaceService } from "../../modules/workspace/application/workspace-service.js";
 import { SqliteFruitStorageAdapter } from "../../storage/adapters/sqlite-fruit-storage-adapter.js";
 import { SqliteGeneStorageAdapter } from "../../storage/adapters/sqlite-gene-storage-adapter.js";
 import { SqliteGeneratorStorageAdapter } from "../../storage/adapters/sqlite-generator-storage-adapter.js";
@@ -66,6 +69,7 @@ export interface AppRuntime {
   growthController: GrowthController;
   publicationController: PublicationController;
   nutrientController: NutrientController;
+  workspaceController: WorkspaceController;
   close(): void;
 }
 
@@ -225,6 +229,14 @@ export async function bootstrapApp(
     storage: publicationStorage,
     publishableFruitPort: fruitService,
   });
+  const workspaceService = new WorkspaceService({
+    seedService,
+    fruitService,
+    growthService,
+    generatorService,
+    nutrientService,
+    geneService,
+  });
   const seedController = new HttpSeedController(seedService);
   const generatorController = new HttpGeneratorController(generatorService);
   const fruitController = new HttpFruitController(fruitService);
@@ -232,6 +244,7 @@ export async function bootstrapApp(
   const growthController = new HttpGrowthController(growthService);
   const publicationController = new HttpPublicationController(publicationService);
   const nutrientController = new HttpNutrientController(nutrientService);
+  const workspaceController = new HttpWorkspaceController(workspaceService);
 
   return {
     config,
@@ -242,6 +255,7 @@ export async function bootstrapApp(
     growthController,
     publicationController,
     nutrientController,
+    workspaceController,
     close(): void {
       seedStorage.close();
       generatorStorage.close();

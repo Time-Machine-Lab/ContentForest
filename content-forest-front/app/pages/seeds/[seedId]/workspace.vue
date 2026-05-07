@@ -1,8 +1,12 @@
 <script setup lang="ts">
+import { createFruitApi, type FruitDetail, type FruitSelectionState } from '../../../../src/modules/fruit'
+import { createGrowthApi, type GrowthFailedInput, type GrowthNodeType, type GrowthTaskDetail } from '../../../../src/modules/growth'
+import { createSeedApi } from '../../../../src/modules/seed'
+import { createWorkspaceApi, type WorkspaceNode, type WorkspaceNodeRef, type WorkspaceSnapshot } from '../../../../src/modules/workspace'
+
 type NodeType = 'seed' | 'fruit'
-type SelectionState = 'candidate' | 'selected' | 'eliminated'
 type NodeStatus = 'idle' | 'growing' | 'failed'
-type ResourceKind = 'nutrition' | 'gene'
+type ResourceKind = 'nutrient' | 'gene'
 
 interface TreeNode {
   id: string
@@ -12,17 +16,22 @@ interface TreeNode {
   markdown: string
   x: number
   y: number
-  selectionState?: SelectionState
-  parentNodeRef?: {
-    nodeId: string
-    nodeType: NodeType
-  }
+  fruitId?: string
+  selectionState?: FruitSelectionState
+  parentNodeRef?: WorkspaceNodeRef
   contentLocation: string
   geneTags: string[]
   records: string[]
   createdAt: string
   updatedAt: string
   status: NodeStatus
+  taskId: string | null
+  failedInput: {
+    hasFailedInput: boolean
+    taskId: string | null
+    failureReason: string | null
+    updatedAt: string | null
+  }
 }
 
 interface ResourceRef {
@@ -44,257 +53,304 @@ interface DragState {
 }
 
 const route = useRoute()
+const runtimeConfig = useRuntimeConfig()
+const apiBase = String(runtimeConfig.public.apiBase || '')
 
-const seedId = computed(() => String(route.params.seedId || 'mock-seed'))
-const isReadOnly = computed(() => route.query.readonly === '1')
-
-const treeSize = {
-  width: 1180,
-  height: 820,
+function fetcher<T>(url: string, options?: { method?: 'GET' | 'POST' | 'PATCH'; body?: unknown }) {
+  return $fetch<T>(url, {
+    method: options?.method,
+    body: options?.body as BodyInit | Record<string, unknown> | null | undefined,
+  })
 }
 
+const workspaceApi = createWorkspaceApi(fetcher, apiBase)
+const seedApi = createSeedApi(fetcher, apiBase)
+const fruitApi = createFruitApi(fetcher, apiBase)
+const growthApi = createGrowthApi(fetcher, apiBase)
+
+const seedId = computed(() => String(route.params.seedId || ''))
+const snapshot = ref<WorkspaceSnapshot | null>(null)
+const nodes = ref<TreeNode[]>([])
+const selectedNodeId = ref('')
+const transform = reactive({ x: -620, y: -360, scale: 1 })
+const treeSize = reactive({ width: 1180, height: 820 })
 const nodeSize = {
   seed: { width: 220, height: 104 },
-  fruit: { width: 182, height: 92 },
+  fruit: { width: 184, height: 92 },
 }
 
-const generatorName = '小红书产品文案'
-const fruitCount = 3
-const mutationRate = '18%'
-
-const resourceOptions: ResourceRef[] = [
-  {
-    id: 'nutrition-hot-samples',
-    kind: 'nutrition',
-    label: '营养 · 爆款样本',
-    scope: '公共营养库',
-    description: '小红书情绪价值爆款样本 · 12 篇资料',
-  },
-  {
-    id: 'gene-emotion-lineage',
-    kind: 'gene',
-    label: '基因 · 情绪价值谱系',
-    scope: '种子基因库',
-    description: '收藏型标题与低噪声承诺 · 已验证',
-  },
-  {
-    id: 'nutrition-kol-watch',
-    kind: 'nutrition',
-    label: '营养 · KOL 观察',
-    scope: '种子营养库',
-    description: '壁纸账号 KOL 观察 · 8 条案例',
-  },
-]
-
-const nodes = ref<TreeNode[]>([
-  {
-    id: 'seed-root',
-    nodeType: 'seed',
-    title: '用壁纸产品做一组有收藏欲的内容',
-    summary: '根种子',
-    markdown: [
-      '# 壁纸产品增长种子',
-      '我想把壁纸产品从“图片资源”表达成一种低噪声的生活方式。',
-      '目标不是直接硬卖，而是让用户觉得：这组壁纸能帮我整理情绪、屏幕和注意力。',
-      '第一期先探索小红书图文和短视频脚本。',
-    ].join('\n\n'),
-    x: 486,
-    y: 640,
-    contentLocation: `runtime/seeds/${seedId.value}/seed.md`,
-    geneTags: ['低噪声审美', '收藏动机', '屏幕场景', '生活方式表达'],
-    records: ['种子专属基因库已创建', '可作为内容树根节点查看'],
-    createdAt: '2026-05-07T10:00:00+08:00',
-    updatedAt: '2026-05-07T20:10:00+08:00',
-    status: 'idle',
-  },
-  {
-    id: 'fruit-emotion-open',
-    nodeType: 'fruit',
-    title: '情绪价值开场：给手机一个安静角落',
-    summary: '情绪价值开场',
-    markdown: [
-      '你每天打开手机 120 次，它不应该每次都把你拉回噪声里。',
-      '这组壁纸不是为了“好看一下”，而是为了让屏幕安静下来。低饱和、少信息、留白充分，适合想把注意力拿回来的人。',
-      '收藏这组，今晚先换一张。',
-    ].join('\n\n'),
-    x: 314,
-    y: 452,
-    selectionState: 'selected',
-    parentNodeRef: { nodeId: 'seed-root', nodeType: 'seed' },
-    contentLocation: `runtime/seeds/${seedId.value}/fruits/fruit-emotion-open.md`,
-    geneTags: ['情绪价值', '低噪声承诺', '收藏 CTA', '场景化痛点'],
-    records: ['小红书 / 人为发布：收藏 312 · 点赞 890 · 评论质量较高', '人为监控器：最近快照 2026-05-07 20:18'],
-    createdAt: '2026-05-07T11:20:00+08:00',
-    updatedAt: '2026-05-07T20:18:00+08:00',
-    status: 'idle',
-  },
-  {
-    id: 'fruit-niche-piece',
-    nodeType: 'fruit',
-    title: '小众精品路线：不是壁纸，是审美切片',
-    summary: '小众精品路线',
-    markdown: [
-      '如果你讨厌满屏信息，这组壁纸会更像一块干净的审美切片。',
-      '它不抢注意力，只在你点亮屏幕的几秒里给一点秩序感。',
-    ].join('\n\n'),
-    x: 594,
-    y: 438,
-    selectionState: 'candidate',
-    parentNodeRef: { nodeId: 'seed-root', nodeType: 'seed' },
-    contentLocation: `runtime/seeds/${seedId.value}/fruits/fruit-niche-piece.md`,
-    geneTags: ['小众精品', '审美切片', '低干扰', '产品高级感'],
-    records: ['候选果实：等待物竞天择'],
-    createdAt: '2026-05-07T11:24:00+08:00',
-    updatedAt: '2026-05-07T11:24:00+08:00',
-    status: 'idle',
-  },
-  {
-    id: 'fruit-feature-list',
-    nodeType: 'fruit',
-    title: '功能介绍路线：4K、无水印、每日更新',
-    summary: '功能介绍路线',
-    markdown: [
-      '4K 高清、无水印、每日更新。',
-      '这条路线信息明确，但缺少情绪钩子，和种子目标偏离较大。',
-    ].join('\n\n'),
-    x: 816,
-    y: 472,
-    selectionState: 'eliminated',
-    parentNodeRef: { nodeId: 'seed-root', nodeType: 'seed' },
-    contentLocation: `runtime/seeds/${seedId.value}/fruits/fruit-feature-list.md`,
-    geneTags: ['功能卖点', '直接促销', '信息密度高'],
-    records: ['物竞天择：人工淘汰 · 原因：传播记忆点弱'],
-    createdAt: '2026-05-07T11:28:00+08:00',
-    updatedAt: '2026-05-07T18:40:00+08:00',
-    status: 'idle',
-  },
-  {
-    id: 'fruit-sleep-scene',
-    nodeType: 'fruit',
-    title: '睡前换一张屏幕，像换一种心情',
-    summary: '睡前使用场景',
-    markdown: [
-      '睡前别再刷到最后一秒。',
-      '把屏幕换成更安静的一张图，像给今天收一个柔和的尾。',
-    ].join('\n\n'),
-    x: 204,
-    y: 232,
-    selectionState: 'candidate',
-    parentNodeRef: { nodeId: 'fruit-emotion-open', nodeType: 'fruit' },
-    contentLocation: `runtime/seeds/${seedId.value}/fruits/fruit-sleep-scene.md`,
-    geneTags: ['睡前场景', '情绪收束', '轻 CTA'],
-    records: ['候选果实：等待选择或淘汰'],
-    createdAt: '2026-05-07T13:04:00+08:00',
-    updatedAt: '2026-05-07T13:04:00+08:00',
-    status: 'idle',
-  },
-  {
-    id: 'fruit-low-noise-desk',
-    nodeType: 'fruit',
-    title: '把桌面整理成一个低噪声空间',
-    summary: '低噪声空间',
-    markdown: [
-      '手机桌面也需要整理。',
-      '不是把 App 摆整齐，而是让第一眼看到的东西不再刺激你。',
-    ].join('\n\n'),
-    x: 462,
-    y: 192,
-    selectionState: 'selected',
-    parentNodeRef: { nodeId: 'fruit-emotion-open', nodeType: 'fruit' },
-    contentLocation: `runtime/seeds/${seedId.value}/fruits/fruit-low-noise-desk.md`,
-    geneTags: ['整理感', '低噪声空间', '注意力回收'],
-    records: ['微博 / 人为发布：转发 42 · 收藏 119', '数据反馈：评论中多次出现“舒服”“想换”'],
-    createdAt: '2026-05-07T13:18:00+08:00',
-    updatedAt: '2026-05-07T19:15:00+08:00',
-    status: 'idle',
-  },
-  {
-    id: 'fruit-minimal-failed',
-    nodeType: 'fruit',
-    title: '极简黑白系列：失败后可重试',
-    summary: '失败重试样例',
-    markdown: [
-      '最近一次枝化生长失败，前端可从这个节点恢复上次输入。',
-      '失败不回滚已生成果实，只让用户感知并允许重试。',
-    ].join('\n\n'),
-    x: 704,
-    y: 198,
-    selectionState: 'candidate',
-    parentNodeRef: { nodeId: 'fruit-niche-piece', nodeType: 'fruit' },
-    contentLocation: `runtime/seeds/${seedId.value}/fruits/fruit-minimal-failed.md`,
-    geneTags: ['失败恢复', '重试入口', '工作流体验'],
-    records: ['最近失败任务：超时 · 可重试'],
-    createdAt: '2026-05-07T14:12:00+08:00',
-    updatedAt: '2026-05-07T14:18:00+08:00',
-    status: 'failed',
-  },
-  {
-    id: 'fruit-anxiety-screen',
-    nodeType: 'fruit',
-    title: '给焦虑的人一张不会打扰的屏幕',
-    summary: '焦虑人群钩子',
-    markdown: [
-      '焦虑的时候，屏幕最好不要继续喊你。',
-      '这组壁纸做了一件很小的事：让手机先安静一点。',
-    ].join('\n\n'),
-    x: 916,
-    y: 268,
-    selectionState: 'candidate',
-    parentNodeRef: { nodeId: 'fruit-niche-piece', nodeType: 'fruit' },
-    contentLocation: `runtime/seeds/${seedId.value}/fruits/fruit-anxiety-screen.md`,
-    geneTags: ['焦虑人群', '不打扰', '情绪钩子'],
-    records: ['候选果实：适合继续枝化'],
-    createdAt: '2026-05-07T14:30:00+08:00',
-    updatedAt: '2026-05-07T14:30:00+08:00',
-    status: 'idle',
-  },
-])
-
-const selectedNodeId = ref('fruit-emotion-open')
-const transform = reactive({ x: -660, y: -430, scale: 1 })
+const workspaceLoading = ref(false)
+const workspaceError = ref('')
+const detailLoading = ref(false)
+const detailError = ref('')
+const selectionLoading = ref(false)
+const growthLoading = ref(false)
+const growthError = ref('')
 const dragState = ref<DragState | null>(null)
 const suppressClickNodeId = ref('')
-const growthDetailOpen = ref(false)
 const resourcePopoverOpen = ref(false)
-const growthIntent = ref('继续沿着 @情绪价值 的方向生长，强调收藏和睡前使用场景')
-const referencedResources = ref<ResourceRef[]>([resourceOptions[0]!, resourceOptions[1]!])
-let nextFruitIndex = 1
-let growthTimer: ReturnType<typeof setTimeout> | null = null
+const growthDetailOpen = ref(false)
+const growthIntent = ref('')
+const referencedResources = ref<ResourceRef[]>([])
+const selectedGeneratorId = ref('')
+const fruitCount = ref(3)
+const mutationRate = ref(18)
 
-const selectedNode = computed<TreeNode>(() => nodes.value.find((node) => node.id === selectedNodeId.value) ?? nodes.value[0]!)
-const canShowGrowthComposer = computed(() => selectedNode.value.nodeType === 'fruit' && selectedNode.value.selectionState === 'selected')
-const visibleComposer = computed(() => canShowGrowthComposer.value && !isReadOnly.value)
-const treeEdges = computed(() => nodes.value.filter((node) => node.parentNodeRef).map((node) => ({
-  parentId: node.parentNodeRef?.nodeId || '',
-  childId: node.id,
-})))
+let pollTimer: ReturnType<typeof setTimeout> | null = null
 
-const branchPaths = computed(() => treeEdges.value.map((edge, index) => {
+const isReadOnly = computed(() => Boolean(snapshot.value?.workspaceReadOnly || route.query.readonly === '1'))
+const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) ?? nodes.value[0] ?? null)
+const canShowGrowthComposer = computed(() => selectedNode.value?.nodeType === 'fruit' && selectedNode.value.selectionState === 'selected')
+const visibleComposer = computed(() => Boolean(canShowGrowthComposer.value && !isReadOnly.value && selectedNode.value?.status !== 'growing'))
+const selectedCrumb = computed(() => selectedNode.value ? `工作区 / 内容树 / ${selectedNode.value.summary}` : '工作区 / 内容树')
+const selectedGenerator = computed(() => snapshot.value?.resources.generators.find((item) => item.id === selectedGeneratorId.value) ?? null)
+const generatorName = computed(() => selectedGenerator.value?.name ?? '未选择生成器')
+const branchEdges = computed(() => snapshot.value?.edges.map((edge, index) => ({
+  parentId: edge.parentNodeRef.nodeId,
+  childId: edge.childNodeRef.nodeId,
+  className: index === 0 ? 'is-primary' : index % 2 === 0 ? 'is-secondary' : 'is-weak',
+})) ?? [])
+const branchPaths = computed(() => branchEdges.value.map((edge) => {
   const parent = findNode(edge.parentId)
   const child = findNode(edge.childId)
   if (!parent || !child) return null
   return {
     key: `${edge.parentId}-${edge.childId}`,
     d: makeBranchPath(parent, child),
-    className: index > 2 ? 'is-weak' : index === 0 ? 'is-primary' : 'is-secondary',
-    joint: getChildJoint(child),
+    className: edge.className,
+    joint: getChildPort(child),
   }
-}).filter((path): path is NonNullable<typeof path> => Boolean(path)))
-
+}).filter((item): item is NonNullable<typeof item> => Boolean(item)))
 const transformedMapStyle = computed(() => ({
+  width: `${treeSize.width}px`,
+  height: `${treeSize.height}px`,
   transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
 }))
+const resourceOptions = computed<ResourceRef[]>(() => {
+  const resources = snapshot.value?.resources
+  if (!resources) return []
 
-const selectedCrumb = computed(() => `工作区 / 内容树 / 当前选中：${selectedNode.value.summary}`)
-
+  return [
+    ...resources.nutrients
+      .filter((item) => item.archiveState === 'active')
+      .map((item) => ({
+        id: item.id,
+        kind: 'nutrient' as const,
+        label: `营养 · ${item.title}`,
+        scope: item.library.scope === 'public' ? '公共营养库' : item.library.name,
+        description: `${item.library.name} · ${item.contentLocation}`,
+      })),
+    ...resources.geneInsights
+      .filter((item) => item.status === 'active')
+      .map((item) => ({
+        id: item.id,
+        kind: 'gene' as const,
+        label: `基因 · ${item.title}`,
+        scope: item.niche || '种子基因库',
+        description: `${item.lineage || '经验'} · ${item.contentLocation}`,
+      })),
+  ]
+})
 const growthDetailResources = computed(() => referencedResources.value.map((resource) => ({
   ...resource,
   kindLabel: resource.kind === 'gene' ? '基因库' : '营养库',
 })))
 
+watch(seedId, () => {
+  void loadWorkspace()
+}, { immediate: true })
+
 onBeforeUnmount(() => {
-  if (growthTimer) clearTimeout(growthTimer)
+  stopPolling()
 })
+
+function errorMessage(error: unknown) {
+  if (typeof error === 'object' && error !== null && 'data' in error) {
+    const data = (error as { data?: { message?: string } }).data
+    if (data?.message) return data.message
+  }
+  if (String(error).includes('Failed to fetch')) return '无法连接后端服务，请确认后端已启动'
+  if (error instanceof Error) return error.message
+  return '操作失败，请稍后重试'
+}
+
+async function loadWorkspace(preferredNodeId = selectedNodeId.value) {
+  if (!seedId.value) return
+
+  workspaceLoading.value = true
+  workspaceError.value = ''
+
+  try {
+    const nextSnapshot = await workspaceApi.getSeedWorkspace(seedId.value)
+    snapshot.value = nextSnapshot
+    nodes.value = layoutSnapshot(nextSnapshot, nodes.value)
+
+    const routeNodeId = typeof route.query.node === 'string' ? route.query.node : ''
+    const nextSelectedId = preferredNodeId || routeNodeId || nextSnapshot.seed.rootNodeId || nodes.value[0]?.id || ''
+    selectedNodeId.value = nodes.value.some((node) => node.id === nextSelectedId)
+      ? nextSelectedId
+      : nodes.value[0]?.id || ''
+
+    if (!selectedGeneratorId.value || !nextSnapshot.resources.generators.some((item) => item.id === selectedGeneratorId.value)) {
+      selectedGeneratorId.value = nextSnapshot.resources.generators[0]?.id || ''
+    }
+
+    referencedResources.value = referencedResources.value.filter((resource) => resourceOptions.value.some((item) => item.id === resource.id && item.kind === resource.kind))
+    await loadSelectedNodeDetail()
+  } catch (error) {
+    workspaceError.value = errorMessage(error)
+  } finally {
+    workspaceLoading.value = false
+  }
+}
+
+function layoutSnapshot(nextSnapshot: WorkspaceSnapshot, previousNodes: TreeNode[]) {
+  const previousPositions = new Map(previousNodes.map((node) => [node.id, { x: node.x, y: node.y }]))
+  const depthByNode = calculateDepths(nextSnapshot)
+  const maxDepth = Math.max(0, ...Array.from(depthByNode.values()))
+  const levels = new Map<number, WorkspaceNode[]>()
+
+  nextSnapshot.nodes.forEach((node) => {
+    const depth = depthByNode.get(node.nodeId) ?? 0
+    const level = levels.get(depth) ?? []
+    level.push(node)
+    levels.set(depth, level)
+  })
+
+  const widestLevel = Math.max(1, ...Array.from(levels.values()).map((level) => level.length))
+  treeSize.width = Math.max(1180, widestLevel * 250 + 260)
+  treeSize.height = Math.max(820, (maxDepth + 2) * 178)
+
+  return nextSnapshot.nodes.map((node) => {
+    const previousPosition = previousPositions.get(node.nodeId)
+    const depth = depthByNode.get(node.nodeId) ?? 0
+    const siblings = levels.get(depth) ?? [node]
+    const index = siblings.findIndex((item) => item.nodeId === node.nodeId)
+    const size = node.nodeType === 'seed' ? nodeSize.seed : nodeSize.fruit
+    const gap = node.nodeType === 'seed' ? 250 : 244
+    const levelWidth = (siblings.length - 1) * gap
+    const x = treeSize.width / 2 - levelWidth / 2 + Math.max(0, index) * gap - size.width / 2
+    const y = treeSize.height - 154 - depth * 172
+
+    return mapWorkspaceNode(node, previousPosition ?? { x, y })
+  })
+}
+
+function calculateDepths(nextSnapshot: WorkspaceSnapshot) {
+  const children = new Map<string, string[]>()
+  nextSnapshot.edges.forEach((edge) => {
+    const list = children.get(edge.parentNodeRef.nodeId) ?? []
+    list.push(edge.childNodeRef.nodeId)
+    children.set(edge.parentNodeRef.nodeId, list)
+  })
+
+  const rootNodeId = nextSnapshot.seed.rootNodeId || nextSnapshot.nodes.find((node) => node.nodeType === 'seed')?.nodeId || ''
+  const depths = new Map<string, number>()
+  const queue: Array<{ nodeId: string; depth: number }> = rootNodeId ? [{ nodeId: rootNodeId, depth: 0 }] : []
+
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    if (depths.has(current.nodeId)) continue
+    depths.set(current.nodeId, current.depth)
+    ;(children.get(current.nodeId) ?? []).forEach((childId) => queue.push({ nodeId: childId, depth: current.depth + 1 }))
+  }
+
+  nextSnapshot.nodes.forEach((node) => {
+    if (!depths.has(node.nodeId)) depths.set(node.nodeId, node.nodeType === 'seed' ? 0 : 1)
+  })
+
+  return depths
+}
+
+function mapWorkspaceNode(node: WorkspaceNode, position: { x: number; y: number }): TreeNode {
+  const failedInput = node.failedInput
+  const status: NodeStatus = node.growth.isGrowing ? 'growing' : failedInput.hasFailedInput ? 'failed' : 'idle'
+
+  if (node.nodeType === 'seed') {
+    return {
+      id: node.nodeId,
+      nodeType: 'seed',
+      title: node.title,
+      summary: '根种子',
+      markdown: '',
+      x: position.x,
+      y: position.y,
+      contentLocation: snapshot.value?.seed.contentLocation || '',
+      geneTags: ['灵感种子', node.archiveState === 'archived' ? '已归档' : '未归档'],
+      records: [node.archiveState === 'archived' ? '种子已归档，工作区只读' : '种子可作为内容树根节点查看'],
+      createdAt: snapshot.value?.seed.createdAt || '',
+      updatedAt: snapshot.value?.seed.updatedAt || '',
+      status,
+      taskId: node.growth.taskId,
+      failedInput,
+    }
+  }
+
+  return {
+    id: node.nodeId,
+    nodeType: 'fruit',
+    title: node.summary,
+    summary: node.summary,
+    markdown: '',
+    x: position.x,
+    y: position.y,
+    fruitId: node.fruitId,
+    selectionState: node.selectionState,
+    parentNodeRef: node.parentNodeRef,
+    contentLocation: node.contentLocation,
+    geneTags: node.geneTags,
+    records: buildFruitRecords(node),
+    createdAt: node.createdAt,
+    updatedAt: node.updatedAt,
+    status,
+    taskId: node.growth.taskId,
+    failedInput,
+  }
+}
+
+function buildFruitRecords(node: Extract<WorkspaceNode, { nodeType: 'fruit' }>) {
+  const records = [`内容路径：${node.contentLocation}`, `更新于：${formatDateTime(node.updatedAt)}`]
+  if (node.failedInput.hasFailedInput) records.unshift(`最近失败：${node.failedInput.failureReason || '可恢复输入后重试'}`)
+  if (node.growth.isGrowing) records.unshift('枝化生长：生成中')
+  return records
+}
+
+async function loadSelectedNodeDetail() {
+  const node = selectedNode.value
+  if (!node) return
+
+  detailLoading.value = true
+  detailError.value = ''
+
+  try {
+    if (node.nodeType === 'seed') {
+      const detail = await seedApi.getSeed(seedId.value)
+      node.markdown = detail.markdown
+      node.title = detail.title
+      node.contentLocation = detail.contentLocation
+      node.updatedAt = detail.updatedAt
+    } else if (node.fruitId) {
+      const detail = await fruitApi.getFruit(node.fruitId)
+      applyFruitDetail(node, detail)
+    }
+  } catch (error) {
+    detailError.value = errorMessage(error)
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function applyFruitDetail(node: TreeNode, detail: FruitDetail) {
+  node.markdown = detail.markdown
+  node.summary = detail.summary
+  node.title = detail.summary
+  node.selectionState = detail.selectionState
+  node.parentNodeRef = detail.parentNodeRef
+  node.contentLocation = detail.contentLocation
+  node.geneTags = detail.geneTags
+  node.createdAt = detail.createdAt
+  node.updatedAt = detail.updatedAt
+}
 
 function findNode(nodeId: string) {
   return nodes.value.find((node) => node.id === nodeId)
@@ -304,48 +360,27 @@ function getNodeSize(node: TreeNode) {
   return node.nodeType === 'seed' ? nodeSize.seed : nodeSize.fruit
 }
 
-function getNodeCenter(node: TreeNode) {
-  const size = getNodeSize(node)
-  return {
-    x: node.x + size.width / 2,
-    y: node.y + size.height / 2,
-  }
-}
-
 function getParentPort(node: TreeNode) {
   const size = getNodeSize(node)
-  return {
-    x: node.x + size.width / 2,
-    y: node.y + Math.min(18, size.height * 0.22),
-  }
+  return { x: node.x + size.width / 2, y: node.y + 14 }
 }
 
 function getChildPort(node: TreeNode) {
   const size = getNodeSize(node)
-  return {
-    x: node.x + size.width / 2,
-    y: node.y + size.height - Math.min(12, size.height * 0.16),
-  }
-}
-
-function getChildJoint(node: TreeNode) {
-  return getChildPort(node)
+  return { x: node.x + size.width / 2, y: node.y + size.height - 12 }
 }
 
 function makeBranchPath(parent: TreeNode, child: TreeNode) {
   const from = getParentPort(parent)
   const to = getChildPort(child)
-  const distance = Math.max(54, Math.abs(from.y - to.y))
-  const bend = distance * 0.52
+  const distance = Math.max(56, Math.abs(from.y - to.y))
+  const bend = distance * 0.5
   const sway = Math.max(-42, Math.min(42, (to.x - from.x) * 0.16))
   return `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} C ${(from.x + sway).toFixed(1)} ${(from.y - bend).toFixed(1)}, ${(to.x - sway).toFixed(1)} ${(to.y + bend).toFixed(1)}, ${to.x.toFixed(1)} ${to.y.toFixed(1)}`
 }
 
 function nodeStyle(node: TreeNode) {
-  return {
-    left: `${node.x}px`,
-    top: `${node.y}px`,
-  }
+  return { left: `${node.x}px`, top: `${node.y}px` }
 }
 
 function nodeClasses(node: TreeNode) {
@@ -366,21 +401,39 @@ function nodeStateLabel(node: TreeNode) {
   return '候选'
 }
 
-function selectNode(nodeId: string) {
+async function selectNode(nodeId: string) {
   if (suppressClickNodeId.value === nodeId) {
     suppressClickNodeId.value = ''
     return
   }
   selectedNodeId.value = nodeId
   resourcePopoverOpen.value = false
-  if (!canShowGrowthComposer.value) growthDetailOpen.value = false
+  growthDetailOpen.value = false
+  growthError.value = ''
+  await loadSelectedNodeDetail()
 }
 
-function setSelectionState(state: SelectionState) {
-  if (selectedNode.value.nodeType !== 'fruit') return
-  selectedNode.value.selectionState = state
-  selectedNode.value.status = 'idle'
-  if (state !== 'selected') growthDetailOpen.value = false
+async function setSelectionState(state: FruitSelectionState) {
+  const node = selectedNode.value
+  if (!node || node.nodeType !== 'fruit' || !node.fruitId || isReadOnly.value) return
+
+  selectionLoading.value = true
+  detailError.value = ''
+
+  try {
+    const detail = state === 'selected'
+      ? await fruitApi.selectFruit(node.fruitId)
+      : state === 'eliminated'
+        ? await fruitApi.eliminateFruit(node.fruitId)
+        : await fruitApi.restoreFruitCandidate(node.fruitId)
+
+    applyFruitDetail(node, detail)
+    await loadWorkspace(node.id)
+  } catch (error) {
+    detailError.value = errorMessage(error)
+  } finally {
+    selectionLoading.value = false
+  }
 }
 
 function startCanvasDrag(event: PointerEvent) {
@@ -416,7 +469,6 @@ function handlePointerMove(event: PointerEvent) {
 
   const dx = event.clientX - dragState.value.startX
   const dy = event.clientY - dragState.value.startY
-
   if (Math.abs(dx) + Math.abs(dy) > 3) dragState.value.moved = true
 
   if (dragState.value.mode === 'canvas') {
@@ -445,68 +497,143 @@ function handleWheel(event: WheelEvent) {
 }
 
 function resetView() {
-  transform.x = -660
-  transform.y = -430
+  transform.x = -620
+  transform.y = -360
   transform.scale = 1
 }
 
-function hasResource(resourceId: string) {
-  return referencedResources.value.some((resource) => resource.id === resourceId)
-}
-
 function addResource(resource: ResourceRef) {
-  if (!hasResource(resource.id)) referencedResources.value = [resource, ...referencedResources.value]
-  const mention = `@${resource.label}`
-  if (!growthIntent.value.includes(mention)) {
-    growthIntent.value = `${growthIntent.value.trim()} ${mention}`.trim()
+  if (!referencedResources.value.some((item) => item.id === resource.id && item.kind === resource.kind)) {
+    referencedResources.value = [resource, ...referencedResources.value]
   }
+  const mention = `@${resource.label}`
+  if (!growthIntent.value.includes(mention)) growthIntent.value = `${growthIntent.value.trim()} ${mention}`.trim()
   resourcePopoverOpen.value = false
 }
 
 function highlightedIntentSegments() {
   const tokens = growthIntent.value.split(/(@[^\s@]+(?:\s·\s[^\s@]+)?|@[^\s@]+)/g).filter(Boolean)
-  return tokens.map((token) => ({
-    text: token,
-    mention: token.startsWith('@'),
-  }))
+  return tokens.map((token) => ({ text: token, mention: token.startsWith('@') }))
 }
 
-function triggerMockGrowth() {
-  if (!visibleComposer.value || selectedNode.value.status === 'growing') return
-
+async function startGrowth() {
   const source = selectedNode.value
-  source.status = 'growing'
+  if (!source || !visibleComposer.value || !selectedGeneratorId.value) return
+
+  growthLoading.value = true
+  growthError.value = ''
   growthDetailOpen.value = false
 
-  if (growthTimer) clearTimeout(growthTimer)
-  growthTimer = setTimeout(() => {
-    source.status = 'idle'
-    const sourceCenter = getNodeCenter(source)
-    const newId = `mock-fruit-${nextFruitIndex}`
-    const newFruit: TreeNode = {
-      id: newId,
-      nodeType: 'fruit',
-      title: nextFruitIndex % 2 === 1 ? '新果实：把注意力还给自己' : '新果实：今晚只换一张安静的屏幕',
-      summary: `新生果实 ${nextFruitIndex}`,
-      markdown: [
-        '这是一颗由当前生长源模拟生成的新果实。',
-        '真实产品中它会由枝化生长 Agent 调用生成器、营养库和基因库后落库。',
-      ].join('\n\n'),
-      x: Math.max(90, Math.min(treeSize.width - nodeSize.fruit.width - 40, sourceCenter.x + 120 + nextFruitIndex * 18)),
-      y: Math.max(40, source.y - 190),
-      selectionState: 'candidate',
-      parentNodeRef: { nodeId: source.id, nodeType: source.nodeType },
-      contentLocation: `runtime/seeds/${seedId.value}/fruits/${newId}.md`,
-      geneTags: ['模拟生成', '候选果实', '可继续枝化'],
-      records: ['枝化生长：预览模式生成'],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      status: 'idle',
+  try {
+    const nutrientRefs = referencedResources.value
+      .filter((resource) => resource.kind === 'nutrient')
+      .map((resource) => ({ resourceType: 'nutrient' as const, resourceId: resource.id }))
+    const geneRefs = referencedResources.value
+      .filter((resource) => resource.kind === 'gene')
+      .map((resource) => ({ resourceType: 'gene' as const, resourceId: resource.id }))
+    const result = await growthApi.startGrowthTask({
+      seedId: seedId.value,
+      sourceNodeRef: { nodeType: source.nodeType, nodeId: source.id },
+      userInput: growthIntent.value.trim(),
+      generatorId: selectedGeneratorId.value,
+      fruitCount: fruitCount.value,
+      nutrientRefs,
+      geneRefs,
+      detailParams: { mutationRate: mutationRate.value / 100 },
+    })
+
+    source.status = 'growing'
+    source.taskId = result.task.id
+    pollGrowthTask(result.task)
+  } catch (error) {
+    growthError.value = errorMessage(error)
+  } finally {
+    growthLoading.value = false
+  }
+}
+
+function pollGrowthTask(task: GrowthTaskDetail) {
+  stopPolling()
+
+  if (task.status !== 'running') {
+    void loadWorkspace(task.sourceNodeRef.nodeId)
+    return
+  }
+
+  pollTimer = setTimeout(async () => {
+    try {
+      const nextTask = await growthApi.getGrowthTask(task.id)
+      if (nextTask.status === 'running') {
+        pollGrowthTask(nextTask)
+        return
+      }
+
+      if (nextTask.status === 'failed') growthError.value = nextTask.failureReason || '枝化生长失败，可恢复输入后重试'
+      await loadWorkspace(nextTask.sourceNodeRef.nodeId)
+    } catch (error) {
+      growthError.value = errorMessage(error)
     }
-    nextFruitIndex += 1
-    nodes.value = [...nodes.value, newFruit]
-    selectedNodeId.value = newFruit.id
-  }, 1100)
+  }, 1800)
+}
+
+function stopPolling() {
+  if (pollTimer) clearTimeout(pollTimer)
+  pollTimer = null
+}
+
+async function restoreFailedInput() {
+  const node = selectedNode.value
+  if (!node || !node.failedInput.hasFailedInput) return
+
+  growthError.value = ''
+
+  try {
+    const failedInput = await growthApi.getGrowthFailedInput(node.nodeType as GrowthNodeType, node.id)
+    if (!failedInput) return
+    applyFailedInput(failedInput)
+  } catch (error) {
+    growthError.value = errorMessage(error)
+  }
+}
+
+function applyFailedInput(failedInput: GrowthFailedInput) {
+  growthIntent.value = failedInput.userInput || ''
+  selectedGeneratorId.value = failedInput.generatorId
+  fruitCount.value = failedInput.fruitCount || 3
+  referencedResources.value = [
+    ...failedInput.nutrientRefs,
+    ...failedInput.geneRefs,
+  ].map((ref) => resourceOptions.value.find((resource) => resource.id === ref.resourceId && resource.kind === ref.resourceType))
+    .filter((resource): resource is ResourceRef => Boolean(resource))
+}
+
+async function retryGrowth() {
+  const node = selectedNode.value
+  if (!node || !node.failedInput.hasFailedInput) return
+
+  growthLoading.value = true
+  growthError.value = ''
+
+  try {
+    const result = await growthApi.retryGrowthSource(node.nodeType as GrowthNodeType, node.id)
+    node.status = 'growing'
+    node.taskId = result.task.id
+    pollGrowthTask(result.task)
+  } catch (error) {
+    growthError.value = errorMessage(error)
+  } finally {
+    growthLoading.value = false
+  }
+}
+
+function formatDateTime(value: string) {
+  if (!value) return '未知'
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value))
 }
 </script>
 
@@ -514,11 +641,11 @@ function triggerMockGrowth() {
   <section class="cf-workspace-page">
     <header class="cf-workspace-topbar">
       <div class="cf-workspace-crumb">
-        <strong>壁纸产品增长种子</strong>
+        <strong>{{ snapshot?.seed.title || '内容森林工作区' }}</strong>
         <span>{{ selectedCrumb }}</span>
       </div>
       <div class="cf-workspace-actions">
-        <span class="cf-workspace-chip">{{ isReadOnly ? 'READ ONLY' : 'MOCK UX' }}</span>
+        <span class="cf-workspace-chip">{{ isReadOnly ? 'READ ONLY' : 'API LIVE' }}</span>
         <NuxtLink class="cf-secondary-action" to="/seeds">返回种子库</NuxtLink>
         <button class="cf-workspace-tool" type="button" @click="resetView">适应视图</button>
       </div>
@@ -536,13 +663,20 @@ function triggerMockGrowth() {
     >
       <div class="cf-growth-ribbon">
         <strong>
-          <span>{{ selectedNode.status === 'growing' ? '枝化生长' : '树加载完成' }}</span>
-          <span>{{ selectedNode.status === 'growing' ? '生成中' : `${nodes.length} 节点` }}</span>
+          <span>{{ selectedNode?.status === 'growing' ? '枝化生长' : workspaceLoading ? '加载工作区' : '树已同步' }}</span>
+          <span>{{ selectedNode?.status === 'growing' ? '生成中' : `${nodes.length} 节点` }}</span>
         </strong>
         <div class="cf-growth-meter"><span /></div>
       </div>
 
-      <div class="cf-tree-map" :style="transformedMapStyle">
+      <div v-if="workspaceLoading && nodes.length === 0" class="cf-stage-message">内容树正在从种子向外生长...</div>
+      <div v-else-if="workspaceError" class="cf-stage-message is-error">
+        <strong>{{ workspaceError }}</strong>
+        <button type="button" @click="loadWorkspace()">重新加载</button>
+      </div>
+      <div v-else-if="nodes.length === 0" class="cf-stage-message">这颗种子还没有形成内容树。</div>
+
+      <div v-else class="cf-tree-map" :style="transformedMapStyle">
         <svg class="cf-branch-layer" :viewBox="`0 0 ${treeSize.width} ${treeSize.height}`" aria-hidden="true">
           <path
             v-for="path in branchPaths"
@@ -581,101 +715,100 @@ function triggerMockGrowth() {
           <span class="cf-node-title">{{ node.title }}</span>
           <span class="cf-node-tags">
             <span class="cf-node-tag">{{ nodeStateLabel(node) }}</span>
-            <span class="cf-node-tag">{{ node.geneTags[0] }}</span>
+            <span v-if="node.geneTags[0]" class="cf-node-tag">{{ node.geneTags[0] }}</span>
           </span>
         </button>
       </div>
-
-      <aside class="cf-tree-minimap" aria-label="内容树小地图">
-        <svg viewBox="0 0 150 96" aria-hidden="true">
-          <path d="M76 84 C70 60 44 52 36 28" stroke="#5ed7c5" fill="none" stroke-width="1.5" />
-          <path d="M76 84 C82 54 100 46 122 30" stroke="#8b9cff" fill="none" stroke-width="1.2" />
-          <circle cx="76" cy="84" r="4" fill="#5ed7c5" />
-          <circle cx="36" cy="28" r="3" fill="#85d88b" />
-          <circle cx="82" cy="44" r="3" fill="#5ed7c5" />
-          <circle cx="122" cy="30" r="3" fill="#f0c36b" />
-        </svg>
-      </aside>
     </section>
 
-    <aside class="cf-node-detail" aria-label="节点详情">
+    <aside v-if="selectedNode" class="cf-node-detail" aria-label="节点详情">
       <header class="cf-node-detail-header">
         <div class="cf-detail-kicker">
           <span>{{ selectedNode.nodeType === 'seed' ? '种子卡片' : '果实卡片' }}</span>
           <span class="cf-workspace-chip">{{ nodeStateLabel(selectedNode) }}</span>
         </div>
         <h1>{{ selectedNode.title }}</h1>
+        <p v-if="detailError" class="cf-inline-error">{{ detailError }}</p>
+
         <div class="cf-natural-selection" aria-label="物竞天择">
           <div v-if="selectedNode.nodeType === 'seed'" class="cf-state-note">
-            种子作为根节点展示，本次 mock 不展示枝化输入框
+            种子作为内容树根节点展示，详情可查看；归档或只读工作区不允许发起新生长。
           </div>
           <div v-else-if="selectedNode.selectionState === 'selected'" class="cf-state-note is-selected">
-            已选择果实：进入发布验证与数据回流
+            已选择果实，可作为下一次枝化生长来源。
           </div>
           <button
             v-else-if="selectedNode.selectionState === 'eliminated'"
             class="cf-state-action is-primary"
             type="button"
+            :disabled="isReadOnly || selectionLoading"
             @click="setSelectionState('candidate')"
           >
             恢复
           </button>
           <template v-else>
-            <button class="cf-state-action is-primary" type="button" @click="setSelectionState('selected')">选择</button>
-            <button class="cf-state-action" type="button" @click="setSelectionState('eliminated')">淘汰</button>
+            <button class="cf-state-action is-primary" type="button" :disabled="isReadOnly || selectionLoading" @click="setSelectionState('selected')">选择</button>
+            <button class="cf-state-action" type="button" :disabled="isReadOnly || selectionLoading" @click="setSelectionState('eliminated')">淘汰</button>
           </template>
+        </div>
+
+        <div v-if="selectedNode.failedInput.hasFailedInput" class="cf-failed-bar">
+          <span>{{ selectedNode.failedInput.failureReason || '最近一次枝化生长失败' }}</span>
+          <button type="button" :disabled="growthLoading" @click="restoreFailedInput">恢复输入</button>
+          <button type="button" :disabled="growthLoading" @click="retryGrowth">重试</button>
         </div>
       </header>
 
       <div class="cf-node-detail-body">
         <section class="cf-detail-section">
           <h2>正文</h2>
-          <MarkdownViewer :markdown="selectedNode.markdown" />
+          <p v-if="detailLoading" class="cf-muted">正在读取 Markdown...</p>
+          <MarkdownViewer v-else :markdown="selectedNode.markdown" />
         </section>
 
         <section class="cf-detail-section">
           <h2>基因标签</h2>
           <div class="cf-gene-grid">
             <span v-for="gene in selectedNode.geneTags" :key="gene" class="cf-gene">{{ gene }}</span>
+            <span v-if="selectedNode.geneTags.length === 0" class="cf-muted">暂无基因标签</span>
           </div>
         </section>
 
         <section class="cf-detail-section">
-          <h2>发布与反馈</h2>
+          <h2>记录</h2>
           <div class="cf-record-list">
             <div v-for="record in selectedNode.records" :key="record" class="cf-record">
-              <strong>{{ record.split('：')[0] }}</strong>
-              <span>{{ record.split('：')[1] || '暂无更多数据' }}</span>
+              <span>{{ record }}</span>
             </div>
           </div>
         </section>
 
         <section class="cf-detail-section">
-          <h2>Mock Meta</h2>
+          <h2>Meta</h2>
           <div class="cf-info-row">
             <span>内容路径</span>
-            <strong>{{ selectedNode.contentLocation }}</strong>
+            <strong>{{ selectedNode.contentLocation || '未提供' }}</strong>
           </div>
           <div class="cf-info-row">
             <span>更新时间</span>
-            <strong>{{ selectedNode.updatedAt }}</strong>
+            <strong>{{ formatDateTime(selectedNode.updatedAt) }}</strong>
           </div>
         </section>
       </div>
 
       <footer class="cf-node-detail-footer">
-        <button class="cf-secondary-action" type="button">发布器</button>
-        <button class="cf-secondary-action" type="button">监控器</button>
-        <button class="cf-secondary-action" type="button">发布记录</button>
-        <button class="cf-secondary-action" type="button">数据反馈</button>
+        <button class="cf-secondary-action" type="button" disabled>发布器</button>
+        <button class="cf-secondary-action" type="button" disabled>监控器</button>
+        <button class="cf-secondary-action" type="button" disabled>发布记录</button>
+        <button class="cf-secondary-action" type="button" disabled>数据反馈</button>
       </footer>
     </aside>
 
-    <section v-if="visibleComposer" class="cf-growth-composer" aria-label="枝化生长输入框">
+    <section v-if="visibleComposer && selectedNode" class="cf-growth-composer" aria-label="枝化生长输入框">
       <div v-if="resourcePopoverOpen" class="cf-resource-popover" aria-label="@资源提示">
         <button
           v-for="resource in resourceOptions"
-          :key="resource.id"
+          :key="`${resource.kind}-${resource.id}`"
           class="cf-resource-row"
           type="button"
           @click="addResource(resource)"
@@ -687,6 +820,7 @@ function triggerMockGrowth() {
           </span>
           <kbd>@</kbd>
         </button>
+        <p v-if="resourceOptions.length === 0" class="cf-muted">暂无可引用资源</p>
       </div>
 
       <div class="cf-growth-top">
@@ -704,7 +838,7 @@ function triggerMockGrowth() {
         </div>
         <div class="cf-growth-pill">
           <span>突变</span>
-          <strong>{{ mutationRate }}</strong>
+          <strong>{{ mutationRate }}%</strong>
         </div>
       </div>
 
@@ -715,10 +849,13 @@ function triggerMockGrowth() {
         <textarea
           v-model="growthIntent"
           aria-label="枝化生长意图"
+          placeholder="输入本次枝化生长的想法，或使用 @ 引用营养库和基因库..."
           @focus="resourcePopoverOpen = true"
           @input="resourcePopoverOpen = growthIntent.includes('@')"
         />
       </label>
+
+      <p v-if="growthError" class="cf-inline-error">{{ growthError }}</p>
 
       <div class="cf-growth-footer">
         <div class="cf-growth-tools">
@@ -726,7 +863,7 @@ function triggerMockGrowth() {
           <div class="cf-growth-refs">
             <span
               v-for="resource in referencedResources"
-              :key="resource.id"
+              :key="`${resource.kind}-${resource.id}`"
               class="cf-ref-chip"
               :class="`is-${resource.kind}`"
             >
@@ -735,26 +872,24 @@ function triggerMockGrowth() {
           </div>
         </div>
         <div class="cf-growth-actions">
-          <button class="cf-secondary-action" type="button" @click="growthDetailOpen = !growthDetailOpen">
-            枝化生长详情
-          </button>
-          <button class="cf-send-button" type="button" aria-label="发起 mock 生长" @click="triggerMockGrowth">↑</button>
+          <button class="cf-secondary-action" type="button" @click="growthDetailOpen = !growthDetailOpen">枝化详情</button>
+          <button class="cf-send-button" type="button" :disabled="growthLoading || !selectedGeneratorId" aria-label="发起枝化生长" @click="startGrowth">↑</button>
         </div>
       </div>
 
       <div v-if="growthDetailOpen" class="cf-growth-detail-panel" aria-label="枝化生长详情">
         <div class="cf-growth-detail-head">
           <strong>枝化生长详情</strong>
-          <span>只读预览</span>
+          <span>接口参数</span>
         </div>
         <div class="cf-growth-detail-row"><span>生成器</span><strong>{{ generatorName }}</strong></div>
         <div class="cf-growth-detail-row"><span>果实数量</span><strong>{{ fruitCount }}</strong></div>
-        <div class="cf-growth-detail-row"><span>突变概率</span><strong>{{ mutationRate }}</strong></div>
+        <div class="cf-growth-detail-row"><span>突变概率</span><strong>{{ mutationRate }}%</strong></div>
         <div class="cf-growth-detail-row"><span>引用资源</span><strong>{{ referencedResources.length }}</strong></div>
         <div class="cf-growth-detail-refs">
           <span
             v-for="resource in growthDetailResources"
-            :key="resource.id"
+            :key="`${resource.kind}-${resource.id}`"
             class="cf-ref-chip"
             :class="`is-${resource.kind}`"
           >
@@ -768,13 +903,33 @@ function triggerMockGrowth() {
 
 <style scoped>
 .cf-workspace-page {
+  --cf-bg: #080a0d;
+  --cf-panel: rgba(14, 17, 20, .92);
+  --cf-panel-strong: rgba(26, 30, 33, .96);
+  --cf-border: rgba(255, 255, 255, .13);
+  --cf-border-soft: rgba(255, 255, 255, .08);
+  --cf-text: #edf4f1;
+  --cf-muted: #8f9b9a;
+  --cf-growth: #5ed7c5;
+  --cf-select: #9de49b;
+  --cf-warn: #f0c36b;
   position: relative;
   min-height: 100vh;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 42% 18%, rgba(94, 215, 197, .09), transparent 34%),
-    radial-gradient(circle at 72% 64%, rgba(240, 195, 107, .065), transparent 30%),
-    #080a0d;
+  background: linear-gradient(180deg, #0a0d10, #06080a);
+  color: var(--cf-text);
+}
+
+button,
+a {
+  border: 0;
+  text-decoration: none;
+  font: inherit;
+}
+
+button:disabled {
+  opacity: .48;
+  cursor: not-allowed;
 }
 
 .cf-workspace-topbar {
@@ -793,7 +948,6 @@ function triggerMockGrowth() {
   border-radius: 8px;
   background: rgba(10, 13, 15, .78);
   backdrop-filter: blur(24px);
-  box-shadow: 0 18px 58px rgba(0, 0, 0, .2);
 }
 
 .cf-workspace-crumb {
@@ -803,46 +957,52 @@ function triggerMockGrowth() {
 .cf-workspace-crumb strong,
 .cf-workspace-crumb span {
   display: block;
-}
-
-.cf-workspace-crumb strong {
   overflow: hidden;
-  color: #f7faf8;
-  font-size: 14px;
-  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.cf-workspace-crumb span {
-  margin-top: 3px;
-  color: var(--cf-text-muted);
+.cf-workspace-crumb strong {
+  font-size: 14px;
+}
+
+.cf-workspace-crumb span,
+.cf-muted {
+  color: var(--cf-muted);
   font-size: 12px;
 }
 
-.cf-workspace-actions {
+.cf-workspace-actions,
+.cf-growth-top,
+.cf-growth-footer,
+.cf-growth-tools,
+.cf-growth-actions,
+.cf-growth-refs {
   display: flex;
   align-items: center;
   gap: 8px;
-  white-space: nowrap;
+  min-width: 0;
 }
 
 .cf-workspace-chip,
-.cf-workspace-tool {
+.cf-workspace-tool,
+.cf-secondary-action,
+.cf-state-action {
   min-height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
   padding: 0 10px;
   border: 1px solid var(--cf-border);
   border-radius: 7px;
   background: rgba(255, 255, 255, .045);
-  color: var(--cf-text-muted);
+  color: var(--cf-muted);
   font-size: 12px;
 }
 
-.cf-workspace-tool {
+.cf-workspace-tool,
+.cf-secondary-action,
+.cf-state-action {
   cursor: pointer;
 }
 
@@ -853,323 +1013,210 @@ function triggerMockGrowth() {
   cursor: grab;
   background:
     radial-gradient(circle at 1px 1px, rgba(255, 255, 255, .075) 1px, transparent 0) 0 0 / 28px 28px,
-    linear-gradient(180deg, rgba(255, 255, 255, .018), transparent 36%),
-    #080a0d;
+    linear-gradient(180deg, rgba(255, 255, 255, .025), transparent 34%),
+    var(--cf-bg);
 }
 
 .cf-tree-canvas.is-dragging {
   cursor: grabbing;
 }
 
-.cf-tree-canvas::after {
-  content: "";
+.cf-stage-message {
   position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(90deg, rgba(8, 10, 13, .78), transparent 14%, transparent 76%, rgba(8, 10, 13, .58)),
-    linear-gradient(0deg, rgba(8, 10, 13, .88), transparent 28%, transparent 82%, rgba(8, 10, 13, .42));
-}
-
-.cf-tree-map {
-  position: absolute;
-  z-index: 2;
+  top: 45%;
   left: 50%;
-  top: 50%;
-  width: 1180px;
-  height: 820px;
-  transform-origin: 50% 50%;
-  will-change: transform;
-}
-
-.cf-branch-layer {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  pointer-events: none;
-  filter: drop-shadow(0 0 22px rgba(94, 215, 197, .12));
-}
-
-.cf-branch {
-  fill: none;
-  stroke: rgba(118, 190, 176, .55);
-  stroke-linecap: round;
-  stroke-width: 2;
-  pointer-events: none;
-  vector-effect: non-scaling-stroke;
-}
-
-.cf-branch.is-secondary {
-  stroke: rgba(139, 156, 255, .42);
-  stroke-width: 1.4;
-}
-
-.cf-branch.is-weak {
-  stroke: rgba(255, 255, 255, .16);
-  stroke-width: 1.2;
-}
-
-.cf-branch-joint {
-  fill: rgba(94, 215, 197, .92);
-  stroke: rgba(8, 10, 13, .75);
-  stroke-width: 3;
-  vector-effect: non-scaling-stroke;
-}
-
-.cf-tree-node {
-  position: absolute;
-  width: 182px;
-  min-height: 92px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 11px;
-  border: 1px solid rgba(255, 255, 255, .15);
+  z-index: 8;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  padding: 18px;
+  border: 1px solid var(--cf-border);
   border-radius: 8px;
-  background:
-    linear-gradient(150deg, rgba(255, 255, 255, .065), transparent 42%),
-    rgba(18, 22, 25, .88);
-  color: inherit;
-  box-shadow: 0 28px 90px rgba(0, 0, 0, .46);
-  isolation: isolate;
-  text-align: left;
-  touch-action: none;
-  backdrop-filter: blur(18px);
+  background: var(--cf-panel);
+  color: var(--cf-muted);
+  transform: translate(-50%, -50%);
 }
 
-.cf-tree-node::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  border-radius: 8px;
-  background:
-    linear-gradient(132deg, rgba(255, 255, 255, .14), transparent 24%),
-    radial-gradient(circle at 88% 22%, rgba(240, 195, 107, .16), transparent 26%);
-  opacity: .82;
-}
-
-.cf-tree-node > * {
-  position: relative;
-  z-index: 2;
-}
-
-.cf-tree-node.is-seed {
-  width: 220px;
-  min-height: 104px;
-  padding-left: 72px;
-  border-color: rgba(94, 215, 197, .48);
-  background:
-    radial-gradient(circle at 32px 50%, rgba(94, 215, 197, .24), transparent 37px),
-    linear-gradient(180deg, rgba(27, 39, 37, .95), rgba(13, 18, 19, .92));
-}
-
-.cf-tree-node.is-seed::before {
-  left: 20px;
-  top: 24px;
-  width: 34px;
-  height: 50px;
-  inset: auto;
-  border: 1px solid rgba(184, 255, 217, .58);
-  border-radius: 60% 40% 52% 48%;
-  background:
-    radial-gradient(circle at 50% 28%, rgba(255, 255, 255, .52), transparent 16%),
-    linear-gradient(160deg, rgba(184, 255, 217, .45), rgba(94, 215, 197, .16));
-  box-shadow: 0 0 36px rgba(94, 215, 197, .24);
-  transform: rotate(-14deg);
-}
-
-.cf-tree-node.is-active {
-  border-color: rgba(94, 215, 197, .9);
-  box-shadow: 0 0 0 1px rgba(94, 215, 197, .22), 0 22px 86px rgba(0, 0, 0, .58);
-}
-
-.cf-tree-node.is-selected {
-  border-color: rgba(133, 216, 139, .56);
-}
-
-.cf-tree-node.is-eliminated {
-  border-style: dashed;
-  filter: saturate(.55);
-}
-
-.cf-tree-node.is-eliminated .cf-node-title,
-.cf-tree-node.is-eliminated .cf-node-tags {
-  opacity: .58;
-}
-
-.cf-tree-node.is-growing {
-  border-color: rgba(94, 215, 197, .7);
-}
-
-.cf-tree-node.is-growing::after {
-  content: "";
-  position: absolute;
-  inset: -6px;
-  z-index: -1;
-  border: 1px solid rgba(94, 215, 197, .38);
-  border-radius: 10px;
-  animation: cfPulse 1.2s ease-in-out infinite;
-}
-
-.cf-tree-node.is-failed {
-  border-color: rgba(255, 107, 122, .55);
-}
-
-@keyframes cfPulse {
-  0%, 100% {
-    opacity: .18;
-    transform: scale(.98);
-  }
-  50% {
-    opacity: .76;
-    transform: scale(1.04);
-  }
-}
-
-.cf-node-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--cf-text-muted);
-  font-size: 11px;
-}
-
-.cf-node-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--cf-warning);
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, .035);
-}
-
-.cf-tree-node.is-seed .cf-node-dot,
-.cf-tree-node.is-growing .cf-node-dot {
+.cf-stage-message button {
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 7px;
   background: var(--cf-growth);
+  color: #06110d;
+  cursor: pointer;
 }
 
-.cf-tree-node.is-selected .cf-node-dot {
-  background: #85d88b;
-}
-
-.cf-tree-node.is-eliminated .cf-node-dot,
-.cf-tree-node.is-failed .cf-node-dot {
-  background: var(--cf-danger);
-}
-
-.cf-node-title {
-  color: #f4f7f6;
-  font-size: 13px;
-  font-weight: 760;
-  line-height: 1.36;
-}
-
-.cf-node-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.cf-node-tag {
-  min-height: 21px;
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-  padding: 0 7px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, .08);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, .045);
-  color: #b9c5c8;
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cf-growth-ribbon,
-.cf-tree-minimap {
-  position: absolute;
-  z-index: 10;
-  border: 1px solid var(--cf-border-soft);
-  border-radius: 8px;
-  background: rgba(12, 15, 18, .72);
-  backdrop-filter: blur(20px);
+.cf-stage-message.is-error {
+  color: #ffd7c9;
 }
 
 .cf-growth-ribbon {
-  left: 18px;
-  top: 88px;
-  width: 238px;
-  padding: 11px;
+  position: absolute;
+  z-index: 14;
+  left: 22px;
+  bottom: 22px;
+  width: 244px;
+  padding: 12px;
+  border: 1px solid var(--cf-border-soft);
+  border-radius: 8px;
+  background: rgba(10, 13, 15, .72);
+  backdrop-filter: blur(20px);
 }
 
 .cf-growth-ribbon strong {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  margin-bottom: 9px;
   font-size: 12px;
 }
 
 .cf-growth-meter {
-  height: 4px;
+  height: 3px;
+  margin-top: 9px;
   overflow: hidden;
-  border-radius: 99px;
+  border-radius: 999px;
   background: rgba(255, 255, 255, .08);
 }
 
 .cf-growth-meter span {
   display: block;
-  width: 76%;
+  width: 62%;
   height: 100%;
-  background: linear-gradient(90deg, var(--cf-growth), var(--cf-accent));
-  animation: cfMeter 2.2s ease-in-out infinite;
+  background: linear-gradient(90deg, var(--cf-growth), var(--cf-select));
 }
 
-@keyframes cfMeter {
-  0%, 100% { width: 64%; }
-  50% { width: 92%; }
+.cf-tree-map {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: center;
 }
 
-.cf-tree-minimap {
-  left: 18px;
-  bottom: 162px;
-  width: 154px;
-  height: 104px;
-  padding: 10px;
+.cf-branch-layer {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
 }
 
-.cf-tree-minimap svg {
-  width: 100%;
-  height: 100%;
-  opacity: .78;
+.cf-branch {
+  fill: none;
+  stroke: rgba(94, 215, 197, .42);
+  stroke-width: 2;
+}
+
+.cf-branch.is-secondary {
+  stroke: rgba(157, 228, 155, .36);
+}
+
+.cf-branch.is-weak {
+  stroke: rgba(240, 195, 107, .28);
+}
+
+.cf-branch-joint {
+  fill: #0b1011;
+  stroke: rgba(255, 255, 255, .32);
+}
+
+.cf-tree-node {
+  position: absolute;
+  z-index: 5;
+  width: 184px;
+  min-height: 92px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--cf-border);
+  border-radius: 8px;
+  background: var(--cf-panel-strong);
+  color: var(--cf-text);
+  text-align: left;
+  cursor: grab;
+  box-shadow: 0 20px 58px rgba(0, 0, 0, .26);
+}
+
+.cf-tree-node.is-seed {
+  width: 220px;
+  min-height: 104px;
+  border-color: rgba(94, 215, 197, .35);
+  background: linear-gradient(180deg, rgba(94, 215, 197, .13), rgba(18, 24, 26, .96));
+}
+
+.cf-tree-node.is-selected {
+  border-color: rgba(157, 228, 155, .42);
+}
+
+.cf-tree-node.is-eliminated {
+  opacity: .58;
+}
+
+.cf-tree-node.is-growing {
+  animation: cf-pulse 1.2s ease-in-out infinite;
+}
+
+.cf-tree-node.is-failed {
+  border-color: rgba(240, 195, 107, .48);
+}
+
+.cf-tree-node.is-active {
+  box-shadow: 0 0 0 2px rgba(94, 215, 197, .28), 0 22px 62px rgba(0, 0, 0, .32);
+}
+
+.cf-node-head,
+.cf-node-tags {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+
+.cf-node-head {
+  color: var(--cf-muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.cf-node-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cf-growth);
+}
+
+.cf-node-title {
+  min-height: 36px;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.cf-node-tag {
+  overflow: hidden;
+  max-width: 84px;
+  padding: 4px 6px;
+  border: 1px solid var(--cf-border-soft);
+  border-radius: 6px;
+  color: var(--cf-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cf-node-detail {
   position: absolute;
-  z-index: 30;
-  right: 14px;
-  top: 14px;
-  bottom: 14px;
-  width: 398px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--cf-border-soft);
-  border-radius: 8px;
-  background: rgba(13, 16, 19, .9);
-  box-shadow: 0 28px 90px rgba(0, 0, 0, .46);
+  z-index: 22;
+  top: 0;
+  right: 0;
+  width: 406px;
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  border-left: 1px solid var(--cf-border-soft);
+  background: rgba(10, 13, 15, .94);
   backdrop-filter: blur(28px);
 }
 
 .cf-node-detail-header {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 15px 16px 12px;
+  padding: 18px 18px 14px;
   border-bottom: 1px solid var(--cf-border-soft);
 }
 
@@ -1177,61 +1224,67 @@ function triggerMockGrowth() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  color: var(--cf-text-muted);
+  gap: 12px;
+  color: var(--cf-muted);
   font-size: 12px;
 }
 
 .cf-node-detail h1 {
-  margin: 0;
-  font-size: 18px;
+  margin: 10px 0 14px;
+  font-size: 20px;
   line-height: 1.25;
 }
 
 .cf-natural-selection {
   display: flex;
-  align-items: center;
   gap: 8px;
-  min-height: 34px;
 }
 
 .cf-state-note,
-.cf-state-action {
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 7px;
-  font-size: 12px;
-}
-
-.cf-state-note {
+.cf-failed-bar {
   width: 100%;
-  padding: 0 10px;
-  border: 1px solid rgba(133, 216, 139, .18);
-  background: rgba(133, 216, 139, .055);
-  color: #b9eeb8;
-  justify-content: flex-start;
+  padding: 9px 10px;
+  border: 1px solid rgba(157, 228, 155, .18);
+  border-radius: 7px;
+  background: rgba(157, 228, 155, .055);
+  color: #ccefc9;
+  font-size: 12px;
 }
 
 .cf-state-action {
   flex: 1;
-  border: 1px solid var(--cf-border);
-  background: rgba(255, 255, 255, .04);
-  color: var(--cf-text-muted);
-  cursor: pointer;
 }
 
 .cf-state-action.is-primary {
-  border-color: rgba(133, 216, 139, .26);
-  background: linear-gradient(180deg, #9de49b, #78c984);
+  border-color: rgba(157, 228, 155, .32);
+  background: #9de49b;
   color: #06110d;
   font-weight: 800;
 }
 
+.cf-failed-bar {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  border-color: rgba(240, 195, 107, .24);
+  background: rgba(240, 195, 107, .08);
+  color: #ffe0b2;
+}
+
+.cf-failed-bar button {
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .08);
+  color: var(--cf-text);
+  cursor: pointer;
+}
+
 .cf-node-detail-body {
   overflow: auto;
-  padding: 15px 16px 132px;
+  padding: 14px 18px;
 }
 
 .cf-detail-section {
@@ -1247,7 +1300,6 @@ function triggerMockGrowth() {
   margin: 0 0 10px;
   color: #c0c9cb;
   font-size: 12px;
-  text-transform: none;
 }
 
 .cf-gene-grid,
@@ -1257,11 +1309,12 @@ function triggerMockGrowth() {
   gap: 7px;
 }
 
-.cf-gene {
+.cf-gene,
+.cf-ref-chip {
   padding: 6px 8px;
-  border: 1px solid rgba(94, 215, 197, .18);
+  border: 1px solid rgba(94, 215, 197, .2);
   border-radius: 6px;
-  background: rgba(94, 215, 197, .06);
+  background: rgba(94, 215, 197, .08);
   color: #c0fff4;
   font-size: 12px;
 }
@@ -1276,33 +1329,32 @@ function triggerMockGrowth() {
   border: 1px solid var(--cf-border-soft);
   border-radius: 8px;
   background: rgba(255, 255, 255, .035);
-}
-
-.cf-record strong,
-.cf-record span {
-  display: block;
+  color: var(--cf-muted);
   font-size: 12px;
 }
 
-.cf-record strong {
-  margin-bottom: 5px;
+.cf-info-row {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 10px;
+  font-size: 12px;
 }
 
-.cf-record span {
-  color: var(--cf-text-muted);
+.cf-info-row span {
+  color: var(--cf-muted);
+}
+
+.cf-info-row strong {
+  overflow-wrap: anywhere;
+  font-weight: 600;
 }
 
 .cf-node-detail-footer {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  padding: 12px 16px 16px;
+  padding: 12px 18px 16px;
   border-top: 1px solid var(--cf-border-soft);
-  background: rgba(13, 16, 19, .94);
 }
 
 .cf-growth-composer {
@@ -1314,19 +1366,10 @@ function triggerMockGrowth() {
   min-width: 620px;
   border: 1px solid rgba(255, 255, 255, .16);
   border-radius: 18px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, .045), transparent 52%),
-    rgba(35, 36, 37, .96);
+  background: rgba(35, 36, 37, .96);
   box-shadow: 0 30px 100px rgba(0, 0, 0, .55);
   transform: translateX(calc(-50% - 190px));
   backdrop-filter: blur(30px);
-}
-
-.cf-growth-top,
-.cf-growth-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .cf-growth-top {
@@ -1337,27 +1380,21 @@ function triggerMockGrowth() {
   min-height: 28px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
   padding: 0 10px;
   border: 1px solid var(--cf-border);
   border-radius: 14px;
   background: rgba(255, 255, 255, .045);
-  color: var(--cf-text);
-  cursor: default;
-  user-select: none;
 }
 
 .cf-growth-pill.is-source {
-  max-width: 250px;
-  border-color: rgba(94, 215, 197, .22);
-  background:
-    radial-gradient(circle at 18% 50%, rgba(94, 215, 197, .16), transparent 38%),
-    rgba(255, 255, 255, .045);
+  max-width: 270px;
+  border-color: rgba(94, 215, 197, .24);
 }
 
 .cf-growth-pill span {
-  color: var(--cf-text-muted);
+  color: var(--cf-muted);
   font-size: 11px;
 }
 
@@ -1394,57 +1431,44 @@ function triggerMockGrowth() {
   line-height: 1.45;
 }
 
-.cf-growth-input textarea::selection {
-  color: var(--cf-text);
-  background: rgba(139, 156, 255, .32);
+.cf-growth-input textarea::placeholder {
+  color: var(--cf-muted);
 }
 
 .cf-mention {
   display: inline-flex;
-  align-items: center;
   min-height: 22px;
   padding: 0 6px;
-  border: 1px solid rgba(94, 215, 197, .2);
+  border: 1px solid rgba(94, 215, 197, .24);
   border-radius: 6px;
-  background: rgba(94, 215, 197, .1);
+  background: rgba(94, 215, 197, .12);
   color: #bffff3;
   font-weight: 700;
-  white-space: nowrap;
 }
 
 .cf-growth-footer {
   justify-content: space-between;
-  padding: 0 12px 12px;
-}
-
-.cf-growth-tools,
-.cf-growth-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
+  padding: 4px 12px 12px;
 }
 
 .cf-growth-refs {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
   overflow: hidden;
 }
 
-.cf-round-tool {
-  width: 28px;
-  height: 28px;
+.cf-round-tool,
+.cf-send-button {
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
-  flex: 0 0 auto;
   border-radius: 50%;
-  background: transparent;
-  color: var(--cf-text-muted);
   cursor: pointer;
+}
+
+.cf-round-tool {
+  background: transparent;
+  color: var(--cf-muted);
   font-size: 22px;
-  line-height: 1;
 }
 
 .cf-round-tool:hover {
@@ -1453,40 +1477,22 @@ function triggerMockGrowth() {
 }
 
 .cf-ref-chip {
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  border: 1px solid rgba(255, 255, 255, .08);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, .055);
-  color: #cbd8d9;
-  font-size: 11px;
+  max-width: 180px;
+  overflow: hidden;
+  padding: 6px 8px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.cf-ref-chip.is-nutrition {
-  border-color: rgba(240, 195, 107, .22);
+.cf-ref-chip.is-nutrient {
+  border-color: rgba(240, 195, 107, .24);
   background: rgba(240, 195, 107, .08);
   color: #ffe0b2;
 }
 
-.cf-ref-chip.is-gene {
-  border-color: rgba(94, 215, 197, .22);
-  background: rgba(94, 215, 197, .08);
-  color: #c0fff4;
-}
-
 .cf-send-button {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
   background: #f6f7f4;
   color: #151719;
-  cursor: pointer;
   font-size: 20px;
   font-weight: 800;
 }
@@ -1501,8 +1507,8 @@ function triggerMockGrowth() {
 
 .cf-resource-popover {
   left: 12px;
-  bottom: 164px;
-  width: 342px;
+  bottom: 166px;
+  width: 350px;
   display: grid;
   gap: 5px;
   padding: 8px;
@@ -1518,13 +1524,13 @@ function triggerMockGrowth() {
   padding: 7px;
   border-radius: 7px;
   background: transparent;
-  color: var(--cf-text-muted);
+  color: var(--cf-muted);
   text-align: left;
   cursor: pointer;
 }
 
 .cf-resource-row:hover {
-  background: rgba(139, 156, 255, .12);
+  background: rgba(94, 215, 197, .1);
   color: var(--cf-text);
 }
 
@@ -1552,7 +1558,7 @@ function triggerMockGrowth() {
 
 .cf-resource-row em {
   margin-top: 3px;
-  color: var(--cf-text-muted);
+  color: var(--cf-muted);
   font-size: 11px;
   font-style: normal;
 }
@@ -1562,13 +1568,13 @@ function triggerMockGrowth() {
   border: 1px solid var(--cf-border);
   border-radius: 5px;
   background: rgba(255, 255, 255, .04);
-  color: var(--cf-text-muted);
+  color: var(--cf-muted);
   font-size: 10px;
 }
 
 .cf-growth-detail-panel {
   right: 52px;
-  bottom: 48px;
+  bottom: 50px;
   width: 328px;
   display: grid;
   gap: 10px;
@@ -1585,20 +1591,35 @@ function triggerMockGrowth() {
 }
 
 .cf-growth-detail-head {
-  color: #dce4e4;
   font-size: 12px;
   font-weight: 800;
 }
 
 .cf-growth-detail-head span,
 .cf-growth-detail-row {
-  color: var(--cf-text-muted);
+  color: var(--cf-muted);
   font-size: 12px;
 }
 
 .cf-growth-detail-row strong {
   color: var(--cf-text);
-  font-weight: 700;
+}
+
+.cf-inline-error {
+  margin: 8px 0;
+  color: #ffd7c9;
+  font-size: 12px;
+}
+
+@keyframes cf-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(94, 215, 197, .12), 0 20px 58px rgba(0, 0, 0, .26);
+  }
+
+  50% {
+    box-shadow: 0 0 0 6px rgba(94, 215, 197, .08), 0 20px 58px rgba(0, 0, 0, .26);
+  }
 }
 
 @media (max-width: 1180px) {

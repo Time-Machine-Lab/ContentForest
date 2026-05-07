@@ -202,6 +202,17 @@ async function handleApiRequest(
     return true;
   }
 
+  const workspaceSnapshotMatch = pathname.match(
+    /^\/api\/seeds\/([^/]+)\/workspace$/,
+  );
+  if (workspaceSnapshotMatch && method === "GET") {
+    const result = await app.workspaceController.getWorkspaceSnapshot(
+      decodeURIComponent(workspaceSnapshotMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
   if (pathname === "/api/seeds" && method === "GET") {
     const result = await app.seedController.listActiveSeeds();
     sendJson(response, result.status, result.body);

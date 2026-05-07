@@ -1,0 +1,331 @@
+openapi: 3.1.0
+info:
+  title: 内容森林工作区 API
+  version: 0.1.0
+  description: >
+    Workspace Controller 对外暴露工作区快照读取能力。工作区只聚合现有领域事实，
+    不维护节点拖拽位置、画布视口、布局坐标或其他工作区私有持久化状态。
+tags:
+  - name: Workspace
+paths:
+  /api/seeds/{seedId}/workspace:
+    get:
+      tags: [Workspace]
+      summary: 读取种子工作区快照
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      responses:
+        '200':
+          description: 工作区快照
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceSnapshot'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  parameters:
+    SeedId:
+      name: seedId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    WorkspaceSnapshot:
+      type: object
+      required: [seed, workspaceReadOnly, nodes, edges, resources]
+      properties:
+        seed:
+          $ref: '#/components/schemas/WorkspaceSeedSummary'
+        workspaceReadOnly:
+          type: boolean
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceNode'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceEdge'
+        resources:
+          $ref: '#/components/schemas/WorkspaceResources'
+    WorkspaceSeedSummary:
+      type: object
+      required: [id, title, archiveState, rootNodeId, contentLocation, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        archiveState:
+          type: string
+          enum: [active, archived]
+        rootNodeId:
+          type: string
+        contentLocation:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+    WorkspaceNode:
+      oneOf:
+        - $ref: '#/components/schemas/WorkspaceSeedNode'
+        - $ref: '#/components/schemas/WorkspaceFruitNode'
+    WorkspaceSeedNode:
+      type: object
+      required: [nodeType, nodeId, seedId, title, archiveState, growth, failedInput]
+      properties:
+        nodeType:
+          type: string
+          enum: [seed]
+        nodeId:
+          type: string
+        seedId:
+          type: string
+        title:
+          type: string
+        archiveState:
+          type: string
+          enum: [active, archived]
+        growth:
+          $ref: '#/components/schemas/WorkspaceNodeGrowth'
+        failedInput:
+          $ref: '#/components/schemas/WorkspaceFailedInputHint'
+    WorkspaceFruitNode:
+      type: object
+      required:
+        - nodeType
+        - nodeId
+        - fruitId
+        - selectionState
+        - parentNodeRef
+        - contentLocation
+        - summary
+        - geneTags
+        - createdAt
+        - updatedAt
+        - growth
+        - failedInput
+      properties:
+        nodeType:
+          type: string
+          enum: [fruit]
+        nodeId:
+          type: string
+        fruitId:
+          type: string
+        selectionState:
+          type: string
+          enum: [candidate, selected, eliminated]
+        parentNodeRef:
+          $ref: '#/components/schemas/WorkspaceNodeRef'
+        contentLocation:
+          type: string
+        summary:
+          type: string
+        geneTags:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        growth:
+          $ref: '#/components/schemas/WorkspaceNodeGrowth'
+        failedInput:
+          $ref: '#/components/schemas/WorkspaceFailedInputHint'
+    WorkspaceNodeRef:
+      type: object
+      required: [nodeType, nodeId]
+      properties:
+        nodeType:
+          type: string
+          enum: [seed, fruit]
+        nodeId:
+          type: string
+    WorkspaceEdge:
+      type: object
+      required: [id, parentNodeRef, childNodeRef]
+      properties:
+        id:
+          type: string
+        parentNodeRef:
+          $ref: '#/components/schemas/WorkspaceNodeRef'
+        childNodeRef:
+          $ref: '#/components/schemas/WorkspaceNodeRef'
+    WorkspaceNodeGrowth:
+      type: object
+      required: [isGrowing, taskId]
+      properties:
+        isGrowing:
+          type: boolean
+        taskId:
+          type: string
+          nullable: true
+    WorkspaceFailedInputHint:
+      type: object
+      required: [hasFailedInput, taskId, failureReason, updatedAt]
+      properties:
+        hasFailedInput:
+          type: boolean
+        taskId:
+          type: string
+          nullable: true
+        failureReason:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+    WorkspaceResources:
+      type: object
+      required: [generators, nutrients, geneInsights]
+      properties:
+        generators:
+          type: array
+          items:
+            $ref: '#/components/schemas/SelectableGenerator'
+        nutrients:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReferableNutrient'
+        geneInsights:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReferableGeneInsight'
+    SelectableGenerator:
+      type: object
+      required: [id, name, description, contentLocation]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        contentLocation:
+          type: string
+    ReferableNutrient:
+      type: object
+      required: [id, libraryId, title, archiveState, contentLocation, createdAt, updatedAt, library]
+      properties:
+        id:
+          type: string
+        libraryId:
+          type: string
+        title:
+          type: string
+        archiveState:
+          type: string
+          enum: [active, archived]
+        contentLocation:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+        library:
+          type: object
+          required: [id, name, scope, seedId]
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            scope:
+              type: string
+              enum: [public, seed_scoped]
+            seedId:
+              type: string
+              nullable: true
+    ReferableGeneInsight:
+      type: object
+      required:
+        - id
+        - seedId
+        - suggestionId
+        - status
+        - title
+        - lineage
+        - niche
+        - contentLocation
+        - evidenceSources
+        - createdAt
+        - updatedAt
+        - archivedAt
+      properties:
+        id:
+          type: string
+        seedId:
+          type: string
+        suggestionId:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, archived]
+        title:
+          type: string
+        lineage:
+          type: string
+        niche:
+          type: string
+        contentLocation:
+          type: string
+        evidenceSources:
+          type: array
+          items:
+            type: object
+            required: [sourceType, sourceId, strength]
+            properties:
+              sourceType:
+                type: string
+                enum: [fruit_selected, fruit_eliminated, publication, feedback]
+              sourceId:
+                type: string
+              strength:
+                type: string
+                enum: [weak, medium, strong]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+  responses:
+    NotFound:
+      description: 种子不存在或工作区依赖资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
