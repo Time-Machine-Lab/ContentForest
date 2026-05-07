@@ -10,6 +10,17 @@ import { GrowthController as HttpGrowthController } from "../../interface/http/g
 import { SeedController as HttpSeedController } from "../../interface/http/seed-controller.js";
 import { AgentRuntime } from "../../agent/runtime/agent-runtime.js";
 import { FakeLlmAdapter } from "../../agent/runtime/fake-llm-adapter.js";
+import type { LlmAdapter } from "../../agent/runtime/llm-adapter.js";
+import { OpenAiCompatibleLlmAdapter } from "../../agent/runtime/openai-compatible-llm-adapter.js";
+import { SkillRegistry } from "../../agent/runtime/skill-runtime.js";
+import { ToolRegistry } from "../../agent/runtime/tool-registry.js";
+import { BranchGrowthSkill } from "../../agent/skills/branch-growth-skill.js";
+import { ExecuteGeneratorScriptTool } from "../../agent/tools/execute-generator-script-tool.js";
+import { ReadGeneratorSkillTool } from "../../agent/tools/read-generator-skill-tool.js";
+import {
+  ReadGrowthResourcesTool,
+  ReadGrowthSourceNodeTool,
+} from "../../agent/tools/read-growth-context-tool.js";
 import { LocalFruitMarkdownContentAccessAdapter } from "../../content-access/adapters/local-fruit-markdown-content-access-adapter.js";
 import { LocalGeneMarkdownContentAccessAdapter } from "../../content-access/adapters/local-gene-markdown-content-access-adapter.js";
 import { LocalGeneratorSkillContentAccessAdapter } from "../../content-access/adapters/local-generator-skill-content-access-adapter.js";
@@ -68,8 +79,39 @@ export async function bootstrapApp(
   const geneContentAccess = new LocalGeneMarkdownContentAccessAdapter(
     config.contentRootDir,
   );
+  const skillRegistry = new SkillRegistry();
+  skillRegistry.register(new BranchGrowthSkill());
+  const toolRegistry = new ToolRegistry();
+  toolRegistry.register(
+    new ReadGeneratorSkillTool({
+      generatorStorage,
+      contentAccess: generatorContentAccess,
+    }),
+  );
+  toolRegistry.register(
+    new ExecuteGeneratorScriptTool({
+      generatorStorage,
+      contentAccess: generatorContentAccess,
+    }),
+  );
+  toolRegistry.register(
+    new ReadGrowthSourceNodeTool({
+      seedStorage,
+      fruitStorage,
+      seedContentAccess,
+      fruitContentAccess,
+    }),
+  );
+  toolRegistry.register(
+    new ReadGrowthResourcesTool({
+      geneStorage,
+      geneContentAccess,
+    }),
+  );
   const agentRuntime = new AgentRuntime({
-    llm: new FakeLlmAdapter(),
+    skillRegistry,
+    toolRegistry,
+    llm: createLlmAdapter(config),
   });
   const geneService = new GeneService({
     storage: geneStorage,
@@ -131,4 +173,17 @@ export async function bootstrapApp(
       growthStorage.close();
     },
   };
+}
+
+function createLlmAdapter(config: AppConfig): LlmAdapter {
+  const llm = config.agent.llm;
+  if (llm.isRealLlmAvailable) {
+    return new OpenAiCompatibleLlmAdapter({
+      provider: llm.provider,
+      baseUrl: llm.baseUrl,
+      model: llm.model,
+      apiKey: llm.apiKey,
+    });
+  }
+  return new FakeLlmAdapter();
 }

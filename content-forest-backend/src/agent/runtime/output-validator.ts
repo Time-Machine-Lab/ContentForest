@@ -1,5 +1,6 @@
 import { ApplicationError } from "../../shared/errors/application-error.js";
 import type { AgentTaskContext, AgentTaskOutput } from "./agent-task.js";
+import { validateBranchGrowthAgentOutput } from "./branch-growth-output-validator.js";
 
 export class OutputValidator {
   public validate(output: AgentTaskOutput, context: AgentTaskContext): AgentTaskOutput {
@@ -23,7 +24,7 @@ export class OutputValidator {
       );
     }
 
-    return output;
+    return validateBranchGrowthAgentOutput(output, context);
   }
 
   private hasUsableContent(content: unknown): boolean {

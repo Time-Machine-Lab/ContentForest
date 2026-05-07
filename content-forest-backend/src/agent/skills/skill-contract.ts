@@ -3,6 +3,7 @@ import type {
   AgentTaskOutput,
   AgentTaskType,
 } from "../runtime/agent-task.js";
+import type { AgentTrace } from "../runtime/agent-trace.js";
 import type { LlmAdapter } from "../runtime/llm-adapter.js";
 import type { ToolCaller } from "../runtime/tool-contract.js";
 
@@ -10,6 +11,7 @@ export interface SkillExecutionInput {
   context: AgentTaskContext;
   tools: ToolCaller;
   llm: LlmAdapter;
+  trace: AgentTrace;
 }
 
 export interface SkillContract {

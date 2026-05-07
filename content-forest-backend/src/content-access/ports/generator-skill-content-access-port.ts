@@ -12,5 +12,9 @@ export interface GeneratorSkillContentAccessPort {
   saveGeneratorSkill(input: SaveGeneratorSkillInput): Promise<string>;
   replaceGeneratorSkill(input: SaveGeneratorSkillInput): Promise<string>;
   readGeneratorSkill(contentLocation: string): Promise<GeneratorSkillOverview>;
+  readGeneratorSkillTextFile(
+    contentLocation: string,
+    relativePath: string,
+  ): Promise<string>;
   removeGeneratorSkill(contentLocation: string): Promise<void>;
 }

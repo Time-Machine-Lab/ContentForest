@@ -1,5 +1,6 @@
 import type { AgentPort } from "../../../agent/ports/agent-port.js";
 import type { AgentTaskResult } from "../../../agent/runtime/agent-task.js";
+import { candidateToGrowthFruitInput } from "../../../agent/skills/branch-growth-candidate.js";
 import type { FruitService } from "../../fruit/application/fruit-service.js";
 import type { ParentNodeRef } from "../../fruit/domain/fruit-types.js";
 import { GENERATOR_ENABLE_STATES } from "../../generator/domain/generator-types.js";
@@ -281,7 +282,7 @@ export class GrowthService {
         });
       }
 
-      const candidate = this.extractAgentCandidate(result);
+      const candidate = this.extractAgentCandidate(result, task);
       const fruit = await this.fruitService.createFruitFromCandidate({
         markdown: candidate.markdown,
         parentNodeRef: task.sourceNodeRef,
@@ -590,62 +591,22 @@ export class GrowthService {
 
   private extractAgentCandidate(
     result: AgentTaskResult & { ok: true },
+    task: GrowthTaskRecord,
   ): BranchGrowthAgentCandidate {
-    const content = result.output.content;
-    const candidate = this.findCandidateRecord(content);
-    if (candidate === null) {
+    try {
+      return candidateToGrowthFruitInput(result.output.content, {
+        authorizedResourceRefs: [
+          ...task.authorizationScope.nutrientRefs,
+          ...task.authorizationScope.geneRefs,
+        ],
+      });
+    } catch (error) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "Agent 未返回可落地的果实候选",
+        error instanceof Error ? error.message : "Agent 未返回可落地的果实候选",
         502,
       );
     }
-    const markdown = this.extractMarkdown(candidate);
-    return {
-      markdown,
-      summary: typeof candidate.summary === "string" ? candidate.summary : undefined,
-      geneTags: Array.isArray(candidate.geneTags)
-        ? candidate.geneTags.filter((tag): tag is string => typeof tag === "string")
-        : undefined,
-    };
-  }
-
-  private findCandidateRecord(content: unknown): Record<string, unknown> | null {
-    if (!this.isRecord(content)) {
-      return null;
-    }
-    if (this.hasAnyMarkdownField(content)) {
-      return content;
-    }
-    const nestedKeys = ["candidate", "fruitCandidate", "fruit", "payload"];
-    for (const key of nestedKeys) {
-      const nested = content[key];
-      if (this.isRecord(nested) && this.hasAnyMarkdownField(nested)) {
-        return nested;
-      }
-    }
-    return null;
-  }
-
-  private hasAnyMarkdownField(record: Record<string, unknown>): boolean {
-    return (
-      typeof record.markdown === "string" ||
-      typeof record.bodyMarkdown === "string" ||
-      typeof record.contentMarkdown === "string"
-    );
-  }
-
-  private extractMarkdown(record: Record<string, unknown>): string {
-    const value = [record.markdown, record.bodyMarkdown, record.contentMarkdown]
-      .find((item): item is string => typeof item === "string");
-    if (value === undefined || value.trim().length === 0) {
-      throw new ApplicationError(
-        "VALIDATION_ERROR",
-        "Agent 果实候选 Markdown 不能为空",
-        502,
-      );
-    }
-    return value.trim();
   }
 
   private toFailedInput(

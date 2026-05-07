@@ -80,6 +80,14 @@ export class LocalGeneratorSkillContentAccessAdapter
     };
   }
 
+  public async readGeneratorSkillTextFile(
+    contentLocation: string,
+    relativePath: string,
+  ): Promise<string> {
+    const root = this.resolve(contentLocation);
+    return readFile(this.resolveInside(root, relativePath), "utf8");
+  }
+
   public async removeGeneratorSkill(contentLocation: string): Promise<void> {
     await rm(this.resolve(contentLocation), { recursive: true, force: true });
   }

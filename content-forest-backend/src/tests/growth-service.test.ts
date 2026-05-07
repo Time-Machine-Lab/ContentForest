@@ -111,6 +111,35 @@ function invalidOutputAgent(): AgentPort {
   };
 }
 
+function structuredCandidateAgent(): AgentPort {
+  return {
+    async runTask(task: AgentTask): Promise<AgentTaskResult> {
+      return {
+        ok: true,
+        taskId: task.taskId ?? "agent_structured",
+        output: {
+          taskType: "growth",
+          content: {
+            type: "candidate_fruit",
+            payload: {
+              markdown: "# 结构化果实",
+              rawGeneratorOutput: "# 结构化果实",
+              attachments: [],
+            },
+            meta: {
+              summary: "结构化候选摘要",
+              geneTags: ["结构化"],
+              usedResourceRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
+              warnings: [],
+            },
+          },
+        },
+        trace: [],
+      };
+    },
+  };
+}
+
 async function createFixture(agentPort: AgentPort = successAgent()): Promise<{
   service: GrowthService;
   storage: InMemoryGrowthStorageAdapter;
@@ -213,6 +242,25 @@ describe("GrowthService", () => {
     expect(result.task.attempts).toHaveLength(2);
     expect(capturedTasks).toHaveLength(2);
     expect(capturedTasks[0]?.type).toBe("growth");
+  });
+
+  it("lands structured candidate_fruit output through FruitService", async () => {
+    const { service, fruitStorage } = await createFixture(structuredCandidateAgent());
+
+    const result = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 1,
+      geneRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
+    });
+
+    const fruit = await fruitStorage.findFruitById(result.task.successfulFruitIds[0] ?? "");
+    expect(result.task.status).toBe(GROWTH_TASK_STATUSES.completed);
+    expect(fruit).toMatchObject({
+      summary: "结构化候选摘要",
+      geneTags: ["结构化"],
+    });
   });
 
   it("starts growth from a fruit that belongs to the current seed", async () => {

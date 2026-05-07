@@ -55,6 +55,7 @@ export type AgentTraceEventType =
   | "tool_failed"
   | "skill_called"
   | "skill_failed"
+  | "skill_progress"
   | "llm_called"
   | "llm_failed"
   | "output_validated"

@@ -84,6 +84,7 @@ export class SkillRuntime {
         context,
         tools: this.toolRuntime,
         llm: new TracedLlmAdapter(this.llm, this.trace),
+        trace: this.trace,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Skill execution failed";

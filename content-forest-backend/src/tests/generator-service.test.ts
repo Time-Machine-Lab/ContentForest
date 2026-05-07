@@ -47,6 +47,17 @@ class FakeGeneratorSkillContentAccess
     };
   }
 
+  public async readGeneratorSkillTextFile(
+    contentLocation: string,
+    relativePath: string,
+  ): Promise<string> {
+    const overview = await this.readGeneratorSkill(contentLocation);
+    if (relativePath === "SKILL.md") {
+      return overview.skillMarkdown;
+    }
+    throw new ApplicationError("CONTENT_ACCESS_ERROR", "Skill 文件不存在", 500);
+  }
+
   public async removeGeneratorSkill(contentLocation: string): Promise<void> {
     this.removedLocations.push(contentLocation);
     this.overviewsByLocation.delete(contentLocation);
