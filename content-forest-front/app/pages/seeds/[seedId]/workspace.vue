@@ -89,18 +89,27 @@ const growthError = ref('')
 const dragState = ref<DragState | null>(null)
 const suppressClickNodeId = ref('')
 const resourcePopoverOpen = ref(false)
+const resourceQuery = ref('')
+const generatorMenuOpen = ref(false)
+const fruitCountMenuOpen = ref(false)
 const growthDetailOpen = ref(false)
 const growthIntent = ref('')
 const referencedResources = ref<ResourceRef[]>([])
 const selectedGeneratorId = ref('')
 const fruitCount = ref(3)
 const mutationRate = ref(18)
+const fruitCountOptions = [1, 2, 3, 4, 5, 6]
 
 let pollTimer: ReturnType<typeof setTimeout> | null = null
 
 const isReadOnly = computed(() => Boolean(snapshot.value?.workspaceReadOnly || route.query.readonly === '1'))
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) ?? nodes.value[0] ?? null)
-const canShowGrowthComposer = computed(() => selectedNode.value?.nodeType === 'fruit' && selectedNode.value.selectionState === 'selected')
+const canShowGrowthComposer = computed(() => {
+  const node = selectedNode.value
+  if (!node) return false
+  if (node.nodeType === 'seed') return true
+  return node.selectionState === 'selected'
+})
 const visibleComposer = computed(() => Boolean(canShowGrowthComposer.value && !isReadOnly.value && selectedNode.value?.status !== 'growing'))
 const selectedCrumb = computed(() => selectedNode.value ? `工作区 / 内容树 / ${selectedNode.value.summary}` : '工作区 / 内容树')
 const selectedGenerator = computed(() => snapshot.value?.resources.generators.find((item) => item.id === selectedGeneratorId.value) ?? null)
@@ -150,6 +159,13 @@ const resourceOptions = computed<ResourceRef[]>(() => {
         description: `${item.lineage || '经验'} · ${item.contentLocation}`,
       })),
   ]
+})
+const filteredResourceOptions = computed(() => {
+  const query = resourceQuery.value.trim().toLowerCase()
+  if (!query) return resourceOptions.value
+  return resourceOptions.value.filter((resource) => {
+    return `${resource.label} ${resource.scope} ${resource.description}`.toLowerCase().includes(query)
+  })
 })
 const growthDetailResources = computed(() => referencedResources.value.map((resource) => ({
   ...resource,
@@ -408,6 +424,8 @@ async function selectNode(nodeId: string) {
   }
   selectedNodeId.value = nodeId
   resourcePopoverOpen.value = false
+  generatorMenuOpen.value = false
+  fruitCountMenuOpen.value = false
   growthDetailOpen.value = false
   growthError.value = ''
   await loadSelectedNodeDetail()
@@ -506,14 +524,44 @@ function addResource(resource: ResourceRef) {
   if (!referencedResources.value.some((item) => item.id === resource.id && item.kind === resource.kind)) {
     referencedResources.value = [resource, ...referencedResources.value]
   }
-  const mention = `@${resource.label}`
-  if (!growthIntent.value.includes(mention)) growthIntent.value = `${growthIntent.value.trim()} ${mention}`.trim()
+  growthIntent.value = removeActiveMention(growthIntent.value)
   resourcePopoverOpen.value = false
+  resourceQuery.value = ''
 }
 
-function highlightedIntentSegments() {
-  const tokens = growthIntent.value.split(/(@[^\s@]+(?:\s·\s[^\s@]+)?|@[^\s@]+)/g).filter(Boolean)
-  return tokens.map((token) => ({ text: token, mention: token.startsWith('@') }))
+function removeActiveMention(value: string) {
+  const match = value.match(/(^|\s)@[^\s@]*$/)
+  if (!match || typeof match.index !== 'number') return value
+
+  const prefix = value.slice(0, match.index)
+  const spacer = match[1] ? ' ' : ''
+  return `${prefix}${spacer}`.replace(/\s+$/, ' ')
+}
+
+function updateResourcePopover(event: Event) {
+  const target = event.target as HTMLTextAreaElement
+  const beforeCursor = growthIntent.value.slice(0, target.selectionStart ?? growthIntent.value.length)
+  const match = beforeCursor.match(/(?:^|\s)@([^\s@]*)$/)
+  resourceQuery.value = match?.[1] ?? ''
+  resourcePopoverOpen.value = Boolean(match)
+}
+
+function openResourceMention() {
+  growthIntent.value = growthIntent.value.endsWith(' ') || !growthIntent.value
+    ? `${growthIntent.value}@`
+    : `${growthIntent.value} @`
+  resourceQuery.value = ''
+  resourcePopoverOpen.value = true
+}
+
+function selectGenerator(generatorId: string) {
+  selectedGeneratorId.value = generatorId
+  generatorMenuOpen.value = false
+}
+
+function selectFruitCount(count: number) {
+  fruitCount.value = count
+  fruitCountMenuOpen.value = false
 }
 
 async function startGrowth() {
@@ -732,7 +780,7 @@ function formatDateTime(value: string) {
 
         <div class="cf-natural-selection" aria-label="物竞天择">
           <div v-if="selectedNode.nodeType === 'seed'" class="cf-state-note">
-            种子作为内容树根节点展示，详情可查看；归档或只读工作区不允许发起新生长。
+            种子作为内容树根节点展示，可作为枝化生长来源；归档或只读工作区不允许发起新生长。
           </div>
           <div v-else-if="selectedNode.selectionState === 'selected'" class="cf-state-note is-selected">
             已选择果实，可作为下一次枝化生长来源。
@@ -807,7 +855,7 @@ function formatDateTime(value: string) {
     <section v-if="visibleComposer && selectedNode" class="cf-growth-composer" aria-label="枝化生长输入框">
       <div v-if="resourcePopoverOpen" class="cf-resource-popover" aria-label="@资源提示">
         <button
-          v-for="resource in resourceOptions"
+          v-for="resource in filteredResourceOptions"
           :key="`${resource.kind}-${resource.id}`"
           class="cf-resource-row"
           type="button"
@@ -820,7 +868,7 @@ function formatDateTime(value: string) {
           </span>
           <kbd>@</kbd>
         </button>
-        <p v-if="resourceOptions.length === 0" class="cf-muted">暂无可引用资源</p>
+        <p v-if="filteredResourceOptions.length === 0" class="cf-muted">暂无匹配资源</p>
       </div>
 
       <div class="cf-growth-top">
@@ -828,13 +876,44 @@ function formatDateTime(value: string) {
           <span>生长源</span>
           <strong>{{ selectedNode.summary }}</strong>
         </div>
-        <div class="cf-growth-pill">
+        <div class="cf-growth-menu-wrap">
+          <button class="cf-growth-pill cf-growth-picker" type="button" @click="generatorMenuOpen = !generatorMenuOpen">
           <span>生成器</span>
           <strong>{{ generatorName }}</strong>
+          <span class="cf-picker-caret">⌄</span>
+          </button>
+          <div v-if="generatorMenuOpen" class="cf-pill-menu">
+            <button
+              v-for="generator in snapshot?.resources.generators || []"
+              :key="generator.id"
+              class="cf-pill-menu-item"
+              :class="{ 'is-active': generator.id === selectedGeneratorId }"
+              type="button"
+              @click="selectGenerator(generator.id)"
+            >
+              {{ generator.name }}
+            </button>
+            <span v-if="!snapshot?.resources.generators.length" class="cf-pill-menu-empty">暂无生成器</span>
+          </div>
         </div>
-        <div class="cf-growth-pill">
+        <div class="cf-growth-menu-wrap">
+          <button class="cf-growth-pill cf-growth-picker" type="button" @click="fruitCountMenuOpen = !fruitCountMenuOpen">
           <span>果实</span>
           <strong>{{ fruitCount }}</strong>
+          <span class="cf-picker-caret">⌄</span>
+          </button>
+          <div v-if="fruitCountMenuOpen" class="cf-pill-menu is-compact">
+            <button
+              v-for="count in fruitCountOptions"
+              :key="count"
+              class="cf-pill-menu-item"
+              :class="{ 'is-active': count === fruitCount }"
+              type="button"
+              @click="selectFruitCount(count)"
+            >
+              {{ count }}
+            </button>
+          </div>
         </div>
         <div class="cf-growth-pill">
           <span>突变</span>
@@ -843,15 +922,23 @@ function formatDateTime(value: string) {
       </div>
 
       <label class="cf-growth-input">
-        <span v-for="(segment, index) in highlightedIntentSegments()" :key="`${segment.text}-${index}`" :class="{ 'cf-mention': segment.mention }">
-          {{ segment.text }}
+        <span v-if="referencedResources.length > 0" class="cf-inline-refs">
+          <span
+            v-for="resource in referencedResources"
+            :key="`inline-${resource.kind}-${resource.id}`"
+            class="cf-mention"
+            :class="`is-${resource.kind}`"
+          >
+            {{ resource.label }}
+          </span>
         </span>
         <textarea
           v-model="growthIntent"
           aria-label="枝化生长意图"
           placeholder="输入本次枝化生长的想法，或使用 @ 引用营养库和基因库..."
-          @focus="resourcePopoverOpen = true"
-          @input="resourcePopoverOpen = growthIntent.includes('@')"
+          @click="updateResourcePopover"
+          @keyup="updateResourcePopover"
+          @input="updateResourcePopover"
         />
       </label>
 
@@ -859,17 +946,7 @@ function formatDateTime(value: string) {
 
       <div class="cf-growth-footer">
         <div class="cf-growth-tools">
-          <button class="cf-round-tool" type="button" @click="resourcePopoverOpen = !resourcePopoverOpen">+</button>
-          <div class="cf-growth-refs">
-            <span
-              v-for="resource in referencedResources"
-              :key="`${resource.kind}-${resource.id}`"
-              class="cf-ref-chip"
-              :class="`is-${resource.kind}`"
-            >
-              {{ resource.label }}
-            </span>
-          </div>
+          <button class="cf-round-tool" type="button" @click="openResourceMention">+</button>
         </div>
         <div class="cf-growth-actions">
           <button class="cf-secondary-action" type="button" @click="growthDetailOpen = !growthDetailOpen">枝化详情</button>
@@ -1405,9 +1482,71 @@ button:disabled {
   white-space: nowrap;
 }
 
+.cf-growth-menu-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.cf-growth-picker {
+  cursor: pointer;
+}
+
+.cf-growth-picker:hover {
+  border-color: rgba(94, 215, 197, .28);
+  background: rgba(94, 215, 197, .07);
+}
+
+.cf-picker-caret {
+  color: var(--cf-muted);
+  font-size: 13px;
+}
+
+.cf-pill-menu {
+  position: absolute;
+  z-index: 35;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 236px;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--cf-border);
+  border-radius: 10px;
+  background: rgba(18, 21, 24, .98);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .36);
+}
+
+.cf-pill-menu.is-compact {
+  width: 84px;
+}
+
+.cf-pill-menu-item,
+.cf-pill-menu-empty {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 9px;
+  border-radius: 7px;
+  color: var(--cf-muted);
+  font-size: 12px;
+  text-align: left;
+}
+
+.cf-pill-menu-item {
+  background: transparent;
+  cursor: pointer;
+}
+
+.cf-pill-menu-item:hover,
+.cf-pill-menu-item.is-active {
+  background: rgba(94, 215, 197, .12);
+  color: var(--cf-text);
+}
+
 .cf-growth-input {
   position: relative;
-  display: block;
+  display: grid;
+  gap: 8px;
   min-height: 76px;
   margin: 8px 12px 6px;
   padding: 10px 0;
@@ -1417,8 +1556,6 @@ button:disabled {
 }
 
 .cf-growth-input textarea {
-  position: absolute;
-  inset: 0;
   width: 100%;
   min-height: 76px;
   padding: 10px 0;
@@ -1426,7 +1563,7 @@ button:disabled {
   outline: 0;
   resize: none;
   background: transparent;
-  color: transparent;
+  color: var(--cf-text);
   caret-color: var(--cf-text);
   line-height: 1.45;
 }
@@ -1435,8 +1572,15 @@ button:disabled {
   color: var(--cf-muted);
 }
 
+.cf-inline-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .cf-mention {
   display: inline-flex;
+  align-items: center;
   min-height: 22px;
   padding: 0 6px;
   border: 1px solid rgba(94, 215, 197, .24);
@@ -1444,6 +1588,12 @@ button:disabled {
   background: rgba(94, 215, 197, .12);
   color: #bffff3;
   font-weight: 700;
+}
+
+.cf-mention.is-nutrient {
+  border-color: rgba(240, 195, 107, .24);
+  background: rgba(240, 195, 107, .1);
+  color: #ffe0b2;
 }
 
 .cf-growth-footer {
