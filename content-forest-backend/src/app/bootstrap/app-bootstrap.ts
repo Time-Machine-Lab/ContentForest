@@ -4,11 +4,13 @@ import type { FruitController } from "../../interface/http/fruit-controller.js";
 import type { GeneController } from "../../interface/http/gene-controller.js";
 import type { GrowthController } from "../../interface/http/growth-controller.js";
 import type { PublicationController } from "../../interface/http/publication-controller.js";
+import type { NutrientController } from "../../interface/http/nutrient-controller.js";
 import { GeneratorController as HttpGeneratorController } from "../../interface/http/generator-controller.js";
 import { FruitController as HttpFruitController } from "../../interface/http/fruit-controller.js";
 import { GeneController as HttpGeneController } from "../../interface/http/gene-controller.js";
 import { GrowthController as HttpGrowthController } from "../../interface/http/growth-controller.js";
 import { PublicationController as HttpPublicationController } from "../../interface/http/publication-controller.js";
+import { NutrientController as HttpNutrientController } from "../../interface/http/nutrient-controller.js";
 import { SeedController as HttpSeedController } from "../../interface/http/seed-controller.js";
 import { AgentRuntime } from "../../agent/runtime/agent-runtime.js";
 import { FakeLlmAdapter } from "../../agent/runtime/fake-llm-adapter.js";
@@ -17,8 +19,14 @@ import { OpenAiCompatibleLlmAdapter } from "../../agent/runtime/openai-compatibl
 import { SkillRegistry } from "../../agent/runtime/skill-runtime.js";
 import { ToolRegistry } from "../../agent/runtime/tool-registry.js";
 import { BranchGrowthSkill } from "../../agent/skills/branch-growth-skill.js";
+import { GeneExtractionSkill } from "../../agent/skills/gene-extraction-skill.js";
 import { ExecuteGeneratorScriptTool } from "../../agent/tools/execute-generator-script-tool.js";
 import { ReadGeneratorSkillTool } from "../../agent/tools/read-generator-skill-tool.js";
+import {
+  ReadGeneEvidenceTool,
+  ReadGeneSeedContextTool,
+  ReadReferableGeneInsightsTool,
+} from "../../agent/tools/read-gene-context-tool.js";
 import {
   ReadGrowthResourcesTool,
   ReadGrowthSourceNodeTool,
@@ -26,17 +34,20 @@ import {
 import { LocalFruitMarkdownContentAccessAdapter } from "../../content-access/adapters/local-fruit-markdown-content-access-adapter.js";
 import { LocalGeneMarkdownContentAccessAdapter } from "../../content-access/adapters/local-gene-markdown-content-access-adapter.js";
 import { LocalGeneratorSkillContentAccessAdapter } from "../../content-access/adapters/local-generator-skill-content-access-adapter.js";
+import { LocalNutrientMarkdownContentAccessAdapter } from "../../content-access/adapters/local-nutrient-markdown-content-access-adapter.js";
 import { LocalSeedMarkdownContentAccessAdapter } from "../../content-access/adapters/local-seed-markdown-content-access-adapter.js";
 import { FruitService } from "../../modules/fruit/application/fruit-service.js";
 import { GeneService } from "../../modules/gene/application/gene-service.js";
 import { GeneratorService } from "../../modules/generator/application/generator-service.js";
 import { GrowthService } from "../../modules/growth/application/growth-service.js";
+import { NutrientService } from "../../modules/nutrient/application/nutrient-service.js";
 import { PublicationService } from "../../modules/publication/application/publication-service.js";
 import { SeedService } from "../../modules/seed/application/seed-service.js";
 import { SqliteFruitStorageAdapter } from "../../storage/adapters/sqlite-fruit-storage-adapter.js";
 import { SqliteGeneStorageAdapter } from "../../storage/adapters/sqlite-gene-storage-adapter.js";
 import { SqliteGeneratorStorageAdapter } from "../../storage/adapters/sqlite-generator-storage-adapter.js";
 import { SqliteGrowthStorageAdapter } from "../../storage/adapters/sqlite-growth-storage-adapter.js";
+import { SqliteNutrientStorageAdapter } from "../../storage/adapters/sqlite-nutrient-storage-adapter.js";
 import { SqlitePublicationStorageAdapter } from "../../storage/adapters/sqlite-publication-storage-adapter.js";
 import { SqliteSeedStorageAdapter } from "../../storage/adapters/sqlite-seed-storage-adapter.js";
 import type { AppConfig, AppConfigEnv } from "../config/app-config.js";
@@ -54,6 +65,7 @@ export interface AppRuntime {
   geneController: GeneController;
   growthController: GrowthController;
   publicationController: PublicationController;
+  nutrientController: NutrientController;
   close(): void;
 }
 
@@ -72,6 +84,7 @@ export async function bootstrapApp(
   const fruitStorage = new SqliteFruitStorageAdapter(config.databasePath);
   const geneStorage = new SqliteGeneStorageAdapter(config.databasePath);
   const growthStorage = new SqliteGrowthStorageAdapter(config.databasePath);
+  const nutrientStorage = new SqliteNutrientStorageAdapter(config.databasePath);
   const publicationStorage = new SqlitePublicationStorageAdapter(
     config.databasePath,
   );
@@ -87,8 +100,12 @@ export async function bootstrapApp(
   const geneContentAccess = new LocalGeneMarkdownContentAccessAdapter(
     config.contentRootDir,
   );
+  const nutrientContentAccess = new LocalNutrientMarkdownContentAccessAdapter(
+    config.contentRootDir,
+  );
   const skillRegistry = new SkillRegistry();
   skillRegistry.register(new BranchGrowthSkill());
+  skillRegistry.register(new GeneExtractionSkill());
   const toolRegistry = new ToolRegistry();
   toolRegistry.register(
     new ReadGeneratorSkillTool({
@@ -114,6 +131,27 @@ export async function bootstrapApp(
     new ReadGrowthResourcesTool({
       geneStorage,
       geneContentAccess,
+      nutrientStorage,
+      nutrientContentAccess,
+    }),
+  );
+  toolRegistry.register(
+    new ReadGeneSeedContextTool({
+      seedStorage,
+      seedContentAccess,
+    }),
+  );
+  toolRegistry.register(
+    new ReadGeneEvidenceTool({
+      fruitStorage,
+      fruitContentAccess,
+      publicationStorage,
+    }),
+  );
+  toolRegistry.register(
+    new ReadReferableGeneInsightsTool({
+      geneStorage,
+      geneContentAccess,
     }),
   );
   const agentRuntime = new AgentRuntime({
@@ -137,6 +175,11 @@ export async function bootstrapApp(
     storage: generatorStorage,
     contentAccess: generatorContentAccess,
   });
+  const nutrientService = new NutrientService({
+    storage: nutrientStorage,
+    contentAccess: nutrientContentAccess,
+    seedStorage,
+  });
   const fruitService = new FruitService({
     storage: fruitStorage,
     contentAccess: fruitContentAccess,
@@ -159,6 +202,23 @@ export async function bootstrapApp(
     generatorStorage,
     fruitService,
     agentPort: agentRuntime,
+    referenceAuthorization: {
+      async authorize(scope) {
+        await nutrientService.assertNutrientRefsReferable(
+          scope.seedId,
+          scope.nutrientRefs.map((ref) => ({
+            resourceType: "nutrient",
+            resourceId: ref.resourceId,
+          })),
+        );
+        return {
+          ...scope,
+          sourceNodeRef: { ...scope.sourceNodeRef },
+          nutrientRefs: scope.nutrientRefs.map((ref) => ({ ...ref })),
+          geneRefs: scope.geneRefs.map((ref) => ({ ...ref })),
+        };
+      },
+    },
   });
   const publicationService = new PublicationService({
     storage: publicationStorage,
@@ -170,6 +230,7 @@ export async function bootstrapApp(
   const geneController = new HttpGeneController(geneService);
   const growthController = new HttpGrowthController(growthService);
   const publicationController = new HttpPublicationController(publicationService);
+  const nutrientController = new HttpNutrientController(nutrientService);
 
   return {
     config,
@@ -179,12 +240,14 @@ export async function bootstrapApp(
     geneController,
     growthController,
     publicationController,
+    nutrientController,
     close(): void {
       seedStorage.close();
       generatorStorage.close();
       fruitStorage.close();
       geneStorage.close();
       growthStorage.close();
+      nutrientStorage.close();
       publicationStorage.close();
     },
   };

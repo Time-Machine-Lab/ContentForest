@@ -10,6 +10,10 @@ import type {
   GrowthResourceRef,
   GrowthSourceNodeRef,
 } from "../modules/growth/domain/growth-types.js";
+import type {
+  NutrientArchiveState,
+  NutrientLibraryScope,
+} from "../modules/nutrient/domain/nutrient-types.js";
 
 await loadLocalEnvFile();
 const app = await bootstrapApp();
@@ -65,6 +69,138 @@ async function handleApiRequest(
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
   const pathname = url.pathname;
   const method = request.method ?? "GET";
+
+  if (pathname === "/api/nutrient-libraries" && method === "GET") {
+    const result = await app.nutrientController.listLibraries(
+      toListNutrientLibrariesInput(url.searchParams),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  if (pathname === "/api/nutrient-libraries" && method === "POST") {
+    const result = await app.nutrientController.createLibrary(
+      toCreateNutrientLibraryInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientLibraryContentsMatch = pathname.match(
+    /^\/api\/nutrient-libraries\/([^/]+)\/contents$/,
+  );
+  if (nutrientLibraryContentsMatch && method === "GET") {
+    const result = await app.nutrientController.listContents(
+      decodeURIComponent(nutrientLibraryContentsMatch[1] ?? ""),
+      toListNutrientContentsInput(url.searchParams),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  if (nutrientLibraryContentsMatch && method === "POST") {
+    const result = await app.nutrientController.createContent(
+      decodeURIComponent(nutrientLibraryContentsMatch[1] ?? ""),
+      toCreateNutrientContentInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientLibraryArchiveMatch = pathname.match(
+    /^\/api\/nutrient-libraries\/([^/]+)\/archive$/,
+  );
+  if (nutrientLibraryArchiveMatch && method === "POST") {
+    const result = await app.nutrientController.archiveLibrary(
+      decodeURIComponent(nutrientLibraryArchiveMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientLibraryRestoreMatch = pathname.match(
+    /^\/api\/nutrient-libraries\/([^/]+)\/restore$/,
+  );
+  if (nutrientLibraryRestoreMatch && method === "POST") {
+    const result = await app.nutrientController.restoreLibrary(
+      decodeURIComponent(nutrientLibraryRestoreMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientLibraryMatch = pathname.match(
+    /^\/api\/nutrient-libraries\/([^/]+)$/,
+  );
+  if (nutrientLibraryMatch && method === "GET") {
+    const result = await app.nutrientController.getLibrary(
+      decodeURIComponent(nutrientLibraryMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  if (nutrientLibraryMatch && method === "PATCH") {
+    const result = await app.nutrientController.updateLibrary(
+      decodeURIComponent(nutrientLibraryMatch[1] ?? ""),
+      toUpdateNutrientLibraryInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientContentArchiveMatch = pathname.match(
+    /^\/api\/nutrient-contents\/([^/]+)\/archive$/,
+  );
+  if (nutrientContentArchiveMatch && method === "POST") {
+    const result = await app.nutrientController.archiveContent(
+      decodeURIComponent(nutrientContentArchiveMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientContentRestoreMatch = pathname.match(
+    /^\/api\/nutrient-contents\/([^/]+)\/restore$/,
+  );
+  if (nutrientContentRestoreMatch && method === "POST") {
+    const result = await app.nutrientController.restoreContent(
+      decodeURIComponent(nutrientContentRestoreMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientContentMatch = pathname.match(
+    /^\/api\/nutrient-contents\/([^/]+)$/,
+  );
+  if (nutrientContentMatch && method === "GET") {
+    const result = await app.nutrientController.getContent(
+      decodeURIComponent(nutrientContentMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  if (nutrientContentMatch && method === "PATCH") {
+    const result = await app.nutrientController.updateContent(
+      decodeURIComponent(nutrientContentMatch[1] ?? ""),
+      toUpdateNutrientContentInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const referableNutrientsMatch = pathname.match(
+    /^\/api\/seeds\/([^/]+)\/referable-nutrients$/,
+  );
+  if (referableNutrientsMatch && method === "GET") {
+    const result = await app.nutrientController.listReferableContents(
+      decodeURIComponent(referableNutrientsMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
 
   if (pathname === "/api/seeds" && method === "GET") {
     const result = await app.seedController.listActiveSeeds();
@@ -499,6 +635,161 @@ function toImportGeneratorInput(body: Record<string, unknown>): {
     description: body.description,
     zipBuffer: decodeBase64Zip(body.zipBase64),
   };
+}
+
+function toCreateNutrientLibraryInput(body: Record<string, unknown>): {
+  name: string;
+  description?: string;
+  scope: NutrientLibraryScope;
+  seedId?: string | null;
+} {
+  if (
+    typeof body.name !== "string" ||
+    (body.scope !== "public" && body.scope !== "seed_scoped")
+  ) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "创建营养库需要提供名称和有效作用域",
+      400,
+    );
+  }
+  if (body.description !== undefined && typeof body.description !== "string") {
+    throw new ApplicationError("VALIDATION_ERROR", "营养库描述必须是字符串", 400);
+  }
+  if (
+    body.seedId !== undefined &&
+    body.seedId !== null &&
+    typeof body.seedId !== "string"
+  ) {
+    throw new ApplicationError("VALIDATION_ERROR", "归属种子必须是字符串", 400);
+  }
+  return {
+    name: body.name,
+    description: body.description,
+    scope: body.scope,
+    seedId: body.seedId,
+  };
+}
+
+function toUpdateNutrientLibraryInput(body: Record<string, unknown>): {
+  name?: string;
+  description?: string;
+} {
+  rejectUnexpectedFields(body, ["name", "description"]);
+  const input: { name?: string; description?: string } = {};
+  if (body.name !== undefined) {
+    if (typeof body.name !== "string") {
+      throw new ApplicationError("VALIDATION_ERROR", "营养库名称必须是字符串", 400);
+    }
+    input.name = body.name;
+  }
+  if (body.description !== undefined) {
+    if (typeof body.description !== "string") {
+      throw new ApplicationError("VALIDATION_ERROR", "营养库描述必须是字符串", 400);
+    }
+    input.description = body.description;
+  }
+  return input;
+}
+
+function toCreateNutrientContentInput(body: Record<string, unknown>): {
+  title: string;
+  markdown: string;
+} {
+  if (typeof body.title !== "string" || typeof body.markdown !== "string") {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "新增营养内容需要提供标题和 Markdown 正文",
+      400,
+    );
+  }
+  return {
+    title: body.title,
+    markdown: body.markdown,
+  };
+}
+
+function toUpdateNutrientContentInput(body: Record<string, unknown>): {
+  title?: string;
+  markdown?: string;
+} {
+  rejectUnexpectedFields(body, ["title", "markdown"]);
+  const input: { title?: string; markdown?: string } = {};
+  if (body.title !== undefined) {
+    if (typeof body.title !== "string") {
+      throw new ApplicationError("VALIDATION_ERROR", "营养内容标题必须是字符串", 400);
+    }
+    input.title = body.title;
+  }
+  if (body.markdown !== undefined) {
+    if (typeof body.markdown !== "string") {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "营养内容 Markdown 正文必须是字符串",
+        400,
+      );
+    }
+    input.markdown = body.markdown;
+  }
+  return input;
+}
+
+function toListNutrientLibrariesInput(
+  searchParams: URLSearchParams,
+): {
+  scope?: NutrientLibraryScope;
+  archiveState?: NutrientArchiveState;
+  seedId?: string;
+} {
+  const scope = searchParams.get("scope");
+  const archiveState = searchParams.get("archiveState");
+  return {
+    scope: parseNutrientScope(scope),
+    archiveState: parseNutrientArchiveState(archiveState),
+    seedId: searchParams.get("seedId") ?? undefined,
+  };
+}
+
+function toListNutrientContentsInput(
+  searchParams: URLSearchParams,
+): {
+  archiveState?: NutrientArchiveState;
+} {
+  return {
+    archiveState: parseNutrientArchiveState(searchParams.get("archiveState")),
+  };
+}
+
+function parseNutrientScope(
+  value: string | null,
+): NutrientLibraryScope | undefined {
+  if (value === null || value.length === 0) {
+    return undefined;
+  }
+  if (value !== "public" && value !== "seed_scoped") {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "营养库作用域必须是 public 或 seed_scoped",
+      400,
+    );
+  }
+  return value;
+}
+
+function parseNutrientArchiveState(
+  value: string | null,
+): NutrientArchiveState | undefined {
+  if (value === null || value.length === 0) {
+    return undefined;
+  }
+  if (value !== "active" && value !== "archived") {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "归档状态必须是 active 或 archived",
+      400,
+    );
+  }
+  return value;
 }
 
 function toReuploadGeneratorInput(body: Record<string, unknown>): {

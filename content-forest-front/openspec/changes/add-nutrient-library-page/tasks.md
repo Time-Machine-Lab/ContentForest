@@ -1,9 +1,11 @@
 ## 1. 契约与依赖对齐
 
-- [ ] 1.1 阅读 `docs/spec/DESIGN.md`、`docs/spec/前端开发规范文档.md`、本变更 design/specs，确认 UI 风格和前端分层约束
-- [ ] 1.2 校验后端已提供 `docs/api/nutrient.yaml`，若缺失则标记为【依赖后端更新】并暂停真实接口联动
-- [ ] 1.3 校验后端已提供 `docs/sql/nutrient.sql`，确认营养库和营养内容系统事实边界
-- [ ] 1.4 阅读现有种子列表 API 封装，确认创建种子专属营养库时可复用的种子选择数据来源
+- [x] 1.1 阅读 `docs/spec/DESIGN.md`、`docs/spec/前端开发规范文档.md`、本变更 design/specs，确认 UI 风格和前端分层约束
+- [x] 1.2 校验后端已提供 `docs/api/nutrient.yaml`，若缺失则标记为【依赖后端更新】并暂停真实接口联动
+- [x] 1.3 校验后端已提供 `docs/sql/nutrient.sql`，确认营养库和营养内容系统事实边界
+- [x] 1.4 阅读现有种子列表 API 封装，确认创建种子专属营养库时可复用的种子选择数据来源
+
+> Blocked: `docs/api/nutrient.yaml` 与 `docs/sql/nutrient.sql` 尚未落地。根据前端宪法，真实接口封装与页面联动需要等待后端契约更新。
 
 ## 2. 营养库 API 封装
 

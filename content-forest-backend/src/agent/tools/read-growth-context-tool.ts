@@ -1,10 +1,12 @@
 import type { FruitMarkdownContentAccessPort } from "../../content-access/ports/fruit-markdown-content-access-port.js";
 import type { GeneMarkdownContentAccessPort } from "../../content-access/ports/gene-markdown-content-access-port.js";
+import type { NutrientMarkdownContentAccessPort } from "../../content-access/ports/nutrient-markdown-content-access-port.js";
 import type { SeedMarkdownContentAccessPort } from "../../content-access/ports/seed-markdown-content-access-port.js";
 import { GENE_INSIGHT_STATUSES } from "../../modules/gene/domain/gene-types.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
 import type { FruitStoragePort } from "../../storage/ports/fruit-storage-port.js";
 import type { GeneStoragePort } from "../../storage/ports/gene-storage-port.js";
+import type { NutrientStoragePort } from "../../storage/ports/nutrient-storage-port.js";
 import type { SeedStoragePort } from "../../storage/ports/seed-storage-port.js";
 import type { AgentTaskContext } from "../runtime/agent-task.js";
 import type { ToolContract, ToolInput, ToolOutput } from "../runtime/tool-contract.js";
@@ -81,6 +83,8 @@ export class ReadGrowthResourcesTool implements ToolContract {
     private readonly dependencies: {
       geneStorage?: GeneStoragePort;
       geneContentAccess?: GeneMarkdownContentAccessPort;
+      nutrientStorage?: NutrientStoragePort;
+      nutrientContentAccess?: NutrientMarkdownContentAccessPort;
     } = {},
   ) {}
 
@@ -89,6 +93,40 @@ export class ReadGrowthResourcesTool implements ToolContract {
     context: AgentTaskContext,
   ): Promise<ToolOutput> {
     const refs = readAuthorizedResourceRefs(context);
+    const nutrients = [];
+    if (
+      this.dependencies.nutrientStorage !== undefined &&
+      this.dependencies.nutrientContentAccess !== undefined &&
+      typeof context.input.seedId === "string"
+    ) {
+      const referableNutrients =
+        await this.dependencies.nutrientStorage.listReferableContents(
+          context.input.seedId,
+        );
+      for (const ref of refs.filter((item) => item.resourceType === "nutrient")) {
+        const nutrient = referableNutrients.find(
+          (item) => item.content.id === ref.resourceId,
+        );
+        if (nutrient === undefined) {
+          continue;
+        }
+        nutrients.push({
+          resourceType: "nutrient",
+          resourceId: ref.resourceId,
+          title: nutrient.content.title,
+          library: {
+            id: nutrient.library.id,
+            name: nutrient.library.name,
+            scope: nutrient.library.scope,
+            seedId: nutrient.library.seedId,
+          },
+          markdown:
+            await this.dependencies.nutrientContentAccess.readNutrientMarkdown(
+              nutrient.content.contentLocation,
+            ),
+        });
+      }
+    }
     const genes = [];
     for (const ref of refs.filter((item) => item.resourceType === "gene")) {
       if (
@@ -121,13 +159,7 @@ export class ReadGrowthResourcesTool implements ToolContract {
     return {
       content: {
         requestedRefs: refs,
-        nutrients: refs
-          .filter((ref) => ref.resourceType === "nutrient")
-          .map((ref) => ({
-            resourceType: "nutrient",
-            resourceId: ref.resourceId,
-            unavailableInPhaseOne: true,
-          })),
+        nutrients,
         genes,
       },
     };
