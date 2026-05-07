@@ -4,7 +4,7 @@ const route = useRoute()
 const navItems = [
   { label: '种子库', to: '/seeds', icon: '◇', enabled: true },
   { label: '生成器', to: '/generators', icon: '⌘', enabled: true },
-  { label: '营养库', to: '/nutrients', icon: '◎', enabled: false },
+  { label: '营养库', to: '/nutrients', icon: '◎', enabled: true },
 ]
 
 function isActive(path: string) {
@@ -57,7 +57,7 @@ function isActive(path: string) {
         <span class="cf-note-dot" aria-hidden="true" />
         <div>
           <strong>Phase One</strong>
-          <span>种子与生成器建设中</span>
+          <span>种子、生成器与营养库建设中</span>
         </div>
       </section>
     </aside>

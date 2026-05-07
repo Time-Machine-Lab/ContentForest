@@ -48,6 +48,12 @@ describe("BranchGrowthCandidate schema", () => {
         authorizedResourceRefs: [{ resourceType: "gene", resourceId: "gene_2" }],
       }),
     ).toThrow(/not authorized/);
+
+    expect(() =>
+      validateBranchGrowthCandidateFruit(validCandidate, {
+        authorizedResourceRefs: [],
+      }),
+    ).toThrow(/not authorized/);
   });
 
   it("rejects real local paths and forged system facts", () => {

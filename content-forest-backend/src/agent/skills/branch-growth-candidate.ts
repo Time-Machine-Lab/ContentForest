@@ -51,6 +51,7 @@ export function validateBranchGrowthCandidateFruit(
     errors.push("candidate cannot claim system facts");
   }
 
+  const enforceAuthorizedRefs = options.authorizedResourceRefs !== undefined;
   const authorized = new Set(
     (options.authorizedResourceRefs ?? [])
       .map((ref) => `${ref.resourceType}:${ref.resourceId}`),
@@ -60,7 +61,7 @@ export function validateBranchGrowthCandidateFruit(
       errors.push("resource ref id is required");
       continue;
     }
-    if (authorized.size > 0 && !authorized.has(`${ref.resourceType}:${ref.resourceId}`)) {
+    if (enforceAuthorizedRefs && !authorized.has(`${ref.resourceType}:${ref.resourceId}`)) {
       errors.push(`resource ref is not authorized: ${ref.resourceType}:${ref.resourceId}`);
     }
   }

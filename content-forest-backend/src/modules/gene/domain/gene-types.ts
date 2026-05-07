@@ -123,7 +123,11 @@ export interface GeneExtractionTaskResult {
   suggestions: GeneSuggestion[];
 }
 
+export const GENE_EXTRACTION_AGENT_INPUT_CONTRACT_VERSION =
+  "gene-extraction-agent-input/v1";
+
 export interface GeneExtractionAgentInput {
+  contractVersion: typeof GENE_EXTRACTION_AGENT_INPUT_CONTRACT_VERSION;
   seedId: string;
   taskId: string;
   evidenceSources: GeneEvidenceSource[];
@@ -150,4 +154,3 @@ export interface GeneExtractionAgentSuggestion {
   niche?: string;
   evidenceInterpretation?: string;
 }
-

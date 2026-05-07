@@ -164,6 +164,7 @@ export async function bootstrapApp(
     contentAccess: geneContentAccess,
     seedStorage,
     fruitStorage,
+    publicationStorage,
     agentPort: agentRuntime,
   });
   const seedService = new SeedService({

@@ -8,16 +8,19 @@ import { FruitService } from "../modules/fruit/application/fruit-service.js";
 import { GeneService } from "../modules/gene/application/gene-service.js";
 import {
   GENE_EVIDENCE_SOURCE_TYPES,
+  GENE_EXTRACTION_AGENT_INPUT_CONTRACT_VERSION,
   GENE_EXTRACTION_TASK_STATUSES,
   GENE_INSIGHT_STATUSES,
   GENE_REMINDER_STATUSES,
   GENE_SUGGESTION_STATUSES,
 } from "../modules/gene/domain/gene-types.js";
+import type { PublicationRecord } from "../modules/publication/domain/publication-types.js";
 import { SeedService } from "../modules/seed/application/seed-service.js";
 import { ApplicationError } from "../shared/errors/application-error.js";
 import type { IdGenerator } from "../shared/utils/id-generator.js";
 import { InMemoryFruitStorageAdapter } from "../storage/adapters/in-memory-fruit-storage-adapter.js";
 import { InMemoryGeneStorageAdapter } from "../storage/adapters/in-memory-gene-storage-adapter.js";
+import { InMemoryPublicationStorageAdapter } from "../storage/adapters/in-memory-publication-storage-adapter.js";
 import { InMemorySeedStorageAdapter } from "../storage/adapters/in-memory-seed-storage-adapter.js";
 
 function createIdGenerator(): IdGenerator {
@@ -80,16 +83,37 @@ function failureAgent(): AgentPort {
   };
 }
 
+function malformedSuccessAgent(capturedTasks: AgentTask[] = []): AgentPort {
+  return {
+    async runTask(task: AgentTask): Promise<AgentTaskResult> {
+      capturedTasks.push(task);
+      return {
+        ok: true,
+        taskId: task.taskId ?? "agent-task_1",
+        output: {
+          taskType: "gene_extraction",
+          content: {
+            suggestions: [],
+          },
+        },
+        trace: [],
+      };
+    },
+  };
+}
+
 function createServices(agentPort: AgentPort = successAgent()): {
   geneService: GeneService;
   seedService: SeedService;
   fruitService: FruitService;
   geneStorage: InMemoryGeneStorageAdapter;
   geneContent: InMemoryGeneMarkdownContentAccessAdapter;
+  publicationStorage: InMemoryPublicationStorageAdapter;
 } {
   const seedStorage = new InMemorySeedStorageAdapter();
   const fruitStorage = new InMemoryFruitStorageAdapter();
   const geneStorage = new InMemoryGeneStorageAdapter();
+  const publicationStorage = new InMemoryPublicationStorageAdapter();
   const geneContent = new InMemoryGeneMarkdownContentAccessAdapter();
   const idGenerator = createIdGenerator();
   const now = createNow();
@@ -99,6 +123,7 @@ function createServices(agentPort: AgentPort = successAgent()): {
     contentAccess: geneContent,
     seedStorage,
     fruitStorage,
+    publicationStorage,
     agentPort,
     idGenerator,
     now,
@@ -130,6 +155,24 @@ function createServices(agentPort: AgentPort = successAgent()): {
     fruitService,
     geneStorage,
     geneContent,
+    publicationStorage,
+  };
+}
+
+function publicationRecord(
+  id: string,
+  fruitId: string,
+): PublicationRecord {
+  return {
+    id,
+    fruitId,
+    publisherType: "manual",
+    publicationTarget: "x",
+    publicationEvidence: "https://example.com/post",
+    publicationNote: "",
+    publishedAt: "2026-01-01T00:00:00.000Z",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
   };
 }
 
@@ -208,8 +251,17 @@ describe("GeneService", () => {
       status: GENE_SUGGESTION_STATUSES.pending,
       title: "保留情绪价值表达",
     });
+    expect(
+      "polarity" in (result.suggestions[0] as unknown as Record<string, unknown>),
+    ).toBe(false);
+    expect(
+      "similarityRelation" in
+        (result.suggestions[0] as unknown as Record<string, unknown>),
+    ).toBe(false);
     expect(capturedTasks[0]?.input).toMatchObject({
+      contractVersion: GENE_EXTRACTION_AGENT_INPUT_CONTRACT_VERSION,
       seedId: seed.id,
+      taskId: result.task.id,
       evidenceSources: reminder.evidenceSources,
       fruitEvidence: [
         {
@@ -225,6 +277,219 @@ describe("GeneService", () => {
         `genes/seed-scoped/${seed.id}/gene-suggestion_1.md`,
       ),
     ).rejects.toBeInstanceOf(ApplicationError);
+  });
+
+  it("rejects fruit evidence outside the requested seed", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const { fruitService, seedService, geneService } = createServices(
+      successAgent(capturedTasks),
+    );
+    const seedA = await seedService.createSeed({
+      title: "Seed A",
+      markdown: "Seed A body",
+    });
+    const seedB = await seedService.createSeed({
+      title: "Seed B",
+      markdown: "Seed B body",
+    });
+    const foreignFruit = await fruitService.createFruitFromCandidate({
+      markdown: "Foreign fruit",
+      parentNodeRef: { nodeType: "seed", nodeId: seedB.rootNodeId },
+    });
+
+    await expect(
+      geneService.startExtractionTask(seedA.id, {
+        evidenceSources: [
+          {
+            sourceType: GENE_EVIDENCE_SOURCE_TYPES.fruitSelected,
+            sourceId: foreignFruit.id,
+            strength: "weak",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(capturedTasks).toHaveLength(0);
+  });
+
+  it("authorizes publication evidence through its fruit seed", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const {
+      fruitService,
+      seedService,
+      geneService,
+      publicationStorage,
+    } = createServices(successAgent(capturedTasks));
+    const seed = await seedService.createSeed({
+      title: "Seed A",
+      markdown: "Seed A body",
+    });
+    const fruit = await fruitService.createFruitFromCandidate({
+      markdown: "Published fruit",
+      parentNodeRef: { nodeType: "seed", nodeId: seed.rootNodeId },
+    });
+    await publicationStorage.createPublicationRecord(
+      publicationRecord("publication_1", fruit.id),
+    );
+
+    const result = await geneService.startExtractionTask(seed.id, {
+      evidenceSources: [
+        {
+          sourceType: GENE_EVIDENCE_SOURCE_TYPES.publication,
+          sourceId: "publication_1",
+          strength: "medium",
+        },
+      ],
+    });
+
+    expect(result.task.status).toBe(GENE_EXTRACTION_TASK_STATUSES.completed);
+    expect(capturedTasks[0]?.input).toMatchObject({
+      contractVersion: GENE_EXTRACTION_AGENT_INPUT_CONTRACT_VERSION,
+      seedId: seed.id,
+      evidenceSources: [
+        {
+          sourceType: GENE_EVIDENCE_SOURCE_TYPES.publication,
+          sourceId: "publication_1",
+          strength: "medium",
+        },
+      ],
+      fruitEvidence: [],
+    });
+  });
+
+  it("rejects publication evidence outside the requested seed", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const {
+      fruitService,
+      seedService,
+      geneService,
+      publicationStorage,
+    } = createServices(successAgent(capturedTasks));
+    const seedA = await seedService.createSeed({
+      title: "Seed A",
+      markdown: "Seed A body",
+    });
+    const seedB = await seedService.createSeed({
+      title: "Seed B",
+      markdown: "Seed B body",
+    });
+    const foreignFruit = await fruitService.createFruitFromCandidate({
+      markdown: "Foreign published fruit",
+      parentNodeRef: { nodeType: "seed", nodeId: seedB.rootNodeId },
+    });
+    await publicationStorage.createPublicationRecord(
+      publicationRecord("publication_2", foreignFruit.id),
+    );
+
+    await expect(
+      geneService.startExtractionTask(seedA.id, {
+        evidenceSources: [
+          {
+            sourceType: GENE_EVIDENCE_SOURCE_TYPES.publication,
+            sourceId: "publication_2",
+            strength: "medium",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(capturedTasks).toHaveLength(0);
+  });
+
+  it("rejects pure feedback evidence and allows mixed executable evidence", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const { fruitService, seedService, geneService } = createServices(
+      successAgent(capturedTasks),
+    );
+    const seed = await seedService.createSeed({
+      title: "Seed A",
+      markdown: "Seed A body",
+    });
+    const fruit = await fruitService.createFruitFromCandidate({
+      markdown: "Executable fruit",
+      parentNodeRef: { nodeType: "seed", nodeId: seed.rootNodeId },
+    });
+
+    await expect(
+      geneService.startExtractionTask(seed.id, {
+        evidenceSources: [
+          {
+            sourceType: GENE_EVIDENCE_SOURCE_TYPES.feedback,
+            sourceId: "feedback_1",
+            strength: "weak",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    const result = await geneService.startExtractionTask(seed.id, {
+      evidenceSources: [
+        {
+          sourceType: GENE_EVIDENCE_SOURCE_TYPES.feedback,
+          sourceId: "feedback_1",
+          strength: "weak",
+        },
+        {
+          sourceType: GENE_EVIDENCE_SOURCE_TYPES.fruitSelected,
+          sourceId: fruit.id,
+          strength: "strong",
+        },
+      ],
+    });
+
+    expect(result.task.status).toBe(GENE_EXTRACTION_TASK_STATUSES.completed);
+    expect(capturedTasks).toHaveLength(1);
+    expect(capturedTasks[0]?.input).toMatchObject({
+      evidenceSources: [
+        {
+          sourceType: GENE_EVIDENCE_SOURCE_TYPES.feedback,
+          sourceId: "feedback_1",
+          strength: "weak",
+        },
+        {
+          sourceType: GENE_EVIDENCE_SOURCE_TYPES.fruitSelected,
+          sourceId: fruit.id,
+          strength: "strong",
+        },
+      ],
+      fruitEvidence: [
+        {
+          fruitId: fruit.id,
+        },
+      ],
+    });
+  });
+
+  it("marks the task failed when a successful Agent output has no usable suggestions", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const { fruitService, seedService, geneService, geneStorage } = createServices(
+      malformedSuccessAgent(capturedTasks),
+    );
+    const seed = await seedService.createSeed({
+      title: "Seed A",
+      markdown: "Seed A body",
+    });
+    const fruit = await fruitService.createFruitFromCandidate({
+      markdown: "Candidate fruit",
+      parentNodeRef: { nodeType: "seed", nodeId: seed.rootNodeId },
+    });
+
+    await expect(
+      geneService.startExtractionTask(seed.id, {
+        evidenceSources: [
+          {
+            sourceType: GENE_EVIDENCE_SOURCE_TYPES.fruitSelected,
+            sourceId: fruit.id,
+            strength: "weak",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "AGENT_TASK_FAILED" });
+    const taskId = capturedTasks[0]?.taskId;
+    expect(taskId).toBeDefined();
+    const task = await geneStorage.findExtractionTaskById(taskId ?? "");
+    expect(task).toMatchObject({
+      status: GENE_EXTRACTION_TASK_STATUSES.failed,
+    });
+    expect(task?.failureReason).toContain("Agent");
   });
 
   it("allows editing, dismissing, and confirming only pending suggestions", async () => {

@@ -6,10 +6,12 @@ import type { IdGenerator } from "../../../shared/utils/id-generator.js";
 import { RandomIdGenerator } from "../../../shared/utils/id-generator.js";
 import type { FruitRecord, FruitStoragePort } from "../../../storage/ports/fruit-storage-port.js";
 import type { GeneStoragePort } from "../../../storage/ports/gene-storage-port.js";
+import type { PublicationStoragePort } from "../../../storage/ports/publication-storage-port.js";
 import type { SeedStoragePort } from "../../../storage/ports/seed-storage-port.js";
 import {
   GENE_EVIDENCE_SOURCE_TYPES,
   GENE_EVIDENCE_STRENGTHS,
+  GENE_EXTRACTION_AGENT_INPUT_CONTRACT_VERSION,
   GENE_EXTRACTION_TASK_STATUSES,
   GENE_INSIGHT_STATUSES,
   GENE_REMINDER_STATUSES,
@@ -54,11 +56,18 @@ export interface EditGeneInsightInput {
   bodyMarkdown: string;
 }
 
+const EXECUTABLE_EVIDENCE_SOURCE_TYPES = new Set<GeneEvidenceSource["sourceType"]>([
+  GENE_EVIDENCE_SOURCE_TYPES.fruitSelected,
+  GENE_EVIDENCE_SOURCE_TYPES.fruitEliminated,
+  GENE_EVIDENCE_SOURCE_TYPES.publication,
+]);
+
 export interface GeneServiceDependencies {
   storage: GeneStoragePort;
   contentAccess: GeneMarkdownContentAccessPort;
   seedStorage: SeedStoragePort;
   fruitStorage?: FruitStoragePort;
+  publicationStorage?: PublicationStoragePort;
   agentPort?: AgentPort;
   idGenerator?: IdGenerator;
   now?: () => Date;
@@ -69,6 +78,7 @@ export class GeneService {
   private readonly contentAccess: GeneMarkdownContentAccessPort;
   private readonly seedStorage: SeedStoragePort;
   private readonly fruitStorage: FruitStoragePort | undefined;
+  private readonly publicationStorage: PublicationStoragePort | undefined;
   private readonly agentPort: AgentPort | undefined;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
@@ -78,6 +88,7 @@ export class GeneService {
     this.contentAccess = dependencies.contentAccess;
     this.seedStorage = dependencies.seedStorage;
     this.fruitStorage = dependencies.fruitStorage;
+    this.publicationStorage = dependencies.publicationStorage;
     this.agentPort = dependencies.agentPort;
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
@@ -176,6 +187,8 @@ export class GeneService {
     await this.requireSeed(seedId);
     await this.prepareSeedGeneLibrary(seedId);
     const evidenceSources = this.normalizeEvidenceSources(input.evidenceSources);
+    this.requireExecutableEvidence(evidenceSources);
+    await this.authorizeEvidenceSources(seedId, evidenceSources);
     const timestamp = this.timestamp();
     const taskId = this.idGenerator.nextId("gene-task");
     const agentInput = await this.buildAgentInput(seedId, taskId, evidenceSources);
@@ -207,7 +220,8 @@ export class GeneService {
         throw new ApplicationError("AGENT_TASK_FAILED", result.error.message, 502);
       }
 
-      const suggestions = await this.persistAgentSuggestions(
+      const suggestions = await this.persistAgentSuggestionsFromAgentResult(
+        task,
         seedId,
         taskId,
         evidenceSources,
@@ -416,9 +430,10 @@ export class GeneService {
         lineage: insight.lineage,
         niche: insight.niche,
         contentLocation: insight.contentLocation,
-      }));
+    }));
 
     return {
+      contractVersion: GENE_EXTRACTION_AGENT_INPUT_CONTRACT_VERSION,
       seedId,
       taskId,
       evidenceSources,
@@ -459,6 +474,30 @@ export class GeneService {
       summary: record.summary,
       geneTags: [...record.geneTags],
     }));
+  }
+
+  private async persistAgentSuggestionsFromAgentResult(
+    task: GeneExtractionTask,
+    seedId: string,
+    taskId: string,
+    evidenceSources: GeneEvidenceSource[],
+    result: AgentTaskResult & { ok: true },
+  ): Promise<GeneSuggestion[]> {
+    try {
+      return await this.persistAgentSuggestions(
+        seedId,
+        taskId,
+        evidenceSources,
+        result,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Agent returned unusable gene suggestions";
+      await this.failTask(task, message);
+      throw new ApplicationError("AGENT_TASK_FAILED", message, 502);
+    }
   }
 
   private async persistAgentSuggestions(
@@ -575,6 +614,135 @@ export class GeneService {
       sourceId: this.requireNonBlank(source.sourceId, "证据来源不能为空"),
       strength: this.requireEvidenceStrength(source.strength),
     }));
+  }
+
+  private requireExecutableEvidence(evidenceSources: GeneEvidenceSource[]): void {
+    const hasExecutableEvidence = evidenceSources.some((source) =>
+      EXECUTABLE_EVIDENCE_SOURCE_TYPES.has(source.sourceType),
+    );
+    if (!hasExecutableEvidence) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "反馈证据尚未接入基因汲取执行流程",
+        400,
+      );
+    }
+  }
+
+  private async authorizeEvidenceSources(
+    seedId: string,
+    evidenceSources: GeneEvidenceSource[],
+  ): Promise<void> {
+    for (const source of evidenceSources) {
+      if (
+        source.sourceType === GENE_EVIDENCE_SOURCE_TYPES.fruitSelected ||
+        source.sourceType === GENE_EVIDENCE_SOURCE_TYPES.fruitEliminated
+      ) {
+        await this.requireFruitEvidenceBelongsToSeed(seedId, source.sourceId);
+        continue;
+      }
+
+      if (source.sourceType === GENE_EVIDENCE_SOURCE_TYPES.publication) {
+        await this.requirePublicationEvidenceBelongsToSeed(seedId, source.sourceId);
+      }
+    }
+  }
+
+  private async requireFruitEvidenceBelongsToSeed(
+    seedId: string,
+    fruitId: string,
+  ): Promise<void> {
+    const rootSeedId = await this.resolveFruitRootSeedId(fruitId);
+    if (rootSeedId !== seedId) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "果实证据不属于当前种子",
+        400,
+      );
+    }
+  }
+
+  private async requirePublicationEvidenceBelongsToSeed(
+    seedId: string,
+    publicationRecordId: string,
+  ): Promise<void> {
+    if (this.publicationStorage === undefined) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "发布证据存储尚未装配",
+        400,
+      );
+    }
+    const publication =
+      await this.publicationStorage.findPublicationRecordById(publicationRecordId);
+    if (publication === null) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "发布证据无法解析",
+        400,
+      );
+    }
+    const rootSeedId = await this.resolveFruitRootSeedId(publication.fruitId);
+    if (rootSeedId !== seedId) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "发布证据不属于当前种子",
+        400,
+      );
+    }
+  }
+
+  private async resolveFruitRootSeedId(fruitId: string): Promise<string> {
+    if (this.fruitStorage === undefined) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "果实证据存储尚未装配",
+        400,
+      );
+    }
+    const fruit = await this.fruitStorage.findFruitById(fruitId);
+    if (fruit === null) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "果实证据无法解析",
+        400,
+      );
+    }
+    return this.resolveRootSeedIdFromFruit(fruit, new Set([fruit.id]));
+  }
+
+  private async resolveRootSeedIdFromFruit(
+    fruit: FruitRecord,
+    visitedFruitIds: Set<string>,
+  ): Promise<string> {
+    if (fruit.parentNodeRef.nodeType === "seed") {
+      return this.seedIdFromSeedNodeId(fruit.parentNodeRef.nodeId);
+    }
+
+    const parentFruitId = fruit.parentNodeRef.nodeId;
+    if (visitedFruitIds.has(parentFruitId)) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "果实证据父链无法解析",
+        400,
+      );
+    }
+    visitedFruitIds.add(parentFruitId);
+    const parentFruit = await this.fruitStorage?.findFruitById(parentFruitId);
+    if (parentFruit === undefined || parentFruit === null) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "果实证据父链无法解析",
+        400,
+      );
+    }
+    return this.resolveRootSeedIdFromFruit(parentFruit, visitedFruitIds);
+  }
+
+  private seedIdFromSeedNodeId(seedNodeId: string): string {
+    return seedNodeId.startsWith("seed-node_")
+      ? seedNodeId.slice("seed-node_".length)
+      : seedNodeId;
   }
 
   private async requireSeed(seedId: string): Promise<void> {
