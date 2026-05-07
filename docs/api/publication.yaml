@@ -1,0 +1,188 @@
+openapi: 3.1.0
+info:
+  title: Content Forest Publication Verification API
+  version: 0.1.0
+  description: >
+    Publication Controller contract for manual publication verification records.
+    The first phase records user-confirmed external publication facts only. It
+    does not expose automatic publishing, deletion, archive, screenshot upload,
+    editable publication time, fixed platform enums, metrics, or feedback
+    snapshots.
+tags:
+  - name: Publication
+paths:
+  /api/publication-records:
+    post:
+      tags: [Publication]
+      summary: Create a manual publication record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePublicationRecordRequest'
+      responses:
+        '201':
+          description: Publication record created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/publication-records/{publicationRecordId}:
+    get:
+      tags: [Publication]
+      summary: Get a publication record
+      parameters:
+        - $ref: '#/components/parameters/PublicationRecordId'
+      responses:
+        '200':
+          description: Publication record detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationRecord'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Publication]
+      summary: Edit publication target, evidence, or note
+      parameters:
+        - $ref: '#/components/parameters/PublicationRecordId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePublicationRecordRequest'
+      responses:
+        '200':
+          description: Publication record edited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/fruits/{fruitId}/publication-records:
+    get:
+      tags: [Publication]
+      summary: List publication records by fruit
+      parameters:
+        - $ref: '#/components/parameters/FruitId'
+      responses:
+        '200':
+          description: Publication records for the fruit
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PublicationRecord'
+components:
+  parameters:
+    FruitId:
+      name: fruitId
+      in: path
+      required: true
+      schema:
+        type: string
+    PublicationRecordId:
+      name: publicationRecordId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    CreatePublicationRecordRequest:
+      type: object
+      required: [fruitId, publicationTarget, publicationEvidence]
+      properties:
+        fruitId:
+          type: string
+        publicationTarget:
+          type: string
+          minLength: 1
+          description: Free-text external publication target, not a platform enum.
+        publicationEvidence:
+          type: string
+          minLength: 1
+          description: Text, URL, or description proving the external publication fact.
+        publicationNote:
+          type: string
+          default: ''
+    UpdatePublicationRecordRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        publicationTarget:
+          type: string
+          minLength: 1
+        publicationEvidence:
+          type: string
+          minLength: 1
+        publicationNote:
+          type: string
+    PublicationRecord:
+      type: object
+      required:
+        - id
+        - fruitId
+        - publisherType
+        - publicationTarget
+        - publicationEvidence
+        - publicationNote
+        - publishedAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        fruitId:
+          type: string
+        publisherType:
+          type: string
+          enum: [manual]
+        publicationTarget:
+          type: string
+        publicationEvidence:
+          type: string
+        publicationNote:
+          type: string
+        publishedAt:
+          type: string
+          format: date-time
+          description: System-generated creation time, not user-editable.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+  responses:
+    BadRequest:
+      description: Request violates publication verification rules.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Referenced fruit or publication record does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

@@ -80,6 +80,34 @@ async function handleApiRequest(
     return true;
   }
 
+  if (pathname === "/api/publication-records" && method === "POST") {
+    const result = await app.publicationController.createPublicationRecord(
+      toCreatePublicationRecordInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const publicationRecordMatch = pathname.match(
+    /^\/api\/publication-records\/([^/]+)$/,
+  );
+  if (publicationRecordMatch && method === "GET") {
+    const result = await app.publicationController.getPublicationRecord(
+      decodeURIComponent(publicationRecordMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  if (publicationRecordMatch && method === "PATCH") {
+    const result = await app.publicationController.editPublicationRecord(
+      decodeURIComponent(publicationRecordMatch[1] ?? ""),
+      toUpdatePublicationRecordInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
   const growthTaskMatch = pathname.match(/^\/api\/growth-tasks\/([^/]+)$/);
   if (growthTaskMatch && method === "GET") {
     const result = await app.growthController.getGrowthTask(
@@ -366,6 +394,17 @@ async function handleApiRequest(
     return true;
   }
 
+  const fruitPublicationRecordsMatch = pathname.match(
+    /^\/api\/fruits\/([^/]+)\/publication-records$/,
+  );
+  if (fruitPublicationRecordsMatch && method === "GET") {
+    const result = await app.publicationController.listPublicationRecordsByFruit(
+      decodeURIComponent(fruitPublicationRecordsMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
   const fruitMatch = pathname.match(/^\/api\/fruits\/([^/]+)$/);
   if (fruitMatch && method === "GET") {
     const result = await app.fruitController.getFruit(
@@ -494,6 +533,96 @@ function toCreateSeedInput(body: Record<string, unknown>): {
     title: body.title,
     markdown: body.markdown,
   };
+}
+
+function toCreatePublicationRecordInput(body: Record<string, unknown>): {
+  fruitId: string;
+  publicationTarget: string;
+  publicationEvidence: string;
+  publicationNote?: string;
+} {
+  rejectUnexpectedFields(body, [
+    "fruitId",
+    "publicationTarget",
+    "publicationEvidence",
+    "publicationNote",
+  ]);
+  if (
+    typeof body.fruitId !== "string" ||
+    typeof body.publicationTarget !== "string" ||
+    typeof body.publicationEvidence !== "string"
+  ) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "Creating a publication record requires fruitId, publicationTarget, and publicationEvidence",
+      400,
+    );
+  }
+  if (
+    body.publicationNote !== undefined &&
+    typeof body.publicationNote !== "string"
+  ) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "Publication note must be a string",
+      400,
+    );
+  }
+  return {
+    fruitId: body.fruitId,
+    publicationTarget: body.publicationTarget,
+    publicationEvidence: body.publicationEvidence,
+    publicationNote: body.publicationNote,
+  };
+}
+
+function toUpdatePublicationRecordInput(body: Record<string, unknown>): {
+  publicationTarget?: string;
+  publicationEvidence?: string;
+  publicationNote?: string;
+} {
+  rejectUnexpectedFields(body, [
+    "publicationTarget",
+    "publicationEvidence",
+    "publicationNote",
+  ]);
+  const input: {
+    publicationTarget?: string;
+    publicationEvidence?: string;
+    publicationNote?: string;
+  } = {};
+
+  if (body.publicationTarget !== undefined) {
+    if (typeof body.publicationTarget !== "string") {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "Publication target must be a string",
+        400,
+      );
+    }
+    input.publicationTarget = body.publicationTarget;
+  }
+  if (body.publicationEvidence !== undefined) {
+    if (typeof body.publicationEvidence !== "string") {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "Publication evidence must be a string",
+        400,
+      );
+    }
+    input.publicationEvidence = body.publicationEvidence;
+  }
+  if (body.publicationNote !== undefined) {
+    if (typeof body.publicationNote !== "string") {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "Publication note must be a string",
+        400,
+      );
+    }
+    input.publicationNote = body.publicationNote;
+  }
+  return input;
 }
 
 function toStartGrowthTaskInput(body: Record<string, unknown>): {
@@ -764,6 +893,21 @@ function decodeBase64Zip(zipBase64: string): Buffer {
     return Buffer.from(zipBase64, "base64");
   } catch {
     throw new ApplicationError("VALIDATION_ERROR", "zipBase64 格式不正确", 400);
+  }
+}
+
+function rejectUnexpectedFields(
+  body: Record<string, unknown>,
+  allowedFields: string[],
+): void {
+  const allowed = new Set(allowedFields);
+  const unexpected = Object.keys(body).find((field) => !allowed.has(field));
+  if (unexpected !== undefined) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      `Unexpected field: ${unexpected}`,
+      400,
+    );
   }
 }
 
