@@ -12,6 +12,11 @@ describe("Agent LLM config", () => {
 
     expect(config.agent.llm.mode).toBe("fake");
     expect(config.agent.llm.isRealLlmAvailable).toBe(false);
+    expect(config.agent.exchangeLog).toMatchObject({
+      enabled: false,
+      dir: "D:\\project\\content-forest-backend\\logs",
+      maxContentChars: 4000,
+    });
     expect(getAgentLlmStartupWarnings(config)).toEqual([]);
   });
 
@@ -52,6 +57,23 @@ describe("Agent LLM config", () => {
       warnings: [],
     });
   });
+
+  it("loads agent exchange log config from env", () => {
+    const config = loadAppConfig(
+      {
+        CONTENT_FOREST_AGENT_EXCHANGE_LOG_ENABLED: "true",
+        CONTENT_FOREST_AGENT_EXCHANGE_LOG_DIR: "runtime/logs",
+        CONTENT_FOREST_AGENT_EXCHANGE_LOG_MAX_CONTENT_CHARS: "1200",
+      },
+      "D:/project/content-forest-backend",
+    );
+
+    expect(config.agent.exchangeLog).toMatchObject({
+      enabled: true,
+      dir: "D:\\project\\content-forest-backend\\runtime\\logs",
+      maxContentChars: 1200,
+    });
+  });
 });
 
 describe("local secret protection", () => {
@@ -61,6 +83,7 @@ describe("local secret protection", () => {
     expect(gitignore).toContain(".env");
     expect(gitignore).toContain(".env.*");
     expect(gitignore).toContain("!.env.example");
+    expect(gitignore).toContain("logs/");
   });
 
   it("does not put real API keys in the sample env file", async () => {
@@ -69,6 +92,9 @@ describe("local secret protection", () => {
     expect(sample).toContain("CONTENT_FOREST_AGENT_LLM_PROVIDER=minimax");
     expect(sample).toContain("CONTENT_FOREST_AGENT_LLM_BASE_URL=https://api.minimaxi.com/v1");
     expect(sample).toContain("CONTENT_FOREST_AGENT_LLM_API_KEY=your-api-key-here");
+    expect(sample).toContain("CONTENT_FOREST_AGENT_EXCHANGE_LOG_ENABLED=false");
+    expect(sample).toContain("CONTENT_FOREST_AGENT_EXCHANGE_LOG_DIR=logs");
+    expect(sample).toContain("CONTENT_FOREST_AGENT_EXCHANGE_LOG_MAX_CONTENT_CHARS=4000");
     expect(sample).not.toContain("sk-cp-");
   });
 });

@@ -746,6 +746,605 @@ a {
   font-size: 13px;
 }
 
+.cf-generator-topbar {
+  gap: 16px;
+}
+
+.cf-generator-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cf-generator-top-stat,
+.cf-generator-page .cf-workspace-chip {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .035);
+  color: var(--cf-text-muted);
+  font-size: 12px;
+}
+
+.cf-generator-worktable {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr) 390px;
+  min-height: calc(100vh - 58px);
+  transition: grid-template-columns .24s ease;
+}
+
+.cf-generator-worktable.is-detail-expanded {
+  grid-template-columns: 330px minmax(280px, .72fr) minmax(680px, 1.28fr);
+}
+
+.cf-generator-import-panel,
+.cf-generator-browser,
+.cf-generator-inspector {
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--cf-border-soft);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .025), rgba(255, 255, 255, .008)),
+    rgba(7, 9, 13, .3);
+}
+
+.cf-generator-inspector {
+  position: relative;
+  z-index: 2;
+}
+
+.cf-generator-import-panel,
+.cf-generator-browser {
+  overflow: auto;
+  padding: 18px;
+}
+
+.cf-generator-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.cf-generator-panel-head h2 {
+  margin: 0;
+  color: var(--cf-text);
+  font-size: 15px;
+}
+
+.cf-generator-panel-head p {
+  margin: 6px 0 0;
+  color: var(--cf-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.cf-generator-dropzone {
+  position: relative;
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  margin-bottom: 8px;
+  border: 1px dashed rgba(94, 215, 197, .28);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(94, 215, 197, .13), transparent 34%),
+    rgba(13, 16, 23, .62);
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+
+.cf-generator-dropzone:hover,
+.cf-generator-dropzone.is-dragging {
+  border-color: rgba(94, 215, 197, .62);
+  background:
+    radial-gradient(circle at 50% 35%, rgba(94, 215, 197, .2), transparent 36%),
+    rgba(13, 16, 23, .78);
+}
+
+.cf-generator-dropzone.is-dragging {
+  transform: scale(.992);
+}
+
+.cf-generator-dropzone.has-file {
+  border-style: solid;
+  border-color: rgba(94, 215, 197, .58);
+  background:
+    radial-gradient(circle at 50% 32%, rgba(94, 215, 197, .2), transparent 38%),
+    linear-gradient(180deg, rgba(94, 215, 197, .08), rgba(255, 255, 255, .018)),
+    rgba(13, 16, 23, .8);
+  box-shadow: inset 0 0 0 1px rgba(94, 215, 197, .1), 0 16px 34px rgba(0, 0, 0, .18);
+}
+
+.cf-generator-dropzone.is-error {
+  border-color: rgba(255, 107, 122, .48);
+}
+
+.cf-generator-dropzone.is-compact {
+  min-height: 150px;
+  margin-bottom: 8px;
+}
+
+.cf-drop-orbit {
+  position: absolute;
+  width: 132px;
+  height: 132px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 50%;
+  animation: cf-generator-spin 12s linear infinite;
+}
+
+.cf-drop-orbit::before,
+.cf-drop-orbit::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cf-growth);
+  box-shadow: 0 0 18px rgba(94, 215, 197, .42);
+}
+
+.cf-drop-orbit::before {
+  top: 16px;
+  left: 22px;
+}
+
+.cf-drop-orbit::after {
+  right: 12px;
+  bottom: 28px;
+  background: var(--cf-accent);
+}
+
+.cf-drop-core {
+  position: relative;
+  z-index: 1;
+  width: 86px;
+  height: 86px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .02)),
+    rgba(94, 215, 197, .07);
+  color: var(--cf-growth);
+  font-size: 32px;
+  font-weight: 800;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), var(--cf-shadow);
+}
+
+.cf-generator-dropzone.has-file .cf-drop-core {
+  border-color: rgba(94, 215, 197, .38);
+  background:
+    linear-gradient(180deg, rgba(94, 215, 197, .18), rgba(94, 215, 197, .06)),
+    rgba(13, 16, 23, .78);
+  color: #d9fff8;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 0 24px rgba(94, 215, 197, .18);
+  transform: scale(.96);
+}
+
+.cf-drop-copy {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  z-index: 2;
+  text-align: center;
+}
+
+.cf-drop-copy strong,
+.cf-drop-copy span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-drop-copy strong {
+  color: #f5f7fb;
+  font-size: 13px;
+}
+
+.cf-drop-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  margin-bottom: 8px;
+  padding: 0 9px;
+  border: 1px solid rgba(94, 215, 197, .28);
+  border-radius: 999px;
+  background: rgba(94, 215, 197, .1);
+  color: #d7f8f2;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.cf-drop-copy span {
+  margin-top: 4px;
+  color: var(--cf-text-muted);
+  font-size: 11px;
+}
+
+.cf-generator-dropzone.has-file .cf-drop-copy strong {
+  color: #f7fffd;
+}
+
+.cf-generator-dropzone.has-file .cf-drop-copy span {
+  color: #9fded3;
+}
+
+.cf-drop-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.cf-field-error,
+.cf-file-selected {
+  margin: 0 0 10px;
+  color: #ffadb7;
+  font-size: 12px;
+}
+
+.cf-file-selected {
+  color: var(--cf-text-muted);
+}
+
+.cf-generator-import-fields {
+  display: grid;
+  gap: 12px;
+}
+
+.cf-generator-import-panel .cf-field {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 0;
+}
+
+.cf-generator-import-panel .cf-field > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.cf-generator-import-panel .cf-field strong {
+  color: #cfd6e3;
+  font-size: 12px;
+}
+
+.cf-generator-import-panel .cf-field em {
+  color: #ffadb7;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.cf-generator-import-panel .cf-field input,
+.cf-generator-import-panel .cf-field textarea {
+  background: rgba(13, 16, 23, .78);
+}
+
+.cf-generator-import-panel .cf-field textarea {
+  min-height: 92px;
+}
+
+.cf-generator-import-panel .cf-field.is-invalid input,
+.cf-generator-import-panel .cf-field.is-invalid textarea {
+  border-color: rgba(255, 107, 122, .38);
+}
+
+.cf-generator-import-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--cf-border-soft);
+}
+
+.cf-generator-import-status {
+  min-width: 0;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .045), rgba(255, 255, 255, .018)),
+    rgba(13, 16, 23, .72);
+  color: var(--cf-text-muted);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
+}
+
+.cf-generator-import-status.has-file {
+  border-color: rgba(94, 215, 197, .26);
+  color: #d7f8f2;
+}
+
+.cf-generator-import-status.is-error {
+  border-color: rgba(255, 107, 122, .34);
+  color: #ffd1d7;
+}
+
+.cf-import-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #687286;
+  box-shadow: 0 0 0 4px rgba(104, 114, 134, .12);
+}
+
+.cf-generator-import-status.has-file .cf-import-status-dot {
+  background: var(--cf-growth);
+  box-shadow: 0 0 0 4px rgba(94, 215, 197, .12);
+}
+
+.cf-generator-import-status.is-error .cf-import-status-dot {
+  background: #ff6b7a;
+  box-shadow: 0 0 0 4px rgba(255, 107, 122, .12);
+}
+
+.cf-generator-import-status span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-generator-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.cf-generator-search {
+  max-width: none;
+  margin: 0;
+}
+
+.cf-generator-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.cf-generator-metric {
+  min-height: 66px;
+  padding: 11px;
+  border: 1px solid var(--cf-border-soft);
+  border-radius: 8px;
+  background: rgba(13, 16, 23, .52);
+}
+
+.cf-generator-metric strong,
+.cf-generator-metric span {
+  display: block;
+}
+
+.cf-generator-metric strong {
+  color: var(--cf-text);
+  font-size: 22px;
+  line-height: 24px;
+}
+
+.cf-generator-metric span {
+  margin-top: 7px;
+  color: var(--cf-text-muted);
+  font-size: 11px;
+}
+
+.cf-generator-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.cf-generator-card {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  min-height: 188px;
+  padding: 13px;
+  border: 1px solid var(--cf-border-soft);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 20px 18px, rgba(139, 156, 255, .11), transparent 7rem),
+    linear-gradient(180deg, rgba(255, 255, 255, .045), rgba(255, 255, 255, .018)),
+    var(--cf-panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+  transition: transform .16s ease, border-color .16s ease, background .16s ease;
+}
+
+.cf-generator-card:hover,
+.cf-generator-card.is-selected {
+  transform: translateY(-2px);
+  border-color: rgba(139, 156, 255, .55);
+  background:
+    radial-gradient(circle at 20px 18px, rgba(94, 215, 197, .11), transparent 7rem),
+    linear-gradient(180deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .026)),
+    #10141d;
+}
+
+.cf-generator-card.is-selected {
+  box-shadow: 0 0 0 1px rgba(139, 156, 255, .15), var(--cf-shadow);
+}
+
+.cf-generator-card.is-disabled {
+  opacity: .74;
+}
+
+.cf-generator-card-main {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.cf-generator-card-head,
+.cf-generator-card-meta,
+.cf-generator-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cf-generator-card-copy strong,
+.cf-generator-card-copy span {
+  display: block;
+}
+
+.cf-generator-card-copy strong {
+  overflow: hidden;
+  color: #f5f7fb;
+  font-size: 14px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-generator-card-copy span {
+  display: -webkit-box;
+  overflow: hidden;
+  min-height: 38px;
+  margin-top: 7px;
+  color: #9ca5b6;
+  font-size: 12px;
+  line-height: 19px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.cf-generator-card-meta {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  color: #687286;
+  font-size: 11px;
+}
+
+.cf-generator-card-meta em {
+  max-width: 100%;
+  overflow: hidden;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-generator-card-actions {
+  justify-content: flex-start;
+}
+
+.cf-generator-file-list {
+  display: grid;
+  gap: 7px;
+}
+
+.cf-generator-file-row {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--cf-border-soft);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .025);
+  color: var(--cf-text-muted);
+  font-size: 11px;
+}
+
+.cf-generator-file-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-generator-detail-content {
+  display: grid;
+  gap: 0;
+}
+
+.cf-generator-drawer-toggle {
+  position: absolute;
+  top: 20px;
+  left: 10px;
+  z-index: 4;
+  width: 35px;
+  min-height: 82px;
+  display: grid;
+  place-items: center;
+  gap: 5px;
+  padding: 8px 0;
+  border: 1px solid var(--cf-border-soft);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .02)),
+    rgba(13, 16, 23, .94);
+  color: var(--cf-text-muted);
+  cursor: pointer;
+  box-shadow: -10px 14px 26px rgba(0, 0, 0, .24);
+  transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease;
+}
+
+.cf-generator-drawer-toggle:hover {
+  color: var(--cf-text);
+  border-color: rgba(139, 156, 255, .34);
+  background:
+    linear-gradient(180deg, rgba(139, 156, 255, .12), rgba(255, 255, 255, .025)),
+    rgba(14, 18, 28, .98);
+  transform: translateX(-1px);
+}
+
+.cf-generator-drawer-toggle span {
+  color: var(--cf-growth);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.cf-generator-drawer-toggle strong {
+  writing-mode: vertical-rl;
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.cf-generator-detail-hero {
+  margin-bottom: 8px;
+  min-height: 132px;
+  padding: 14px 14px 14px 56px;
+  border: 1px solid var(--cf-border-soft);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 24px 22px, rgba(94, 215, 197, .1), transparent 8rem),
+    rgba(255, 255, 255, .025);
+}
+
+@keyframes cf-generator-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .cf-seed-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
@@ -1615,6 +2214,8 @@ a {
 
   .cf-seed-layout,
   .cf-generator-layout,
+  .cf-generator-worktable,
+  .cf-generator-worktable.is-detail-expanded,
   .cf-nutrient-layout,
   .cf-kb-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -1629,6 +2230,29 @@ a {
     display: block;
     border-top: 1px solid var(--cf-border-soft);
     border-left: 0;
+  }
+
+  .cf-generator-import-panel,
+  .cf-generator-browser,
+  .cf-generator-inspector {
+    border-right: 0;
+    border-bottom: 1px solid var(--cf-border-soft);
+  }
+
+  .cf-generator-drawer-toggle {
+    top: 12px;
+    left: auto;
+    right: 12px;
+    width: auto;
+    min-height: 30px;
+    grid-auto-flow: column;
+    padding: 0 10px;
+    border-right: 1px solid var(--cf-border-soft);
+    border-radius: 8px;
+  }
+
+  .cf-generator-drawer-toggle strong {
+    writing-mode: horizontal-tb;
   }
 }
 
@@ -1647,6 +2271,21 @@ a {
   .cf-seed-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .cf-generator-top-actions,
+  .cf-generator-toolbar,
+  .cf-generator-import-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cf-generator-toolbar {
+    display: flex;
+  }
+
+  .cf-generator-metrics {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .cf-seed-search {

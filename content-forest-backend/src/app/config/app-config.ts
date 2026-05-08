@@ -21,6 +21,13 @@ export interface AgentLlmConfig {
 
 export interface AgentConfig {
   llm: AgentLlmConfig;
+  exchangeLog: AgentExchangeLogConfig;
+}
+
+export interface AgentExchangeLogConfig {
+  enabled: boolean;
+  dir: string;
+  maxContentChars: number;
 }
 
 export interface AppConfigEnv {
@@ -32,6 +39,9 @@ export interface AppConfigEnv {
   CONTENT_FOREST_AGENT_LLM_BASE_URL?: string;
   CONTENT_FOREST_AGENT_LLM_MODEL?: string;
   CONTENT_FOREST_AGENT_LLM_API_KEY?: string;
+  CONTENT_FOREST_AGENT_EXCHANGE_LOG_ENABLED?: string;
+  CONTENT_FOREST_AGENT_EXCHANGE_LOG_DIR?: string;
+  CONTENT_FOREST_AGENT_EXCHANGE_LOG_MAX_CONTENT_CHARS?: string;
 }
 
 export function loadAppConfig(
@@ -50,6 +60,7 @@ export function loadAppConfig(
     port: Number.parseInt(env.CONTENT_FOREST_PORT ?? "3001", 10),
     agent: {
       llm: loadAgentLlmConfig(env),
+      exchangeLog: loadAgentExchangeLogConfig(env, cwd),
     },
   };
 }
@@ -83,8 +94,34 @@ export function getAgentLlmStartupWarnings(config: AppConfig): string[] {
   return [...config.agent.llm.warnings];
 }
 
+export function loadAgentExchangeLogConfig(
+  env: AppConfigEnv,
+  cwd: string = process.cwd(),
+): AgentExchangeLogConfig {
+  return {
+    enabled: normalizeBoolean(env.CONTENT_FOREST_AGENT_EXCHANGE_LOG_ENABLED),
+    dir: resolve(cwd, env.CONTENT_FOREST_AGENT_EXCHANGE_LOG_DIR ?? "logs"),
+    maxContentChars: normalizePositiveInteger(
+      env.CONTENT_FOREST_AGENT_EXCHANGE_LOG_MAX_CONTENT_CHARS,
+      4000,
+    ),
+  };
+}
+
 function normalizeLlmMode(value: string | undefined): AgentLlmMode {
   return value === "openai-compatible" ? "openai-compatible" : "fake";
+}
+
+function normalizeBoolean(value: string | undefined): boolean {
+  return ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
+}
+
+function normalizePositiveInteger(
+  value: string | undefined,
+  fallback: number,
+): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function getMissingRealLlmFields(config: {

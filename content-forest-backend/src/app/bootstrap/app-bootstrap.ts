@@ -15,6 +15,7 @@ import { NutrientController as HttpNutrientController } from "../../interface/ht
 import { SeedController as HttpSeedController } from "../../interface/http/seed-controller.js";
 import { WorkspaceController as HttpWorkspaceController } from "../../interface/http/workspace-controller.js";
 import { AgentRuntime } from "../../agent/runtime/agent-runtime.js";
+import { createAgentExchangeLogSink } from "../../agent/runtime/agent-exchange-log.js";
 import { FakeLlmAdapter } from "../../agent/runtime/fake-llm-adapter.js";
 import type { LlmAdapter } from "../../agent/runtime/llm-adapter.js";
 import { OpenAiCompatibleLlmAdapter } from "../../agent/runtime/openai-compatible-llm-adapter.js";
@@ -162,6 +163,8 @@ export async function bootstrapApp(
     skillRegistry,
     toolRegistry,
     llm: createLlmAdapter(config),
+    exchangeLogSink: createAgentExchangeLogSink(config.agent.exchangeLog),
+    exchangeLogMaxContentChars: config.agent.exchangeLog.maxContentChars,
   });
   const geneService = new GeneService({
     storage: geneStorage,

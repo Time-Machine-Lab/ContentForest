@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>内容森林生成器页面重构预览</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07080a;
+      --panel: rgba(18, 21, 24, .78);
+      --panel-strong: rgba(25, 29, 33, .92);
+      --line: rgba(255, 255, 255, .12);
+      --line-strong: rgba(255, 255, 255, .2);
+      --text: #f2f5f2;
+      --muted: #9aa4a1;
+      --faint: #68726f;
+      --green: #68ddc6;
+      --gold: #f1c66f;
+      --blue: #85adff;
+      --pink: #ff9db5;
+      --danger: #ff7b83;
+      --shadow: 0 28px 90px rgba(0, 0, 0, .44);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow: hidden;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 18% 18%, rgba(104, 221, 198, .16), transparent 32%),
+        radial-gradient(circle at 78% 12%, rgba(133, 173, 255, .13), transparent 30%),
+        radial-gradient(circle at 72% 84%, rgba(241, 198, 111, .11), transparent 30%),
+        linear-gradient(180deg, #0d1013, var(--bg));
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      color: inherit;
+      cursor: pointer;
+    }
+
+    .page {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      padding: 20px;
+      gap: 18px;
+    }
+
+    .topbar {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      min-height: 72px;
+      padding: 14px 16px 14px 20px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, .09), transparent 35%),
+        rgba(10, 12, 14, .62);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(28px) saturate(1.28);
+    }
+
+    .topbar::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: inherit;
+      background: linear-gradient(90deg, rgba(104, 221, 198, .16), transparent 30%, rgba(133, 173, 255, .12));
+      opacity: .72;
+    }
+
+    .title,
+    .actions {
+      position: relative;
+      z-index: 1;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 780;
+      letter-spacing: 0;
+    }
+
+    .title p {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .ghost-btn,
+    .primary-btn {
+      min-height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 14px;
+      border-radius: 13px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, .055);
+      transition: transform .2s ease, border-color .2s ease, background .2s ease, box-shadow .2s ease;
+    }
+
+    .primary-btn {
+      border-color: rgba(104, 221, 198, .35);
+      background:
+        linear-gradient(180deg, rgba(104, 221, 198, .28), rgba(104, 221, 198, .12)),
+        rgba(255, 255, 255, .06);
+      color: #eafffa;
+      box-shadow: 0 12px 36px rgba(104, 221, 198, .12);
+    }
+
+    .ghost-btn:hover,
+    .primary-btn:hover {
+      transform: translateY(-2px);
+      border-color: rgba(104, 221, 198, .42);
+      background: rgba(255, 255, 255, .085);
+      box-shadow: 0 18px 46px rgba(0, 0, 0, .24);
+    }
+
+    .layout {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr) 390px;
+      gap: 18px;
+    }
+
+    .panel {
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 26px;
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, .075), rgba(255, 255, 255, .02) 45%, transparent),
+        var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(24px) saturate(1.2);
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 18px 18px 0;
+    }
+
+    .panel-head h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 760;
+    }
+
+    .panel-head p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .chip {
+      flex: 0 0 auto;
+      min-height: 27px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 9px;
+      border: 1px solid rgba(255, 255, 255, .1);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .045);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .drop-lab {
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+    }
+
+    .drop-zone {
+      position: relative;
+      min-height: 238px;
+      display: grid;
+      place-items: center;
+      margin: 18px;
+      overflow: hidden;
+      border: 1px dashed rgba(104, 221, 198, .34);
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at 50% 36%, rgba(104, 221, 198, .18), transparent 32%),
+        linear-gradient(180deg, rgba(104, 221, 198, .07), rgba(255, 255, 255, .025));
+      transition: border-color .2s ease, background .2s ease, transform .2s ease;
+    }
+
+    .drop-zone.is-over {
+      border-color: rgba(104, 221, 198, .82);
+      background:
+        radial-gradient(circle at 50% 36%, rgba(104, 221, 198, .3), transparent 34%),
+        linear-gradient(180deg, rgba(104, 221, 198, .12), rgba(255, 255, 255, .035));
+      transform: scale(.992);
+    }
+
+    .orbital {
+      position: absolute;
+      width: 150px;
+      height: 150px;
+      border: 1px solid rgba(255, 255, 255, .14);
+      border-radius: 50%;
+      animation: spin 12s linear infinite;
+    }
+
+    .orbital::before,
+    .orbital::after {
+      content: "";
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 22px rgba(104, 221, 198, .5);
+    }
+
+    .orbital::before {
+      left: 18px;
+      top: 18px;
+    }
+
+    .orbital::after {
+      right: 10px;
+      bottom: 34px;
+      background: var(--blue);
+    }
+
+    .upload-core {
+      position: relative;
+      z-index: 1;
+      width: 112px;
+      height: 112px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255, 255, 255, .18);
+      border-radius: 34px;
+      background:
+        radial-gradient(circle at 32% 18%, rgba(255, 255, 255, .32), transparent 26%),
+        rgba(255, 255, 255, .075);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, .18),
+        inset 0 -22px 40px rgba(0, 0, 0, .12),
+        0 24px 60px rgba(0, 0, 0, .26);
+    }
+
+    .upload-core span {
+      font-size: 34px;
+      font-weight: 800;
+      color: var(--green);
+      transform: translateY(-2px);
+    }
+
+    .drop-copy {
+      position: absolute;
+      z-index: 2;
+      left: 18px;
+      right: 18px;
+      bottom: 16px;
+      text-align: center;
+    }
+
+    .drop-copy strong {
+      display: block;
+      font-size: 13px;
+    }
+
+    .drop-copy span {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .hidden-file {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .form-stack {
+      display: grid;
+      gap: 12px;
+      padding: 0 18px 18px;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+    }
+
+    .field-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #dce5e1;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .field-head em {
+      color: var(--gold);
+      font-size: 11px;
+      font-style: normal;
+      opacity: .9;
+    }
+
+    .field input,
+    .field textarea {
+      width: 100%;
+      border: 1px solid rgba(255, 255, 255, .1);
+      border-radius: 13px;
+      outline: 0;
+      background: rgba(255, 255, 255, .055);
+      color: var(--text);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
+    }
+
+    .field input {
+      height: 42px;
+      padding: 0 12px;
+    }
+
+    .field textarea {
+      min-height: 78px;
+      resize: vertical;
+      padding: 11px 12px;
+      line-height: 1.5;
+    }
+
+    .field input::placeholder,
+    .field textarea::placeholder {
+      color: rgba(154, 164, 161, .62);
+    }
+
+    .hint-stack {
+      display: grid;
+      gap: 8px;
+      padding: 0 18px 18px;
+    }
+
+    .hint {
+      display: grid;
+      grid-template-columns: 24px 1fr;
+      gap: 9px;
+      align-items: start;
+      padding: 9px;
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 13px;
+      background: rgba(255, 255, 255, .035);
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .hint b {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: rgba(241, 198, 111, .12);
+      color: var(--gold);
+      font-size: 12px;
+    }
+
+    .import-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 15px 18px 18px;
+      border-top: 1px solid rgba(255, 255, 255, .08);
+    }
+
+    .file-pill {
+      min-width: 0;
+      color: var(--muted);
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .browser {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      padding: 18px;
+    }
+
+    .search {
+      position: relative;
+    }
+
+    .search input {
+      width: 100%;
+      height: 44px;
+      padding: 0 14px 0 40px;
+      border: 1px solid rgba(255, 255, 255, .1);
+      border-radius: 15px;
+      outline: 0;
+      background: rgba(255, 255, 255, .055);
+      color: var(--text);
+    }
+
+    .search::before {
+      content: "⌕";
+      position: absolute;
+      left: 15px;
+      top: 10px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      padding: 5px;
+      border: 1px solid rgba(255, 255, 255, .1);
+      border-radius: 15px;
+      background: rgba(255, 255, 255, .04);
+    }
+
+    .tabs button {
+      min-width: 58px;
+      height: 32px;
+      border-radius: 11px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .tabs button.is-active {
+      background: rgba(104, 221, 198, .15);
+      color: #eafffa;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      padding: 0 18px 16px;
+    }
+
+    .metric {
+      min-height: 78px;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 17px;
+      background: rgba(255, 255, 255, .035);
+    }
+
+    .metric strong,
+    .metric span {
+      display: block;
+    }
+
+    .metric strong {
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .metric span {
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .generator-grid {
+      min-height: 0;
+      overflow: auto;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(240px, 1fr));
+      grid-auto-rows: minmax(190px, auto);
+      gap: 14px;
+      padding: 0 18px 18px;
+    }
+
+    .generator-card {
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 12px;
+      padding: 15px;
+      border: 1px solid rgba(255, 255, 255, .1);
+      border-radius: 20px;
+      background:
+        radial-gradient(circle at 18% 18%, rgba(104, 221, 198, .12), transparent 28%),
+        rgba(255, 255, 255, .045);
+      transition: transform .2s ease, border-color .2s ease, background .2s ease;
+    }
+
+    .generator-card:hover,
+    .generator-card.is-selected {
+      transform: translateY(-3px);
+      border-color: rgba(104, 221, 198, .32);
+      background:
+        radial-gradient(circle at 18% 18%, rgba(104, 221, 198, .18), transparent 30%),
+        rgba(255, 255, 255, .065);
+    }
+
+    .card-top {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .skill-icon {
+      width: 46px;
+      height: 46px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255, 255, 255, .13);
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at 32% 20%, rgba(255, 255, 255, .26), transparent 22%),
+        rgba(104, 221, 198, .11);
+      color: var(--green);
+      font-weight: 850;
+    }
+
+    .status {
+      min-height: 25px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 9px;
+      border-radius: 999px;
+      background: rgba(104, 221, 198, .1);
+      color: #bffff3;
+      font-size: 11px;
+    }
+
+    .status.disabled {
+      background: rgba(255, 255, 255, .055);
+      color: var(--muted);
+    }
+
+    .generator-card h3 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.35;
+    }
+
+    .generator-card p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .card-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .mini-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .mini-actions button {
+      height: 28px;
+      padding: 0 9px;
+      border: 1px solid rgba(255, 255, 255, .1);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, .045);
+      color: #cbd5d1;
+      font-size: 11px;
+    }
+
+    .detail {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    .detail-hero {
+      position: relative;
+      min-height: 210px;
+      margin: 18px;
+      padding: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, .1);
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at 30% 20%, rgba(104, 221, 198, .2), transparent 28%),
+        radial-gradient(circle at 82% 76%, rgba(133, 173, 255, .16), transparent 32%),
+        rgba(255, 255, 255, .045);
+    }
+
+    .detail-hero::after {
+      content: "";
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 16px;
+      height: 4px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--green), var(--blue), var(--gold));
+    }
+
+    .detail-hero .skill-icon {
+      width: 58px;
+      height: 58px;
+      border-radius: 20px;
+      font-size: 20px;
+    }
+
+    .detail-hero h2 {
+      margin: 18px 0 8px;
+      font-size: 21px;
+      line-height: 1.25;
+    }
+
+    .detail-hero p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .detail-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 0 18px 18px;
+    }
+
+    .section {
+      padding: 14px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, .08);
+    }
+
+    .section h3 {
+      margin: 0 0 10px;
+      color: #dbe4e0;
+      font-size: 12px;
+    }
+
+    .file-tree {
+      display: grid;
+      gap: 7px;
+    }
+
+    .file-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 34px;
+      padding: 0 10px;
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 11px;
+      background: rgba(255, 255, 255, .035);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .markdown-preview {
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, .035);
+      color: #cfd9d5;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .detail-footer {
+      display: flex;
+      gap: 10px;
+      padding: 15px 18px 18px;
+      border-top: 1px solid rgba(255, 255, 255, .08);
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (max-width: 1220px) {
+      body { overflow: auto; }
+      .layout { grid-template-columns: 1fr; }
+      .panel { min-height: 520px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <div class="title">
+        <h1>生成器铸造台</h1>
+        <p>上传、识别、管理和选择内容创作 Skill，让枝化生长拥有清晰的方法论来源。</p>
+      </div>
+      <div class="actions">
+        <button class="ghost-btn">查看停用</button>
+        <button class="primary-btn">导入生成器</button>
+      </div>
+    </header>
+
+    <section class="layout">
+      <aside class="panel drop-lab">
+        <header class="panel-head">
+          <div>
+            <h2>Skill Drop Lab</h2>
+            <p>拖入 zip，系统会提示缺失项并引导补全名称、描述和入口文件。</p>
+          </div>
+          <span class="chip">ZIP</span>
+        </header>
+
+        <label class="drop-zone" id="dropZone">
+          <span class="orbital"></span>
+          <span class="upload-core"><span>+</span></span>
+          <span class="drop-copy">
+            <strong>拖拽 Skill zip 到这里</strong>
+            <span id="fileName">或点击选择文件，支持重新拖入替换</span>
+          </span>
+          <input id="fileInput" class="hidden-file" type="file" accept=".zip,application/zip" />
+        </label>
+
+        <div class="form-stack">
+          <label class="field">
+            <span class="field-head">生成器名称 <em>缺少时高亮提示</em></span>
+            <input placeholder="例如：小红书产品文案生成器" />
+          </label>
+          <label class="field">
+            <span class="field-head">生成器描述 <em>用于浏览和选择</em></span>
+            <textarea placeholder="说明它适合什么平台、内容形态、创作方法论，以及不适合什么场景。"></textarea>
+          </label>
+        </div>
+
+        <div class="hint-stack">
+          <div class="hint"><b>1</b><span>未选择 zip 时，导入按钮保持弱化，并在这里显示「需要上传 Skill zip」。</span></div>
+          <div class="hint"><b>2</b><span>名称或描述为空时，字段右侧出现精准提示，不再只弹一个笼统错误。</span></div>
+          <div class="hint"><b>3</b><span>导入后自动选中新生成器，并在右侧打开详情。</span></div>
+        </div>
+
+        <footer class="import-footer">
+          <span class="file-pill" id="filePill">尚未选择文件</span>
+          <button class="primary-btn">确认导入</button>
+        </footer>
+      </aside>
+
+      <section class="panel browser">
+        <header class="panel-head">
+          <div>
+            <h2>生成器星图</h2>
+            <p>从长列表改为可扫描的生成器矩阵，优先露出平台、状态、用途和最近更新时间。</p>
+          </div>
+          <span class="chip">12 generators</span>
+        </header>
+
+        <div class="toolbar">
+          <label class="search">
+            <input placeholder="搜索平台 / 方法论 / 内容形态" />
+          </label>
+          <div class="tabs">
+            <button class="is-active">启用</button>
+            <button>停用</button>
+            <button>全部</button>
+          </div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric"><strong>8</strong><span>启用生成器</span></div>
+          <div class="metric"><strong>4</strong><span>平台方法论</span></div>
+          <div class="metric"><strong>2</strong><span>需要补全描述</span></div>
+        </div>
+
+        <div class="generator-grid">
+          <article class="generator-card is-selected">
+            <div class="card-top"><span class="skill-icon">XH</span><span class="status">启用</span></div>
+            <div><h3>小红书产品文案生成器</h3><p>面向种草、测评和转化场景，强调标题钩子、用户痛点和结尾行动。</p></div>
+            <div class="card-bottom"><span>updated 05-09</span><span class="mini-actions"><button>详情</button><button>重传</button></span></div>
+          </article>
+          <article class="generator-card">
+            <div class="card-top"><span class="skill-icon">DY</span><span class="status">启用</span></div>
+            <div><h3>抖音科技讲解脚本</h3><p>适合短视频口播结构，自动拆分开场、冲突、解释和收束。</p></div>
+            <div class="card-bottom"><span>updated 05-08</span><span class="mini-actions"><button>详情</button><button>停用</button></span></div>
+          </article>
+          <article class="generator-card">
+            <div class="card-top"><span class="skill-icon">TW</span><span class="status">启用</span></div>
+            <div><h3>推特 Thread 生成器</h3><p>把一个观点展开成可传播的连续帖子，保留强节奏和可转发句。</p></div>
+            <div class="card-bottom"><span>updated 05-07</span><span class="mini-actions"><button>详情</button><button>重传</button></span></div>
+          </article>
+          <article class="generator-card">
+            <div class="card-top"><span class="skill-icon">KS</span><span class="status disabled">停用</span></div>
+            <div><h3>快手生活好物文案</h3><p>已停用但可查看，适合后续重新上传新版 Skill 包。</p></div>
+            <div class="card-bottom"><span>disabled 05-05</span><span class="mini-actions"><button>查看</button><button>启用</button></span></div>
+          </article>
+        </div>
+      </section>
+
+      <aside class="panel detail">
+        <header class="panel-head">
+          <div>
+            <h2>Skill Inspector</h2>
+            <p>选择任意生成器后，直接检查说明、文件树和系统事实。</p>
+          </div>
+          <span class="chip">selected</span>
+        </header>
+
+        <section class="detail-hero">
+          <span class="skill-icon">XH</span>
+          <h2>小红书产品文案生成器</h2>
+          <p>用于把种子或果实转译成小红书平台可传播的产品文案，强调真实体验、情绪钩子和收藏价值。</p>
+        </section>
+
+        <div class="detail-body">
+          <section class="section">
+            <h3>Skill Markdown 摘要</h3>
+            <div class="markdown-preview">
+              使用「场景痛点 - 体验转折 - 产品记忆点 - 行动引导」结构生成内容。避免过度营销语气，优先模拟真实用户分享。
+            </div>
+          </section>
+          <section class="section">
+            <h3>文件结构</h3>
+            <div class="file-tree">
+              <div class="file-row"><span>SKILL.md</span><span>required</span></div>
+              <div class="file-row"><span>references/title-hooks.md</span><span>2.4 KB</span></div>
+              <div class="file-row"><span>examples/wallpaper-note.md</span><span>1.2 KB</span></div>
+            </div>
+          </section>
+          <section class="section">
+            <h3>系统事实</h3>
+            <div class="file-tree">
+              <div class="file-row"><span>状态</span><span>启用</span></div>
+              <div class="file-row"><span>存储位置</span><span>/generators/xhs-product</span></div>
+              <div class="file-row"><span>更新时间</span><span>2026-05-09 01:42</span></div>
+            </div>
+          </section>
+        </div>
+
+        <footer class="detail-footer">
+          <button class="ghost-btn">重新上传</button>
+          <button class="ghost-btn">停用</button>
+        </footer>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const dropZone = document.getElementById('dropZone')
+    const fileInput = document.getElementById('fileInput')
+    const fileName = document.getElementById('fileName')
+    const filePill = document.getElementById('filePill')
+
+    function setFile(file) {
+      if (!file) return
+      fileName.textContent = file.name
+      filePill.textContent = `已选择：${file.name}`
+    }
+
+    dropZone.addEventListener('dragover', (event) => {
+      event.preventDefault()
+      dropZone.classList.add('is-over')
+    })
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('is-over')
+    })
+
+    dropZone.addEventListener('drop', (event) => {
+      event.preventDefault()
+      dropZone.classList.remove('is-over')
+      setFile(event.dataTransfer.files[0])
+    })
+
+    fileInput.addEventListener('change', () => {
+      setFile(fileInput.files[0])
+    })
+  </script>
+</body>
+</html>

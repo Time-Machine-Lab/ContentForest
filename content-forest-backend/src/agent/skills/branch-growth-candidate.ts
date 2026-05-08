@@ -28,7 +28,7 @@ export function validateBranchGrowthCandidateFruit(
   value: unknown,
   options: BranchGrowthCandidateValidationOptions = {},
 ): BranchGrowthCandidateFruit {
-  const candidate = normalizeBranchGrowthCandidateFruit(value);
+  const candidate = normalizeBranchGrowthCandidateFruit(value, options);
   const errors: string[] = [];
 
   if (candidate.payload.markdown.trim().length === 0) {
@@ -88,6 +88,7 @@ export function validateBranchGrowthCandidateFruit(
 
 export function normalizeBranchGrowthCandidateFruit(
   value: unknown,
+  options: BranchGrowthCandidateValidationOptions = {},
 ): BranchGrowthCandidateFruit {
   const record = requireRecord(value, "candidate fruit must be an object");
   if (record.type === "candidate_fruit") {
@@ -106,7 +107,7 @@ export function normalizeBranchGrowthCandidateFruit(
       meta: {
         summary: requireString(meta.summary, "meta.summary is required"),
         geneTags: normalizeStringArray(meta.geneTags),
-        usedResourceRefs: normalizeResourceRefs(meta.usedResourceRefs),
+        usedResourceRefs: normalizeResourceRefs(meta.usedResourceRefs, options),
         warnings: normalizeStringArray(meta.warnings),
       },
     };
@@ -129,7 +130,7 @@ export function normalizeBranchGrowthCandidateFruit(
       meta: {
         summary: typeof nested.summary === "string" ? nested.summary : summarizeMarkdown(markdown),
         geneTags: normalizeStringArray(nested.geneTags),
-        usedResourceRefs: normalizeResourceRefs(nested.usedResourceRefs),
+        usedResourceRefs: normalizeResourceRefs(nested.usedResourceRefs, options),
         warnings: [],
       },
     };
@@ -178,11 +179,17 @@ function hasMarkdownField(record: Record<string, unknown>): boolean {
   );
 }
 
-function normalizeResourceRefs(value: unknown): BranchGrowthResourceRef[] {
+function normalizeResourceRefs(
+  value: unknown,
+  options: BranchGrowthCandidateValidationOptions,
+): BranchGrowthResourceRef[] {
   if (!Array.isArray(value)) {
     return [];
   }
   return value.map((item) => {
+    if (typeof item === "string") {
+      return normalizeStringResourceRef(item, options.authorizedResourceRefs);
+    }
     const ref = requireRecord(item, "resource ref must be an object");
     const resourceType = ref.resourceType;
     if (resourceType !== "nutrient" && resourceType !== "gene") {
@@ -193,6 +200,61 @@ function normalizeResourceRefs(value: unknown): BranchGrowthResourceRef[] {
       resourceId: requireString(ref.resourceId, "resourceId is required").trim(),
     };
   });
+}
+
+function normalizeStringResourceRef(
+  value: string,
+  authorizedResourceRefs: BranchGrowthResourceRef[] | undefined,
+): BranchGrowthResourceRef {
+  const resourceId = value.trim();
+  if (resourceId.length === 0) {
+    throw new ApplicationError("VALIDATION_ERROR", "resource ref id is required", 502);
+  }
+  if (authorizedResourceRefs === undefined) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "resource ref string requires authorized resources",
+      502,
+    );
+  }
+
+  const matches = uniqueResourceRefs(authorizedResourceRefs).filter(
+    (ref) =>
+      ref.resourceId === resourceId ||
+      `${ref.resourceType}:${ref.resourceId}` === resourceId,
+  );
+  if (matches.length === 0) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      `resource ref is not authorized: ${resourceId}`,
+      502,
+    );
+  }
+  if (matches.length > 1) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      `resource ref is ambiguous: ${resourceId}`,
+      502,
+    );
+  }
+  return { ...matches[0] };
+}
+
+function uniqueResourceRefs(
+  refs: BranchGrowthResourceRef[],
+): BranchGrowthResourceRef[] {
+  const map = new Map<string, BranchGrowthResourceRef>();
+  for (const ref of refs) {
+    const resourceId = ref.resourceId.trim();
+    if (resourceId.length === 0) {
+      continue;
+    }
+    map.set(`${ref.resourceType}:${resourceId}`, {
+      resourceType: ref.resourceType,
+      resourceId,
+    });
+  }
+  return [...map.values()];
 }
 
 function normalizeStringArray(value: unknown): string[] {

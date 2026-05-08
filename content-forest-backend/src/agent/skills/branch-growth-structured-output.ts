@@ -105,6 +105,8 @@ async function askForCandidate(input: BuildStructuredCandidateInput): Promise<st
           "你是内容森林的枝化生长结构化封装器。",
           "只输出一个 JSON 对象，不要输出解释文本。",
           "JSON 必须符合：{type:'candidate_fruit',payload:{markdown,rawGeneratorOutput,attachments},meta:{summary,geneTags,usedResourceRefs,warnings}}。",
+          "usedResourceRefs 必须是对象数组，每项格式为 {\"resourceType\":\"nutrient\"|\"gene\",\"resourceId\":\"资源ID\"}，不要只输出字符串数组。",
+          "示例：{\"type\":\"candidate_fruit\",\"payload\":{\"markdown\":\"# 正文\",\"rawGeneratorOutput\":\"# 正文\",\"attachments\":[]},\"meta\":{\"summary\":\"摘要\",\"geneTags\":[\"表达特征\"],\"usedResourceRefs\":[{\"resourceType\":\"gene\",\"resourceId\":\"gene_1\"}],\"warnings\":[]}}",
           "不要声明已保存果实、已完成任务等系统事实。",
         ].join("\n"),
       },
@@ -138,6 +140,7 @@ async function askForRepair(
           "你是 JSON 结构修复器。",
           "只修复结构化格式和缺失字段，不要重新创作内容，不要声明系统事实。",
           "只输出一个 JSON 对象。",
+          "输出必须符合候选果实结构，usedResourceRefs 必须是对象数组：[{\"resourceType\":\"gene\",\"resourceId\":\"gene_1\"}]。",
         ].join("\n"),
       },
       {

@@ -95,7 +95,10 @@ function context(detailParams: Record<string, unknown> = {}) {
   };
 }
 
-function candidateJson(markdown = "# 候选果实"): string {
+function candidateJson(
+  markdown = "# 候选果实",
+  usedResourceRefs: unknown = [{ resourceType: "gene", resourceId: "gene_1" }],
+): string {
   return JSON.stringify({
     type: "candidate_fruit",
     payload: {
@@ -106,7 +109,7 @@ function candidateJson(markdown = "# 候选果实"): string {
     meta: {
       summary: "壁纸产品的小红书表达",
       geneTags: ["情绪价值"],
-      usedResourceRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
+      usedResourceRefs,
       warnings: [],
     },
   });
@@ -131,11 +134,33 @@ describe("BranchGrowthSkill", () => {
       payload: { markdown: "# 候选果实" },
       meta: { geneTags: ["情绪价值"] },
     });
+    expect(llm.inputs[1]?.messages[0]?.content).toContain(
+      "usedResourceRefs 必须是对象数组",
+    );
     expect(tools.calls.map((call) => call.name)).toEqual([
       "read_growth_source_node",
       "read_generator_skill",
       "read_growth_resources",
     ]);
+  });
+
+  it("normalizes string resource refs returned by the structured candidate model", async () => {
+    const skill = new BranchGrowthSkill();
+    const llm = new SequenceLlm(["# 生成器 payload", candidateJson("# 候选果实", ["gene_1"])]);
+    const tools = new FakeTools();
+
+    const output = await skill.execute({
+      context: context(),
+      llm,
+      tools,
+      trace: new AgentTrace(),
+    });
+
+    expect(output.content).toMatchObject({
+      meta: {
+        usedResourceRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
+      },
+    });
   });
 
   it("uses the controlled script tool when a generator script path is provided", async () => {
@@ -170,6 +195,10 @@ describe("BranchGrowthSkill", () => {
     ).resolves.toMatchObject({
       content: { payload: { markdown: "# 修复后" } },
     });
+    expect(repaired.inputs[2]?.messages[1]?.content).toContain(
+      "模型未返回可解析的候选果实 JSON",
+    );
+    expect(repaired.inputs[2]?.messages[1]?.content).not.toContain("{truncate");
 
     const broken = new SequenceLlm(["# payload", "not json", "still not json"]);
     await expect(

@@ -1,5 +1,6 @@
 import { ApplicationError, isApplicationError } from "../../shared/errors/application-error.js";
 import type { SkillContract } from "../skills/skill-contract.js";
+import type { AgentExchangeLogRecorder } from "./agent-exchange-log.js";
 import type { AgentTask, AgentTaskContext, AgentTaskOutput } from "./agent-task.js";
 import type { AgentTrace } from "./agent-trace.js";
 import type {
@@ -57,17 +58,20 @@ export class SkillRuntime {
   private readonly toolRuntime: ToolRuntime;
   private readonly llm: LlmAdapter;
   private readonly trace: AgentTrace;
+  private readonly exchangeLog?: AgentExchangeLogRecorder;
 
   public constructor(dependencies: {
     registry: SkillRegistry;
     toolRuntime: ToolRuntime;
     llm: LlmAdapter;
     trace: AgentTrace;
+    exchangeLog?: AgentExchangeLogRecorder;
   }) {
     this.registry = dependencies.registry;
     this.toolRuntime = dependencies.toolRuntime;
     this.llm = dependencies.llm;
     this.trace = dependencies.trace;
+    this.exchangeLog = dependencies.exchangeLog;
   }
 
   public async executeTask(
@@ -78,19 +82,45 @@ export class SkillRuntime {
     this.trace.record("skill_called", `Skill called: ${skill.name}`, {
       skillName: skill.name,
     });
+    this.exchangeLog?.record({
+      phase: "skill",
+      direction: "input",
+      name: skill.name,
+      status: "started",
+      content: {
+        taskType: context.taskType,
+        input: context.input,
+        metadata: context.metadata,
+      },
+    });
 
     try {
-      return await skill.execute({
+      const output = await skill.execute({
         context,
         tools: this.toolRuntime,
-        llm: new TracedLlmAdapter(this.llm, this.trace),
+        llm: new TracedLlmAdapter(this.llm, this.trace, this.exchangeLog),
         trace: this.trace,
       });
+      this.exchangeLog?.record({
+        phase: "skill",
+        direction: "output",
+        name: skill.name,
+        status: "completed",
+        content: output,
+      });
+      return output;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Skill execution failed";
       this.trace.record("skill_failed", `Skill failed: ${skill.name}`, {
         skillName: skill.name,
         reason: message,
+      });
+      this.exchangeLog?.record({
+        phase: "skill",
+        direction: "error",
+        name: skill.name,
+        status: "failed",
+        content: { reason: message },
       });
 
       if (isApplicationError(error)) {
@@ -109,10 +139,16 @@ export class SkillRuntime {
 class TracedLlmAdapter implements LlmAdapter {
   private readonly inner: LlmAdapter;
   private readonly trace: AgentTrace;
+  private readonly exchangeLog?: AgentExchangeLogRecorder;
 
-  public constructor(inner: LlmAdapter, trace: AgentTrace) {
+  public constructor(
+    inner: LlmAdapter,
+    trace: AgentTrace,
+    exchangeLog?: AgentExchangeLogRecorder,
+  ) {
     this.inner = inner;
     this.trace = trace;
+    this.exchangeLog = exchangeLog;
   }
 
   public async complete(input: LlmCompletionInput): Promise<LlmCompletionResult> {
@@ -120,12 +156,34 @@ class TracedLlmAdapter implements LlmAdapter {
       model: input.model,
       messageCount: input.messages.length,
     });
+    this.exchangeLog?.record({
+      phase: "llm",
+      direction: "input",
+      name: "complete",
+      status: "started",
+      content: input,
+    });
 
     try {
-      return await this.inner.complete(input);
+      const output = await this.inner.complete(input);
+      this.exchangeLog?.record({
+        phase: "llm",
+        direction: "output",
+        name: "complete",
+        status: "completed",
+        content: output,
+      });
+      return output;
     } catch (error) {
       const message = error instanceof Error ? error.message : "LLM call failed";
       this.trace.record("llm_failed", "LLM call failed", { reason: message });
+      this.exchangeLog?.record({
+        phase: "llm",
+        direction: "error",
+        name: "complete",
+        status: "failed",
+        content: { reason: message },
+      });
       throw error;
     }
   }

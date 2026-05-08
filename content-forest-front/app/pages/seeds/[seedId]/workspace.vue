@@ -76,8 +76,8 @@ const selectedNodeId = ref('')
 const transform = reactive({ x: -620, y: -360, scale: 1 })
 const treeSize = reactive({ width: 1180, height: 820 })
 const nodeSize = {
-  seed: { width: 232, height: 156 },
-  fruit: { width: 208, height: 150 },
+  seed: { width: 220, height: 160 },
+  fruit: { width: 196, height: 152 },
 }
 
 const workspaceLoading = ref(false)
@@ -105,6 +105,9 @@ const pollTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 const isReadOnly = computed(() => Boolean(snapshot.value?.workspaceReadOnly || route.query.readonly === '1'))
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) ?? nodes.value[0] ?? null)
+const isTreeGrowing = computed(() => nodes.value.some((node) => node.status === 'growing'))
+const treeStatusTitle = computed(() => isTreeGrowing.value ? '枝化生长' : workspaceLoading.value ? '加载工作区' : '树已同步')
+const treeStatusValue = computed(() => isTreeGrowing.value ? '生成中' : `${nodes.value.length} 节点`)
 const canShowGrowthComposer = computed(() => {
   const node = selectedNode.value
   if (!node) return false
@@ -204,13 +207,14 @@ function errorMessage(error: unknown) {
 async function loadWorkspace(preferredNodeId = selectedNodeId.value) {
   if (!seedId.value) return
 
+  const shouldFitAfterLoad = nodes.value.length === 0
   workspaceLoading.value = true
   workspaceError.value = ''
 
   try {
     const nextSnapshot = await workspaceApi.getSeedWorkspace(seedId.value)
     snapshot.value = nextSnapshot
-    nodes.value = mergeRunningPlaceholders(layoutSnapshot(nextSnapshot, nodes.value), nodes.value)
+    nodes.value = layoutTreeNodes(mergeRunningPlaceholders(mapSnapshotNodes(nextSnapshot), nodes.value))
 
     const routeNodeId = typeof route.query.node === 'string' ? route.query.node : ''
     const nextSelectedId = preferredNodeId || routeNodeId || nextSnapshot.seed.rootNodeId || nodes.value[0]?.id || ''
@@ -224,6 +228,10 @@ async function loadWorkspace(preferredNodeId = selectedNodeId.value) {
 
     referencedResources.value = referencedResources.value.filter((resource) => resourceOptions.value.some((item) => item.id === resource.id && item.kind === resource.kind))
     await loadSelectedNodeDetail()
+    if (shouldFitAfterLoad) {
+      await nextTick()
+      fitTreeInView()
+    }
   } catch (error) {
     workspaceError.value = errorMessage(error)
   } finally {
@@ -231,38 +239,8 @@ async function loadWorkspace(preferredNodeId = selectedNodeId.value) {
   }
 }
 
-function layoutSnapshot(nextSnapshot: WorkspaceSnapshot, previousNodes: TreeNode[]) {
-  const previousPositions = new Map(previousNodes.map((node) => [node.id, { x: node.x, y: node.y }]))
-  const depthByNode = calculateDepths(nextSnapshot)
-  const maxDepth = Math.max(0, ...Array.from(depthByNode.values()))
-  const levels = new Map<number, WorkspaceNode[]>()
-
-  nextSnapshot.nodes.forEach((node) => {
-    const depth = depthByNode.get(node.nodeId) ?? 0
-    const level = levels.get(depth) ?? []
-    level.push(node)
-    levels.set(depth, level)
-  })
-
-  const widestLevel = Math.max(1, ...Array.from(levels.values()).map((level) => level.length))
-  const horizontalGap = 340
-  const verticalGap = 228
-  treeSize.width = Math.max(1380, widestLevel * horizontalGap + 520)
-  treeSize.height = Math.max(960, (maxDepth + 2) * verticalGap)
-
-  return nextSnapshot.nodes.map((node) => {
-    const previousPosition = previousPositions.get(node.nodeId)
-    const depth = depthByNode.get(node.nodeId) ?? 0
-    const siblings = levels.get(depth) ?? [node]
-    const index = siblings.findIndex((item) => item.nodeId === node.nodeId)
-    const size = node.nodeType === 'seed' ? nodeSize.seed : nodeSize.fruit
-    const gap = horizontalGap
-    const levelWidth = (siblings.length - 1) * gap
-    const x = treeSize.width / 2 - levelWidth / 2 + Math.max(0, index) * gap - size.width / 2
-    const y = treeSize.height - 190 - depth * verticalGap
-
-    return mapWorkspaceNode(node, previousPosition ?? { x, y })
-  })
+function mapSnapshotNodes(nextSnapshot: WorkspaceSnapshot) {
+  return nextSnapshot.nodes.map((node) => mapWorkspaceNode(node, { x: 0, y: 0 }))
 }
 
 function mergeRunningPlaceholders(nextNodes: TreeNode[], previousNodes: TreeNode[]) {
@@ -278,32 +256,6 @@ function mergeRunningPlaceholders(nextNodes: TreeNode[], previousNodes: TreeNode
   })
 
   return [...nextNodes, ...preservedPlaceholders]
-}
-
-function calculateDepths(nextSnapshot: WorkspaceSnapshot) {
-  const children = new Map<string, string[]>()
-  nextSnapshot.edges.forEach((edge) => {
-    const list = children.get(edge.parentNodeRef.nodeId) ?? []
-    list.push(edge.childNodeRef.nodeId)
-    children.set(edge.parentNodeRef.nodeId, list)
-  })
-
-  const rootNodeId = nextSnapshot.seed.rootNodeId || nextSnapshot.nodes.find((node) => node.nodeType === 'seed')?.nodeId || ''
-  const depths = new Map<string, number>()
-  const queue: Array<{ nodeId: string; depth: number }> = rootNodeId ? [{ nodeId: rootNodeId, depth: 0 }] : []
-
-  while (queue.length > 0) {
-    const current = queue.shift()!
-    if (depths.has(current.nodeId)) continue
-    depths.set(current.nodeId, current.depth)
-    ;(children.get(current.nodeId) ?? []).forEach((childId) => queue.push({ nodeId: childId, depth: current.depth + 1 }))
-  }
-
-  nextSnapshot.nodes.forEach((node) => {
-    if (!depths.has(node.nodeId)) depths.set(node.nodeId, node.nodeType === 'seed' ? 0 : 1)
-  })
-
-  return depths
 }
 
 function mapWorkspaceNode(node: WorkspaceNode, position: { x: number; y: number }): TreeNode {
@@ -357,6 +309,159 @@ function buildFruitRecords(node: Extract<WorkspaceNode, { nodeType: 'fruit' }>) 
   if (node.failedInput.hasFailedInput) records.unshift(`最近失败：${node.failedInput.failureReason || '可恢复输入后重试'}`)
   if (node.growth.isGrowing) records.unshift('枝化生长：生成中')
   return records
+}
+
+function buildNodeChildren(treeNodes: TreeNode[]) {
+  const nodeIds = new Set(treeNodes.map((node) => node.id))
+  const children = new Map<string, TreeNode[]>()
+
+  treeNodes.forEach((node) => {
+    const parentId = node.parentNodeRef?.nodeId
+    if (!parentId || !nodeIds.has(parentId)) return
+    const list = children.get(parentId) ?? []
+    list.push(node)
+    children.set(parentId, list)
+  })
+
+  children.forEach((list) => {
+    list.sort((left, right) => {
+      if (left.isPlaceholder !== right.isPlaceholder) return left.isPlaceholder ? 1 : -1
+      return `${left.createdAt}-${left.id}`.localeCompare(`${right.createdAt}-${right.id}`)
+    })
+  })
+
+  return children
+}
+
+function layoutTreeNodes(treeNodes: TreeNode[]) {
+  if (treeNodes.length === 0) return []
+
+  const nextNodes = treeNodes.map((node) => ({ ...node }))
+  const byId = new Map(nextNodes.map((node) => [node.id, node]))
+  const children = buildNodeChildren(nextNodes)
+  const rootId = snapshot.value?.seed.rootNodeId || nextNodes.find((node) => node.nodeType === 'seed')?.id || nextNodes[0]?.id || ''
+  const subtreeWidths = new Map<string, number>()
+  const visited = new Set<string>()
+  const subtreeGap = 104
+  const levelGap = 240
+  const marginX = 180
+  const marginY = 170
+  let maxDepth = 0
+
+  function measure(nodeId: string, depth: number): number {
+    const node = byId.get(nodeId)
+    if (!node || visited.has(nodeId)) return nodeSize.fruit.width
+    visited.add(nodeId)
+    maxDepth = Math.max(maxDepth, depth)
+
+    const size = getNodeSize(node)
+    const childNodes = children.get(nodeId) ?? []
+    if (childNodes.length === 0) {
+      subtreeWidths.set(nodeId, size.width)
+      return size.width
+    }
+
+    const childrenWidth = childNodes.reduce((total, child, index) => {
+      return total + measure(child.id, depth + 1) + (index > 0 ? subtreeGap : 0)
+    }, 0)
+    const width = Math.max(size.width, childrenWidth)
+    subtreeWidths.set(nodeId, width)
+    return width
+  }
+
+  const rootWidth = rootId ? measure(rootId, 0) : 0
+  const orphanNodes = nextNodes.filter((node) => !visited.has(node.id))
+  const orphanWidth = orphanNodes.reduce((total, node, index) => total + getNodeSize(node).width + (index > 0 ? subtreeGap : 0), 0)
+  const contentWidth = Math.max(rootWidth, orphanWidth, nodeSize.seed.width)
+
+  treeSize.width = Math.max(1380, contentWidth + marginX * 2)
+  treeSize.height = Math.max(960, (maxDepth + 1) * levelGap + marginY * 2)
+
+  function assign(nodeId: string, left: number, depth: number) {
+    const node = byId.get(nodeId)
+    if (!node) return
+
+    const width = subtreeWidths.get(nodeId) ?? getNodeSize(node).width
+    const size = getNodeSize(node)
+    node.x = left + width / 2 - size.width / 2
+    node.y = treeSize.height - marginY - size.height - depth * levelGap
+
+    const childNodes = children.get(nodeId) ?? []
+    const childrenWidth = childNodes.reduce((total, child, index) => {
+      return total + (subtreeWidths.get(child.id) ?? getNodeSize(child).width) + (index > 0 ? subtreeGap : 0)
+    }, 0)
+    let childLeft = left + (width - childrenWidth) / 2
+    childNodes.forEach((child) => {
+      const childWidth = subtreeWidths.get(child.id) ?? getNodeSize(child).width
+      assign(child.id, childLeft, depth + 1)
+      childLeft += childWidth + subtreeGap
+    })
+  }
+
+  if (rootId) {
+    assign(rootId, marginX + (contentWidth - rootWidth) / 2, 0)
+  }
+
+  let orphanLeft = marginX + (contentWidth - orphanWidth) / 2
+  orphanNodes.forEach((node, index) => {
+    const size = getNodeSize(node)
+    node.x = orphanLeft
+    node.y = treeSize.height - marginY - size.height - levelGap
+    orphanLeft += size.width + (index < orphanNodes.length - 1 ? subtreeGap : 0)
+  })
+
+  return nextNodes
+}
+
+function fitTreeInView() {
+  if (typeof window === 'undefined' || nodes.value.length === 0) return
+
+  const canvasRect = document.querySelector<HTMLElement>('.cf-tree-canvas')?.getBoundingClientRect()
+  const bounds = nodes.value.reduce((current, node) => {
+    const size = getNodeSize(node)
+    return {
+      minX: Math.min(current.minX, node.x),
+      minY: Math.min(current.minY, node.y),
+      maxX: Math.max(current.maxX, node.x + size.width),
+      maxY: Math.max(current.maxY, node.y + size.height),
+    }
+  }, {
+    minX: Number.POSITIVE_INFINITY,
+    minY: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    maxY: Number.NEGATIVE_INFINITY,
+  })
+
+  const detailWidth = selectedNode.value ? (window.innerWidth <= 1180 ? 360 : 406) : 0
+  const canvasLeft = canvasRect?.left ?? 0
+  const canvasTop = canvasRect?.top ?? 0
+  const canvasWidth = canvasRect?.width ?? window.innerWidth
+  const canvasHeight = canvasRect?.height ?? window.innerHeight
+  const targetLeft = canvasLeft
+  const targetRight = canvasLeft + canvasWidth - detailWidth
+  const targetTop = canvasTop + 96
+  const targetBottom = canvasTop + canvasHeight - (visibleComposer.value ? 240 : 48)
+  const availableWidth = Math.max(520, targetRight - targetLeft - 56)
+  const availableHeight = Math.max(420, targetBottom - targetTop)
+  const boundsWidth = Math.max(1, bounds.maxX - bounds.minX)
+  const boundsHeight = Math.max(1, bounds.maxY - bounds.minY)
+  const nextScale = Math.min(1.04, Math.max(0.58, Math.min(availableWidth / (boundsWidth + 180), availableHeight / (boundsHeight + 180))))
+  const boundsCenterX = bounds.minX + boundsWidth / 2
+  const boundsCenterY = bounds.minY + boundsHeight / 2
+  const targetCenterX = (targetLeft + targetRight) / 2
+  const targetCenterY = (targetTop + targetBottom) / 2
+  const mapAnchorX = canvasLeft + canvasWidth / 2
+  const mapAnchorY = canvasTop + canvasHeight / 2
+
+  transform.scale = nextScale
+  transform.x = targetCenterX - mapAnchorX + (nextScale - 1) * treeSize.width / 2 - boundsCenterX * nextScale
+  transform.y = targetCenterY - mapAnchorY + (nextScale - 1) * treeSize.height / 2 - boundsCenterY * nextScale
+}
+
+async function arrangeTreeView() {
+  nodes.value = layoutTreeNodes(nodes.value)
+  await nextTick()
+  fitTreeInView()
 }
 
 async function loadSelectedNodeDetail() {
@@ -438,9 +543,9 @@ function nodeClasses(node: TreeNode) {
 }
 
 function nodeStateLabel(node: TreeNode) {
-  if (node.nodeType === 'seed') return isReadOnly.value ? '只读种子' : '根节点'
   if (node.status === 'growing') return '生长中'
   if (node.status === 'failed') return '最近失败'
+  if (node.nodeType === 'seed') return isReadOnly.value ? '只读种子' : '根节点'
   if (node.selectionState === 'selected') return '已选择'
   if (node.selectionState === 'eliminated') return '已淘汰'
   return '候选'
@@ -544,9 +649,7 @@ function handleWheel(event: WheelEvent) {
 }
 
 function resetView() {
-  transform.x = -620
-  transform.y = -360
-  transform.scale = 1
+  void arrangeTreeView()
 }
 
 function addResource(resource: ResourceRef) {
@@ -640,18 +743,14 @@ async function startGrowth() {
 
 function addGrowthPlaceholders(source: TreeNode, count: number) {
   removeGrowthPlaceholders(source.id)
-  const size = getNodeSize(source)
-  const childY = source.y - 218
-  const spread = Math.min(560, Math.max(220, count * 132))
-  const startX = source.x + size.width / 2 - spread / 2
   const placeholders = Array.from({ length: count }, (_, index): TreeNode => ({
     id: `pending-${source.id}-${Date.now()}-${index}`,
     nodeType: 'fruit',
     title: `果实生成中 ${index + 1}`,
     summary: `生成中 ${index + 1}`,
     markdown: '',
-    x: startX + index * (spread / Math.max(1, count - 1)) - nodeSize.fruit.width / 2,
-    y: childY,
+    x: source.x,
+    y: source.y - 240,
     selectionState: 'candidate',
     parentNodeRef: { nodeType: source.nodeType, nodeId: source.id },
     contentLocation: '',
@@ -669,7 +768,7 @@ function addGrowthPlaceholders(source: TreeNode, count: number) {
       updatedAt: null,
     },
   }))
-  nodes.value = [...nodes.value, ...placeholders]
+  nodes.value = layoutTreeNodes([...nodes.value, ...placeholders])
 }
 
 function removeGrowthPlaceholders(sourceNodeId: string) {
@@ -778,9 +877,16 @@ function formatDateTime(value: string) {
       <div class="cf-workspace-crumb">
         <strong>{{ snapshot?.seed.title || '内容森林工作区' }}</strong>
       </div>
+      <div class="cf-header-tree-status" :class="{ 'is-growing': isTreeGrowing }">
+        <strong>
+          <span>{{ treeStatusTitle }}</span>
+          <span>{{ treeStatusValue }}</span>
+        </strong>
+        <div class="cf-growth-meter"><span /></div>
+      </div>
       <div class="cf-workspace-actions">
         <NuxtLink class="cf-secondary-action" to="/seeds">返回种子库</NuxtLink>
-        <button class="cf-workspace-tool" type="button" @click="resetView">适应视图</button>
+        <button class="cf-workspace-tool" type="button" @click="resetView">整理树形</button>
       </div>
     </header>
 
@@ -794,14 +900,6 @@ function formatDateTime(value: string) {
       @pointercancel="endDrag"
       @wheel="handleWheel"
     >
-      <div class="cf-growth-ribbon">
-        <strong>
-          <span>{{ selectedNode?.status === 'growing' ? '枝化生长' : workspaceLoading ? '加载工作区' : '树已同步' }}</span>
-          <span>{{ selectedNode?.status === 'growing' ? '生成中' : `${nodes.length} 节点` }}</span>
-        </strong>
-        <div class="cf-growth-meter"><span /></div>
-      </div>
-
       <div v-if="workspaceLoading && nodes.length === 0" class="cf-stage-message">内容树正在从种子向外生长...</div>
       <div v-else-if="workspaceError" class="cf-stage-message is-error">
         <strong>{{ workspaceError }}</strong>
@@ -866,7 +964,6 @@ function formatDateTime(value: string) {
           </span>
           <span class="cf-node-tags">
             <span class="cf-node-tag">{{ nodeStateLabel(node) }}</span>
-            <span v-if="node.geneTags[0]" class="cf-node-tag">{{ node.geneTags[0] }}</span>
           </span>
         </button>
       </div>
@@ -1211,6 +1308,40 @@ button:disabled {
   gap: 10px;
 }
 
+.cf-header-tree-status {
+  position: relative;
+  z-index: 1;
+  flex: 0 1 260px;
+  min-width: 180px;
+  max-width: 300px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .035);
+}
+
+.cf-header-tree-status strong {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #dce7e4;
+  font-size: 12px;
+}
+
+.cf-header-tree-status .cf-growth-meter {
+  margin-top: 8px;
+}
+
+.cf-header-tree-status:not(.is-growing) .cf-growth-meter span {
+  width: 100%;
+  background: linear-gradient(90deg, rgba(94, 215, 197, .52), rgba(157, 228, 155, .38));
+}
+
+.cf-header-tree-status.is-growing .cf-growth-meter span {
+  animation: cf-header-growth 1.35s ease-in-out infinite;
+}
+
 .cf-workspace-chip,
 .cf-workspace-tool,
 .cf-secondary-action,
@@ -1333,25 +1464,6 @@ button:disabled {
   color: #ffd7c9;
 }
 
-.cf-growth-ribbon {
-  position: absolute;
-  z-index: 14;
-  left: 22px;
-  bottom: 22px;
-  width: 244px;
-  padding: 12px;
-  border: 1px solid var(--cf-border-soft);
-  border-radius: 8px;
-  background: rgba(10, 13, 15, .72);
-  backdrop-filter: blur(20px);
-}
-
-.cf-growth-ribbon strong {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-}
-
 .cf-growth-meter {
   height: 3px;
   margin-top: 9px;
@@ -1408,23 +1520,45 @@ button:disabled {
   stroke: rgba(255, 255, 255, .32);
 }
 
+/* Final node system for this change: simple skeuomorphic cards, one status tag only. */
 .cf-tree-node {
+  --node-accent: #d4ae68;
+  --node-rgb: 212, 174, 104;
   position: absolute;
   z-index: 5;
-  width: 184px;
-  min-height: 92px;
+  width: 196px;
+  height: 152px;
+  box-sizing: border-box;
   display: grid;
+  grid-template-rows: auto auto minmax(32px, 1fr) auto;
   gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--cf-border);
-  border-radius: 8px;
-  background: var(--cf-panel-strong);
+  padding: 11px 12px;
+  overflow: hidden;
   color: var(--cf-text);
   text-align: left;
+  appearance: none;
   cursor: grab;
-  box-shadow: 0 20px 58px rgba(0, 0, 0, .26);
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 9px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .055), rgba(255, 255, 255, .018)),
+    linear-gradient(145deg, rgba(var(--node-rgb), .08), transparent 42%),
+    rgba(20, 23, 25, .95);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .08),
+    inset 0 -1px 0 rgba(0, 0, 0, .22),
+    0 18px 42px rgba(0, 0, 0, .26);
+  backdrop-filter: none;
+  transform: none;
+  transform-origin: center;
   isolation: isolate;
-  transition: border-color .2s ease, background .2s ease, box-shadow .2s ease, opacity .2s ease;
+  transition:
+    transform .18s ease,
+    border-color .18s ease,
+    background .18s ease,
+    box-shadow .18s ease,
+    opacity .18s ease,
+    filter .18s ease;
 }
 
 .cf-tree-node > * {
@@ -1439,277 +1573,149 @@ button:disabled {
   pointer-events: none;
 }
 
+.cf-tree-node:hover {
+  border-color: rgba(var(--node-rgb), .38);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .1),
+    inset 0 -1px 0 rgba(0, 0, 0, .2),
+    0 20px 50px rgba(0, 0, 0, .31);
+  transform: translateY(-2px);
+}
+
+.cf-tree-node::before {
+  inset: 8px auto 8px 8px;
+  width: 3px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, transparent, rgba(var(--node-rgb), .88), transparent);
+  opacity: .78;
+  transform: none;
+  animation: none;
+}
+
+.cf-tree-node::after {
+  content: "";
+  left: 18px;
+  right: 18px;
+  bottom: 9px;
+  top: auto;
+  z-index: 1;
+  height: 2px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(var(--node-rgb), .44);
+  box-shadow: none;
+  transform: none;
+  animation: none;
+}
+
 .cf-tree-node.is-seed {
+  --node-accent: #6fd9c8;
+  --node-rgb: 111, 217, 200;
   width: 220px;
-  min-height: 104px;
-  border-color: rgba(94, 215, 197, .35);
-  background: linear-gradient(180deg, rgba(94, 215, 197, .13), rgba(18, 24, 26, .96));
+  height: 160px;
+  border-radius: 18px 14px 18px 14px;
+  border-color: rgba(111, 217, 200, .24);
+  background:
+    radial-gradient(circle at 20% 12%, rgba(255, 255, 255, .1), transparent 22%),
+    linear-gradient(180deg, rgba(111, 217, 200, .12), rgba(255, 255, 255, .018)),
+    rgba(16, 24, 25, .96);
+}
+
+.cf-tree-node.is-fruit {
+  width: 196px;
+  height: 152px;
+  border-radius: 9px;
+}
+
+.cf-tree-node.is-candidate {
+  --node-accent: #d4ae68;
+  --node-rgb: 212, 174, 104;
 }
 
 .cf-tree-node.is-selected {
-  border-color: rgba(157, 228, 155, .42);
+  --node-accent: #9fd893;
+  --node-rgb: 159, 216, 147;
+  border-color: rgba(159, 216, 147, .3);
 }
 
 .cf-tree-node.is-eliminated {
+  --node-accent: #8b9290;
+  --node-rgb: 139, 146, 144;
+  border-color: rgba(255, 255, 255, .075);
+  filter: saturate(.45);
   opacity: .58;
 }
 
-.cf-tree-node.is-growing {
-  animation: cf-pulse 1.2s ease-in-out infinite;
+.cf-tree-node.is-eliminated::after {
+  top: 50%;
+  bottom: auto;
+  height: 1px;
+  background: rgba(222, 228, 226, .28);
+  transform: rotate(-5deg);
 }
 
+.cf-tree-node.is-growing,
 .cf-tree-node.is-growth-placeholder {
-  overflow: hidden;
-  border-color: rgba(240, 195, 107, .62);
-  background:
-    linear-gradient(125deg, rgba(240, 195, 107, .15), transparent 42%),
-    linear-gradient(180deg, rgba(24, 29, 30, .98), rgba(13, 18, 18, .94));
-  box-shadow:
-    0 0 0 1px rgba(240, 195, 107, .16),
-    0 0 34px rgba(240, 195, 107, .16),
-    0 24px 70px rgba(0, 0, 0, .36);
-  animation: cf-growth-breathe 1.4s ease-in-out infinite;
-}
-
-.cf-tree-node.is-growth-placeholder::before {
-  inset: -1px;
-  z-index: 0;
-  background:
-    linear-gradient(90deg, transparent, rgba(240, 195, 107, .18), transparent),
-    repeating-linear-gradient(90deg, transparent 0 13px, rgba(94, 215, 197, .08) 13px 14px),
-    repeating-linear-gradient(0deg, transparent 0 11px, rgba(240, 195, 107, .07) 11px 12px);
-  transform: translateX(-66%);
-  animation: cf-growth-grid-scan 1.8s ease-in-out infinite;
-}
-
-.cf-tree-node.is-growth-placeholder::after {
-  inset: -7px;
-  z-index: -1;
-  border: 1px solid rgba(240, 195, 107, .35);
-  border-radius: 12px;
-  box-shadow:
-    0 0 0 1px rgba(94, 215, 197, .08),
-    0 0 26px rgba(240, 195, 107, .18);
-  animation: cf-growth-shell 1.55s ease-in-out infinite;
-}
-
-.cf-tree-node.is-growth-placeholder .cf-node-dot {
-  background: #f0c36b;
-  animation: cf-dot-breathe .95s ease-in-out infinite;
-}
-
-.cf-tree-node.is-growth-placeholder .cf-node-title {
-  color: #fff4d2;
-  text-shadow: 0 0 18px rgba(240, 195, 107, .18);
-}
-
-.cf-tree-node.is-growth-placeholder .cf-node-tags {
-  justify-content: flex-start;
-}
-
-.cf-tree-node.is-growth-placeholder .cf-node-tag {
-  max-width: none;
-  border-color: rgba(240, 195, 107, .22);
-  background: rgba(240, 195, 107, .07);
-  color: #ffe0b2;
-}
-
-.cf-tree-node.is-failed {
-  border-color: rgba(240, 195, 107, .48);
+  --node-accent: #74d6c7;
+  --node-rgb: 116, 214, 199;
+  border-color: rgba(116, 214, 199, .32);
+  animation: cf-node-soft-pulse 1.8s ease-in-out infinite;
 }
 
 .cf-tree-node.is-active {
-  box-shadow: 0 0 0 2px rgba(94, 215, 197, .28), 0 22px 62px rgba(0, 0, 0, .32);
+  border-color: rgba(var(--node-rgb), .58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .11),
+    0 0 0 2px rgba(var(--node-rgb), .2),
+    0 22px 54px rgba(0, 0, 0, .34);
 }
 
-.cf-node-head,
-.cf-node-tags {
+.cf-node-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 7px;
-}
-
-.cf-node-head {
-  color: var(--cf-muted);
-  font-size: 10px;
-  font-weight: 800;
+  color: rgba(226, 235, 232, .58);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .08em;
 }
 
 .cf-node-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--cf-growth);
-}
-
-.cf-node-title {
-  min-height: 36px;
-  overflow: hidden;
-  font-size: 13px;
-  font-weight: 800;
-  line-height: 1.35;
-}
-
-.cf-tree-node {
-  min-height: 132px;
-  gap: 10px;
-  padding: 12px 13px;
-  border-radius: 14px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, .06), transparent 34%),
-    linear-gradient(180deg, rgba(24, 29, 31, .97), rgba(11, 15, 17, .96));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .08),
-    0 24px 68px rgba(0, 0, 0, .32);
-  transform-origin: center;
-  transition:
-    transform .22s ease,
-    border-color .22s ease,
-    background .22s ease,
-    box-shadow .22s ease,
-    opacity .22s ease,
-    filter .22s ease;
-}
-
-.cf-tree-node:hover {
-  transform: translateY(-3px);
-}
-
-.cf-tree-node.is-seed {
-  width: 236px;
-  min-height: 142px;
-  border-radius: 18px;
-  border-color: rgba(94, 215, 197, .46);
-  background:
-    radial-gradient(circle at 22% 18%, rgba(94, 215, 197, .28), transparent 30%),
-    linear-gradient(135deg, rgba(94, 215, 197, .18), rgba(157, 228, 155, .05) 44%, rgba(11, 15, 17, .98)),
-    rgba(13, 18, 19, .98);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .1),
-    0 0 0 1px rgba(94, 215, 197, .08),
-    0 26px 76px rgba(0, 0, 0, .36),
-    0 0 38px rgba(94, 215, 197, .1);
-}
-
-.cf-tree-node.is-seed::before {
-  inset: auto 16px 12px 16px;
-  height: 26px;
-  z-index: 0;
-  border-bottom: 1px solid rgba(94, 215, 197, .28);
-  border-radius: 0 0 999px 999px;
-  background:
-    linear-gradient(90deg, transparent, rgba(94, 215, 197, .18), transparent),
-    repeating-linear-gradient(90deg, transparent 0 23px, rgba(157, 228, 155, .12) 23px 24px);
-  opacity: .86;
-}
-
-.cf-tree-node.is-seed::after {
-  right: 12px;
-  bottom: 12px;
-  width: 50px;
-  height: 50px;
-  z-index: 0;
-  border: 1px solid rgba(94, 215, 197, .14);
-  border-radius: 50%;
-  background: radial-gradient(circle, transparent 42%, rgba(94, 215, 197, .11) 43%, transparent 58%);
-}
-
-.cf-tree-node.is-fruit {
-  width: 198px;
-  min-height: 136px;
-  border-radius: 16px 16px 22px 22px;
-}
-
-.cf-tree-node.is-fruit::before {
-  inset: 0;
-  z-index: 0;
-  border-radius: inherit;
-  background:
-    linear-gradient(120deg, rgba(255, 255, 255, .08), transparent 30%),
-    radial-gradient(circle at 82% 16%, rgba(255, 255, 255, .08), transparent 23%);
-  opacity: .72;
-}
-
-.cf-tree-node.is-candidate {
-  border-color: rgba(240, 195, 107, .34);
-  background:
-    radial-gradient(circle at 24% 18%, rgba(240, 195, 107, .18), transparent 31%),
-    linear-gradient(160deg, rgba(240, 195, 107, .09), rgba(94, 215, 197, .04) 46%, rgba(14, 17, 20, .98));
-}
-
-.cf-tree-node.is-selected {
-  border-color: rgba(157, 228, 155, .58);
-  background:
-    radial-gradient(circle at 25% 17%, rgba(157, 228, 155, .32), transparent 30%),
-    linear-gradient(155deg, rgba(157, 228, 155, .18), rgba(94, 215, 197, .08) 44%, rgba(10, 15, 13, .98));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .12),
-    0 0 0 1px rgba(157, 228, 155, .12),
-    0 24px 76px rgba(0, 0, 0, .35),
-    0 0 42px rgba(157, 228, 155, .16);
-}
-
-.cf-tree-node.is-eliminated {
-  border-color: rgba(150, 154, 150, .2);
-  background:
-    repeating-linear-gradient(135deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 11px),
-    linear-gradient(160deg, rgba(78, 84, 82, .18), rgba(12, 14, 15, .96));
-  filter: saturate(.3);
-  opacity: .66;
-}
-
-.cf-tree-node.is-eliminated::after {
-  left: 14px;
-  right: 14px;
-  top: 50%;
-  z-index: 3;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(220, 225, 222, .42), transparent);
-  transform: rotate(-8deg);
-}
-
-.cf-tree-node.is-growing:not(.is-growth-placeholder) {
-  border-color: rgba(94, 215, 197, .64);
-  background:
-    linear-gradient(90deg, rgba(94, 215, 197, .14), transparent 34%, rgba(240, 195, 107, .1)),
-    linear-gradient(180deg, rgba(21, 27, 28, .98), rgba(8, 13, 14, .98));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .12),
-    0 0 0 1px rgba(94, 215, 197, .16),
-    0 0 48px rgba(94, 215, 197, .18),
-    0 24px 76px rgba(0, 0, 0, .38);
-}
-
-.cf-tree-node.is-growing:not(.is-growth-placeholder)::before {
-  inset: -1px;
-  z-index: 0;
-  border-radius: inherit;
-  background:
-    linear-gradient(90deg, transparent, rgba(94, 215, 197, .18), transparent),
-    repeating-linear-gradient(90deg, transparent 0 16px, rgba(94, 215, 197, .08) 16px 17px);
-  transform: translateX(-70%);
-  animation: cf-growth-grid-scan 1.65s ease-in-out infinite;
+  background: var(--node-accent);
+  box-shadow: 0 0 12px rgba(var(--node-rgb), .38);
 }
 
 .cf-node-identity {
   display: grid;
-  grid-template-columns: 42px 1fr;
-  gap: 10px;
+  grid-template-columns: 30px 1fr;
+  gap: 9px;
   align-items: center;
-  min-height: 42px;
+  min-height: 30px;
 }
 
 .cf-node-orb {
   position: relative;
-  width: 42px;
-  height: 42px;
-  border: 1px solid rgba(255, 255, 255, .16);
-  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 8px;
   background:
-    radial-gradient(circle at 36% 32%, rgba(255, 255, 255, .35), transparent 17%),
-    radial-gradient(circle, rgba(94, 215, 197, .18), rgba(8, 12, 13, .88) 70%);
-  box-shadow: inset 0 0 18px rgba(255, 255, 255, .05), 0 0 24px rgba(94, 215, 197, .12);
+    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, .26), transparent 18%),
+    rgba(var(--node-rgb), .12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .1),
+    inset 0 -6px 10px rgba(0, 0, 0, .16);
+  transform: none;
+}
+
+.cf-tree-node.is-seed .cf-node-orb {
+  border-radius: 50% 44% 50% 46%;
+  transform: rotate(-8deg);
 }
 
 .cf-orb-core,
@@ -1721,143 +1727,105 @@ button:disabled {
 .cf-orb-core {
   left: 50%;
   top: 50%;
-  width: 12px;
-  height: 12px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: rgba(94, 215, 197, .72);
-  box-shadow: 0 0 18px rgba(94, 215, 197, .55);
+  background: var(--node-accent);
+  box-shadow: none;
   transform: translate(-50%, -50%);
 }
 
 .cf-orb-vein {
-  left: 8px;
-  right: 8px;
+  left: 7px;
+  right: 7px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .42), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .4), transparent);
+  opacity: .18;
   transform-origin: center;
 }
 
 .cf-orb-vein.is-a {
-  top: 16px;
+  top: 11px;
   transform: rotate(32deg);
 }
 
 .cf-orb-vein.is-b {
-  bottom: 15px;
+  bottom: 11px;
   transform: rotate(-34deg);
 }
 
 .cf-node-signature {
   display: grid;
-  gap: 5px;
+  gap: 4px;
   align-content: center;
 }
 
 .cf-node-signature span {
-  height: 3px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(94, 215, 197, .42), transparent);
+  height: 2px;
+  background: linear-gradient(90deg, rgba(var(--node-rgb), .45), transparent);
 }
 
 .cf-node-signature span:nth-child(2) {
-  width: 72%;
-  background: linear-gradient(90deg, rgba(255, 255, 255, .2), transparent);
+  width: 62%;
 }
 
 .cf-node-signature span:nth-child(3) {
-  width: 46%;
-  background: linear-gradient(90deg, rgba(240, 195, 107, .32), transparent);
+  width: 36%;
 }
 
-.cf-tree-node.is-seed .cf-node-orb {
-  border-radius: 48% 52% 46% 54%;
-  background:
-    radial-gradient(circle at 33% 28%, rgba(255, 255, 255, .38), transparent 16%),
-    radial-gradient(ellipse at center, rgba(94, 215, 197, .36), rgba(19, 43, 39, .92) 66%);
-  box-shadow: inset 0 -8px 18px rgba(0, 0, 0, .22), 0 0 30px rgba(94, 215, 197, .2);
-  transform: rotate(-12deg);
+.cf-node-title {
+  min-height: 32px;
+  overflow: hidden;
+  display: -webkit-box;
+  color: rgba(245, 250, 248, .95);
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.36;
+  text-shadow: none;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
-.cf-tree-node.is-candidate .cf-node-orb {
-  background:
-    radial-gradient(circle at 35% 30%, rgba(255, 246, 213, .38), transparent 17%),
-    radial-gradient(circle, rgba(240, 195, 107, .34), rgba(38, 27, 13, .92) 69%);
+.cf-node-tags,
+.cf-tree-node.is-growth-placeholder .cf-node-tags {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
 }
 
-.cf-tree-node.is-candidate .cf-orb-core {
-  background: rgba(240, 195, 107, .74);
-  box-shadow: 0 0 18px rgba(240, 195, 107, .48);
+.cf-node-tag,
+.cf-tree-node.is-growth-placeholder .cf-node-tag {
+  overflow: hidden;
+  max-width: 100%;
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid rgba(var(--node-rgb), .22);
+  border-radius: 6px;
+  background: rgba(var(--node-rgb), .08);
+  color: color-mix(in srgb, var(--node-accent) 55%, #dce8e4);
+  font-size: 10px;
+  text-shadow: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.cf-tree-node.is-selected .cf-node-orb {
-  border-color: rgba(157, 228, 155, .34);
-  background:
-    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, .46), transparent 17%),
-    radial-gradient(circle, rgba(157, 228, 155, .42), rgba(13, 38, 19, .94) 69%);
-  box-shadow: inset 0 -8px 18px rgba(0, 0, 0, .18), 0 0 32px rgba(157, 228, 155, .26);
-}
-
-.cf-tree-node.is-selected .cf-orb-core {
-  background: rgba(157, 228, 155, .9);
-  box-shadow: 0 0 22px rgba(157, 228, 155, .62);
-}
-
-.cf-tree-node.is-eliminated .cf-node-orb {
-  background:
-    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, .12), transparent 18%),
-    radial-gradient(circle, rgba(132, 137, 134, .22), rgba(17, 18, 18, .95) 69%);
-  box-shadow: inset 0 -8px 18px rgba(0, 0, 0, .38);
-}
-
-.cf-tree-node.is-eliminated .cf-orb-core {
-  background: rgba(145, 149, 146, .42);
-  box-shadow: none;
-}
-
-.cf-tree-node.is-growing .cf-node-orb {
-  animation: cf-orb-growing 1.15s ease-in-out infinite;
-}
-
-.cf-tree-node.is-growth-placeholder {
-  border-color: rgba(240, 195, 107, .72);
-  background:
-    linear-gradient(125deg, rgba(240, 195, 107, .2), transparent 42%),
-    linear-gradient(180deg, rgba(24, 29, 30, .98), rgba(13, 18, 18, .94));
-  box-shadow:
-    0 0 0 1px rgba(240, 195, 107, .18),
-    0 0 42px rgba(240, 195, 107, .18),
-    0 24px 70px rgba(0, 0, 0, .36);
-}
-
-.cf-tree-node.is-growth-placeholder .cf-node-orb {
-  border-color: rgba(240, 195, 107, .34);
-  background:
-    radial-gradient(circle at 35% 30%, rgba(255, 246, 213, .42), transparent 17%),
-    radial-gradient(circle, rgba(240, 195, 107, .38), rgba(38, 27, 13, .94) 69%);
-}
-
-.cf-tree-node.is-growth-placeholder .cf-node-signature span {
-  background: linear-gradient(90deg, rgba(240, 195, 107, .52), transparent);
-}
-
-.cf-tree-node.is-active {
-  border-color: rgba(94, 215, 197, .7);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .12),
-    0 0 0 2px rgba(94, 215, 197, .3),
-    0 24px 82px rgba(0, 0, 0, .4),
-    0 0 48px rgba(94, 215, 197, .16);
+.cf-tree-node.is-eliminated .cf-node-title,
+.cf-tree-node.is-eliminated .cf-node-tag,
+.cf-tree-node.is-eliminated .cf-node-head {
+  color: rgba(214, 220, 218, .5);
 }
 
 .cf-growth-vessel {
   position: relative;
-  height: 24px;
+  height: 16px;
   overflow: hidden;
-  border: 1px solid rgba(240, 195, 107, .18);
-  border-radius: 7px;
-  background:
-    linear-gradient(90deg, rgba(94, 215, 197, .08), transparent 35%, rgba(240, 195, 107, .1)),
-    rgba(255, 255, 255, .025);
+  border: 1px solid rgba(116, 214, 199, .16);
+  border-color: rgba(116, 214, 199, .16);
+  border-radius: 6px;
+  background: rgba(116, 214, 199, .055);
 }
 
 .cf-vessel-thread {
@@ -1865,17 +1833,17 @@ button:disabled {
   left: 10px;
   right: 10px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(240, 195, 107, .72), rgba(94, 215, 197, .55), transparent);
+  background: linear-gradient(90deg, transparent, rgba(116, 214, 199, .5), transparent);
   transform-origin: left center;
 }
 
 .cf-vessel-thread.is-a {
-  top: 8px;
+  top: 5px;
   animation: cf-thread-grow 1.2s ease-in-out infinite;
 }
 
 .cf-vessel-thread.is-b {
-  top: 15px;
+  top: 10px;
   animation: cf-thread-grow 1.2s .18s ease-in-out infinite reverse;
 }
 
@@ -1883,12 +1851,13 @@ button:disabled {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 7px;
-  height: 7px;
-  border: 1px solid rgba(255, 244, 210, .8);
+  width: 5px;
+  height: 5px;
+  border: 1px solid rgba(116, 214, 199, .38);
   border-radius: 50%;
-  background: rgba(240, 195, 107, .36);
-  box-shadow: 0 0 16px rgba(240, 195, 107, .5);
+  border-color: rgba(116, 214, 199, .38);
+  background: rgba(116, 214, 199, .35);
+  box-shadow: 0 0 10px rgba(116, 214, 199, .25);
   transform: translate(-50%, -50%);
   animation: cf-core-seed 1s ease-in-out infinite;
 }
@@ -1896,314 +1865,9 @@ button:disabled {
 .cf-vessel-scan {
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .18), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .1), transparent);
   transform: translateX(-120%);
   animation: cf-vessel-scan 1.5s ease-in-out infinite;
-}
-
-.cf-node-tag {
-  overflow: hidden;
-  max-width: 84px;
-  padding: 4px 6px;
-  border: 1px solid var(--cf-border-soft);
-  border-radius: 6px;
-  color: var(--cf-muted);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Liquid Frost node cards, selected from the preview exploration. */
-.cf-tree-node {
-  --node-accent: #f5b84e;
-  --node-rgb: 245, 184, 78;
-  width: 208px;
-  min-height: 150px;
-  gap: 11px;
-  padding: 15px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, .18);
-  border-radius: 24px;
-  background:
-    radial-gradient(circle at 24% 16%, rgba(255, 255, 255, .26), transparent 18%),
-    radial-gradient(circle at 88% 88%, rgba(var(--node-rgb), .22), transparent 35%),
-    linear-gradient(145deg, rgba(255, 255, 255, .12), rgba(255, 255, 255, .035) 43%, rgba(255, 255, 255, .015)),
-    rgba(18, 22, 24, .72);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .2),
-    inset 0 -20px 36px rgba(0, 0, 0, .16),
-    0 26px 74px rgba(0, 0, 0, .36);
-  backdrop-filter: blur(22px) saturate(1.45);
-  transform: translateZ(0);
-  transition:
-    transform .22s ease,
-    border-color .22s ease,
-    background .22s ease,
-    box-shadow .22s ease,
-    opacity .22s ease,
-    filter .22s ease;
-}
-
-.cf-tree-node:hover {
-  border-color: rgba(255, 255, 255, .28);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .24),
-    inset 0 -20px 36px rgba(0, 0, 0, .14),
-    0 30px 86px rgba(0, 0, 0, .42),
-    0 0 0 1px rgba(var(--node-rgb), .1);
-  transform: translateY(-4px) scale(1.01);
-}
-
-.cf-tree-node::before {
-  inset: 10px;
-  z-index: 0;
-  border: 1px solid rgba(255, 255, 255, .09);
-  border-radius: 18px;
-  background:
-    linear-gradient(120deg, rgba(255, 255, 255, .16), transparent 36%),
-    linear-gradient(315deg, rgba(var(--node-rgb), .1), transparent 42%);
-  opacity: .82;
-}
-
-.cf-tree-node::after {
-  content: "";
-  left: 18px;
-  right: 18px;
-  bottom: 12px;
-  z-index: 1;
-  height: 4px;
-  border-radius: 999px;
-  background:
-    linear-gradient(90deg, transparent, rgba(var(--node-rgb), .86), transparent),
-    rgba(255, 255, 255, .08);
-  box-shadow: 0 0 18px rgba(var(--node-rgb), .28);
-}
-
-.cf-tree-node > * {
-  position: relative;
-  z-index: 2;
-}
-
-.cf-tree-node.is-seed {
-  --node-accent: #5ed7c5;
-  --node-rgb: 94, 215, 197;
-  width: 232px;
-  min-height: 156px;
-  border-radius: 28px;
-}
-
-.cf-tree-node.is-candidate {
-  --node-accent: #f0c36b;
-  --node-rgb: 240, 195, 107;
-}
-
-.cf-tree-node.is-selected {
-  --node-accent: #9de49b;
-  --node-rgb: 157, 228, 155;
-  border-color: rgba(157, 228, 155, .28);
-}
-
-.cf-tree-node.is-eliminated {
-  --node-accent: #8f9896;
-  --node-rgb: 143, 152, 150;
-  border-color: rgba(255, 255, 255, .1);
-  filter: saturate(.52) contrast(.92);
-  opacity: .62;
-}
-
-.cf-tree-node.is-eliminated::after {
-  top: 50%;
-  bottom: auto;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(221, 226, 224, .34), transparent);
-  box-shadow: none;
-  transform: rotate(-5deg);
-}
-
-.cf-tree-node.is-growing:not(.is-growth-placeholder),
-.cf-tree-node.is-growth-placeholder {
-  --node-accent: #7fcfff;
-  --node-rgb: 127, 207, 255;
-  border-color: rgba(127, 207, 255, .32);
-  animation: cf-liquid-node-breathe 1.9s ease-in-out infinite;
-}
-
-.cf-tree-node.is-growth-placeholder::before {
-  inset: 10px;
-  width: auto;
-  border: 1px solid rgba(255, 255, 255, .09);
-  border-radius: 18px;
-  background:
-    linear-gradient(120deg, rgba(255, 255, 255, .16), transparent 36%),
-    linear-gradient(315deg, rgba(var(--node-rgb), .1), transparent 42%);
-  opacity: .82;
-  transform: none;
-  animation: none;
-}
-
-.cf-tree-node.is-growth-placeholder::after {
-  content: "";
-  inset: auto 18px 12px;
-  height: 4px;
-  border: 0;
-  border-radius: 999px;
-  background:
-    linear-gradient(90deg, transparent, rgba(var(--node-rgb), .86), transparent),
-    rgba(255, 255, 255, .08);
-  box-shadow: 0 0 18px rgba(var(--node-rgb), .28);
-  transform: none;
-  animation: none;
-}
-
-.cf-tree-node.is-active {
-  border-color: rgba(var(--node-rgb), .55);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .26),
-    inset 0 -20px 36px rgba(0, 0, 0, .12),
-    0 0 0 2px rgba(var(--node-rgb), .18),
-    0 32px 88px rgba(0, 0, 0, .44);
-}
-
-.cf-node-head {
-  color: rgba(241, 248, 245, .66);
-  font-size: 10px;
-  font-weight: 850;
-  letter-spacing: .08em;
-}
-
-.cf-node-dot {
-  width: 8px;
-  height: 8px;
-  background: var(--node-accent);
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, .65),
-    0 0 16px rgba(var(--node-rgb), .38);
-}
-
-.cf-node-identity {
-  grid-template-columns: 38px 1fr;
-  gap: 12px;
-  min-height: 38px;
-}
-
-.cf-node-orb {
-  width: 38px;
-  height: 38px;
-  border: 1px solid rgba(255, 255, 255, .18);
-  border-radius: 14px;
-  background:
-    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, .45), transparent 18%),
-    radial-gradient(circle at 78% 82%, rgba(var(--node-rgb), .34), transparent 36%),
-    rgba(255, 255, 255, .07);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .2),
-    inset 0 -8px 14px rgba(0, 0, 0, .12);
-}
-
-.cf-tree-node.is-seed .cf-node-orb {
-  border-radius: 50% 45% 53% 47%;
-  transform: rotate(-10deg);
-}
-
-.cf-orb-core {
-  width: 8px;
-  height: 8px;
-  background: var(--node-accent);
-  box-shadow: 0 0 14px rgba(var(--node-rgb), .42);
-}
-
-.cf-orb-vein {
-  opacity: .2;
-}
-
-.cf-node-signature {
-  gap: 5px;
-}
-
-.cf-node-signature span {
-  height: 2px;
-  background: linear-gradient(90deg, rgba(var(--node-rgb), .48), transparent);
-}
-
-.cf-node-signature span:nth-child(2) {
-  width: 68%;
-}
-
-.cf-node-signature span:nth-child(3) {
-  width: 42%;
-}
-
-.cf-node-title {
-  min-height: 38px;
-  color: rgba(250, 253, 251, .95);
-  font-size: 13px;
-  font-weight: 780;
-  line-height: 1.4;
-}
-
-.cf-node-tags {
-  justify-content: flex-start;
-}
-
-.cf-node-tag {
-  max-width: 92px;
-  min-height: 23px;
-  display: inline-flex;
-  align-items: center;
-  border-color: rgba(255, 255, 255, .14);
-  border-radius: 999px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, .1), rgba(255, 255, 255, .035)),
-    rgba(var(--node-rgb), .07);
-  color: color-mix(in srgb, var(--node-accent) 55%, #f0f7f4);
-  font-size: 10px;
-}
-
-.cf-tree-node.is-growth-placeholder .cf-node-title {
-  color: rgba(250, 253, 251, .95);
-  text-shadow: none;
-}
-
-.cf-tree-node.is-growth-placeholder .cf-node-tags {
-  justify-content: flex-start;
-}
-
-.cf-tree-node.is-growth-placeholder .cf-node-tag {
-  max-width: 92px;
-  border-color: rgba(255, 255, 255, .14);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, .1), rgba(255, 255, 255, .035)),
-    rgba(var(--node-rgb), .07);
-  color: color-mix(in srgb, var(--node-accent) 55%, #f0f7f4);
-}
-
-.cf-tree-node.is-eliminated .cf-node-title,
-.cf-tree-node.is-eliminated .cf-node-tag,
-.cf-tree-node.is-eliminated .cf-node-head {
-  color: rgba(222, 228, 226, .52);
-}
-
-.cf-growth-vessel {
-  height: 18px;
-  border-color: rgba(127, 207, 255, .18);
-  border-radius: 999px;
-  background: rgba(127, 207, 255, .06);
-}
-
-.cf-vessel-thread {
-  background: linear-gradient(90deg, transparent, rgba(127, 207, 255, .5), transparent);
-}
-
-.cf-vessel-core {
-  width: 5px;
-  height: 5px;
-  border-color: rgba(127, 207, 255, .42);
-  background: rgba(127, 207, 255, .38);
-  box-shadow: 0 0 10px rgba(127, 207, 255, .3);
-}
-
-.cf-vessel-scan {
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .13), transparent);
 }
 
 .cf-node-detail {
@@ -2689,73 +2353,9 @@ button:disabled {
   font-size: 12px;
 }
 
-@keyframes cf-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(94, 215, 197, .12), 0 20px 58px rgba(0, 0, 0, .26);
-  }
-
-  50% {
-    box-shadow: 0 0 0 6px rgba(94, 215, 197, .08), 0 20px 58px rgba(0, 0, 0, .26);
-  }
-}
-
-@keyframes cf-growth-breathe {
-  0%,
-  100% {
-    transform: translateY(0) scale(1);
-    filter: saturate(1);
-  }
-
-  50% {
-    transform: translateY(-3px) scale(1.018);
-    filter: saturate(1.22);
-  }
-}
-
-@keyframes cf-growth-grid-scan {
-  0% {
-    opacity: .26;
-    transform: translateX(-68%);
-  }
-
-  45% {
-    opacity: .72;
-  }
-
-  100% {
-    opacity: .18;
-    transform: translateX(68%);
-  }
-}
-
-@keyframes cf-growth-shell {
-  0%,
-  100% {
-    opacity: .22;
-    transform: scale(.98);
-  }
-
-  50% {
-    opacity: .74;
-    transform: scale(1.05);
-  }
-}
-
 @keyframes cf-branch-flow {
   to {
     stroke-dashoffset: -22;
-  }
-}
-
-@keyframes cf-dot-breathe {
-  0%,
-  100% {
-    box-shadow: 0 0 0 4px rgba(240, 195, 107, .08);
-  }
-
-  50% {
-    box-shadow: 0 0 0 10px rgba(240, 195, 107, .18);
   }
 }
 
@@ -2793,19 +2393,6 @@ button:disabled {
   }
 }
 
-@keyframes cf-orb-growing {
-  0%,
-  100% {
-    box-shadow: inset 0 0 18px rgba(255, 255, 255, .05), 0 0 18px rgba(94, 215, 197, .16);
-    transform: scale(1);
-  }
-
-  50% {
-    box-shadow: inset 0 0 24px rgba(255, 255, 255, .08), 0 0 34px rgba(94, 215, 197, .34);
-    transform: scale(1.08);
-  }
-}
-
 @keyframes cf-node-soft-pulse {
   0%,
   100% {
@@ -2823,22 +2410,16 @@ button:disabled {
   }
 }
 
-@keyframes cf-liquid-node-breathe {
+@keyframes cf-header-growth {
   0%,
   100% {
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, .2),
-      inset 0 -20px 36px rgba(0, 0, 0, .16),
-      0 26px 74px rgba(0, 0, 0, .36),
-      0 0 0 1px rgba(var(--node-rgb), .06);
+    width: 34%;
+    transform: translateX(0);
   }
 
   50% {
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, .24),
-      inset 0 -20px 36px rgba(0, 0, 0, .14),
-      0 30px 82px rgba(0, 0, 0, .4),
-      0 0 0 1px rgba(var(--node-rgb), .16);
+    width: 76%;
+    transform: translateX(12%);
   }
 }
 

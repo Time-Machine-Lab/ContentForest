@@ -1,11 +1,17 @@
 import type { AgentTraceEvent, AgentTraceEventType } from "./agent-task.js";
+import { sanitizeForExchangeLog } from "./agent-exchange-log.js";
 
 export class AgentTrace {
   private readonly events: AgentTraceEvent[] = [];
   private readonly now: () => Date;
+  private readonly onRecord?: (event: AgentTraceEvent) => void;
 
-  public constructor(now: () => Date = () => new Date()) {
+  public constructor(
+    now: () => Date = () => new Date(),
+    onRecord?: (event: AgentTraceEvent) => void,
+  ) {
     this.now = now;
+    this.onRecord = onRecord;
   }
 
   public record(
@@ -13,12 +19,14 @@ export class AgentTrace {
     message: string,
     metadata?: Record<string, unknown>,
   ): void {
-    this.events.push({
+    const event = {
       type,
       at: this.now().toISOString(),
       message,
       metadata: metadata === undefined ? undefined : sanitizeMetadata(metadata),
-    });
+    };
+    this.events.push(event);
+    this.onRecord?.(event);
   }
 
   public list(): AgentTraceEvent[] {
@@ -30,10 +38,5 @@ export class AgentTrace {
 }
 
 function sanitizeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(metadata).map(([key, value]) => [
-      key,
-      key.toLowerCase().includes("key") ? "[redacted]" : value,
-    ]),
-  );
+  return sanitizeForExchangeLog(metadata, 4000) as Record<string, unknown>;
 }

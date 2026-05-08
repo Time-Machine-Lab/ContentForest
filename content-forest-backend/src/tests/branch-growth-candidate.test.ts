@@ -32,6 +32,29 @@ describe("BranchGrowthCandidate schema", () => {
     });
   });
 
+  it("normalizes string resource references when they uniquely match authorized resources", () => {
+    const candidate = validateBranchGrowthCandidateFruit(
+      {
+        ...validCandidate,
+        meta: {
+          ...validCandidate.meta,
+          usedResourceRefs: ["gene_1", "nutrient:nutrient_1"],
+        },
+      },
+      {
+        authorizedResourceRefs: [
+          { resourceType: "gene", resourceId: "gene_1" },
+          { resourceType: "nutrient", resourceId: "nutrient_1" },
+        ],
+      },
+    );
+
+    expect(candidate.meta.usedResourceRefs).toEqual([
+      { resourceType: "gene", resourceId: "gene_1" },
+      { resourceType: "nutrient", resourceId: "nutrient_1" },
+    ]);
+  });
+
   it("rejects empty markdown and summary", () => {
     expect(() =>
       validateBranchGrowthCandidateFruit({
@@ -54,6 +77,47 @@ describe("BranchGrowthCandidate schema", () => {
         authorizedResourceRefs: [],
       }),
     ).toThrow(/not authorized/);
+  });
+
+  it("rejects unsafe string resource references", () => {
+    expect(() =>
+      validateBranchGrowthCandidateFruit(
+        {
+          ...validCandidate,
+          meta: { ...validCandidate.meta, usedResourceRefs: [" "] },
+        },
+        {
+          authorizedResourceRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
+        },
+      ),
+    ).toThrow(/resource ref id is required/);
+
+    expect(() =>
+      validateBranchGrowthCandidateFruit(
+        {
+          ...validCandidate,
+          meta: { ...validCandidate.meta, usedResourceRefs: ["gene_unknown"] },
+        },
+        {
+          authorizedResourceRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
+        },
+      ),
+    ).toThrow(/not authorized/);
+
+    expect(() =>
+      validateBranchGrowthCandidateFruit(
+        {
+          ...validCandidate,
+          meta: { ...validCandidate.meta, usedResourceRefs: ["shared_1"] },
+        },
+        {
+          authorizedResourceRefs: [
+            { resourceType: "gene", resourceId: "shared_1" },
+            { resourceType: "nutrient", resourceId: "shared_1" },
+          ],
+        },
+      ),
+    ).toThrow(/ambiguous/);
   });
 
   it("rejects real local paths and forged system facts", () => {
