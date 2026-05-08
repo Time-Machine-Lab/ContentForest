@@ -40,11 +40,10 @@ describe("Agent exchange log writer", () => {
         ok: true,
         output: { content: "ok" },
       },
-      events: [
+      timeline: [
         {
           at: startedAt,
-          phase: "task",
-          direction: "input",
+          type: "task_started",
           name: "growth",
           content: { seedId: "seed_1" },
         },
@@ -56,10 +55,10 @@ describe("Agent exchange log writer", () => {
     expect(files).toEqual(["20260101-080000-2.json", "20260101-080000.json"]);
     const parsed = JSON.parse(await readFile(filePath, "utf8")) as {
       task: { taskId: string };
-      events: unknown[];
+      timeline: unknown[];
     };
     expect(parsed.task.taskId).toBe("agent-task_1");
-    expect(parsed.events).toHaveLength(1);
+    expect(parsed.timeline).toHaveLength(1);
   });
 
   it("records and sanitizes event content before flushing", async () => {

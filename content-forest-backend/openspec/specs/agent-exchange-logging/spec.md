@@ -1,7 +1,7 @@
 # agent-exchange-logging Specification
 
 ## Purpose
-定义 Agent 任务级交流日志的开启配置、文件落点、命名规则、结构化内容、脱敏裁剪和失败容错行为，便于后续排查枝化生长与基因汲取任务问题。
+定义 Agent 任务级交流日志的开启配置、文件落点、命名规则、简洁时间线、脱敏裁剪和失败容错行为，便于后续按 LLM 输入输出与 Tool 调用过程排查问题。
 ## Requirements
 ### Requirement: Agent 交流日志默认关闭并可通过环境配置开启
 系统 SHALL 提供 Agent 交流日志开关，默认不产生日志文件。系统 MUST 允许开发者通过后端本地环境配置开启日志，并配置日志输出目录。
@@ -34,23 +34,25 @@
 - **THEN** 系统 MUST 为后续任务生成不冲突的文件名
 - **AND** 系统 MUST NOT 覆盖已存在的日志文件
 
-### Requirement: Agent 交流日志记录关键输入输出
-系统 SHALL 在 Agent 交流日志中结构化记录任务运行过程中的关键输入和输出。日志 MUST 至少覆盖任务输入、Skill 执行输入输出、Tool 调用输入输出、LLM 调用输入输出摘要、输出校验结果和最终任务结果。
+### Requirement: Agent 交流日志记录简洁时间线
+系统 SHALL 在 Agent 交流日志中按发生顺序记录简洁时间线。日志 MUST 聚焦任务开始、LLM 输入、LLM think、LLM 输出、工具选择、工具结果和任务结束，MUST NOT 默认记录 Skill、Validator、Runtime 等内部工程细节。
 
-#### Scenario: 记录 Tool 输入输出
+#### Scenario: 记录 Tool 选择和结果
 - **WHEN** Agent Skill 调用受控 Tool
-- **THEN** 日志 MUST 记录 Tool 名称、调用输入摘要和输出摘要
+- **THEN** 日志 MUST 记录工具选择条目，包含 Tool 名称和调用输入摘要
+- **AND** 日志 MUST 记录工具结果条目，包含 Tool 名称和输出摘要
 - **AND** 日志 MUST 保留事件发生顺序
 
 #### Scenario: 记录 LLM 输入输出
 - **WHEN** Agent Runtime 通过 LLM Adapter 调用模型
-- **THEN** 日志 MUST 记录模型调用输入摘要和模型输出摘要
+- **THEN** 日志 MUST 记录 LLM 输入条目，包含模型消息内容摘要
+- **AND** 日志 MUST 记录 LLM 输出条目，包含模型输出内容摘要
 - **AND** 日志 MUST 不包含真实 API Key
 
-#### Scenario: 记录结构化校验结果
-- **WHEN** Agent 输出经过结构化校验或修复流程
-- **THEN** 日志 MUST 记录校验通过、校验失败或修复失败结果
-- **AND** 日志 MUST 包含可用于定位问题的错误摘要
+#### Scenario: 单独记录 LLM think
+- **WHEN** LLM 输出中包含 think 内容
+- **THEN** 日志 MUST 将 think 内容记录为独立时间线条目
+- **AND** LLM 输出条目 MUST 聚焦最终可见输出
 
 ### Requirement: Agent 交流日志必须脱敏与裁剪
 系统 SHALL 在写入 Agent 交流日志前对内容执行脱敏与裁剪。日志 MUST NOT 泄露真实 API Key、鉴权 Header、明显密钥、真实本地绝对路径或超出配置上限的长正文。

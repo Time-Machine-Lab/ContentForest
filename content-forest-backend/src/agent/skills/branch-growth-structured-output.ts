@@ -106,6 +106,9 @@ async function askForCandidate(input: BuildStructuredCandidateInput): Promise<st
           "只输出一个 JSON 对象，不要输出解释文本。",
           "JSON 必须符合：{type:'candidate_fruit',payload:{markdown,rawGeneratorOutput,attachments},meta:{summary,geneTags,usedResourceRefs,warnings}}。",
           "usedResourceRefs 必须是对象数组，每项格式为 {\"resourceType\":\"nutrient\"|\"gene\",\"resourceId\":\"资源ID\"}，不要只输出字符串数组。",
+          `本次唯一允许写入 usedResourceRefs 的资源引用是：${formatAllowedResourceRefs(input.validationOptions)}。`,
+          "生成器名称、生成器 Skill、生成器内部 references 文件都不是 gene 或 nutrient，禁止写入 usedResourceRefs。",
+          "如果不能确认使用了允许列表中的某个资源，usedResourceRefs 输出空数组。",
           "示例：{\"type\":\"candidate_fruit\",\"payload\":{\"markdown\":\"# 正文\",\"rawGeneratorOutput\":\"# 正文\",\"attachments\":[]},\"meta\":{\"summary\":\"摘要\",\"geneTags\":[\"表达特征\"],\"usedResourceRefs\":[{\"resourceType\":\"gene\",\"resourceId\":\"gene_1\"}],\"warnings\":[]}}",
           "不要声明已保存果实、已完成任务等系统事实。",
         ].join("\n"),
@@ -141,6 +144,9 @@ async function askForRepair(
           "只修复结构化格式和缺失字段，不要重新创作内容，不要声明系统事实。",
           "只输出一个 JSON 对象。",
           "输出必须符合候选果实结构，usedResourceRefs 必须是对象数组：[{\"resourceType\":\"gene\",\"resourceId\":\"gene_1\"}]。",
+          `本次唯一允许写入 usedResourceRefs 的资源引用是：${formatAllowedResourceRefs(input.validationOptions)}。`,
+          "如果原始输出包含未授权资源引用，请删除该引用，或仅替换为允许列表中真实匹配的引用；禁止编造资源 ID。",
+          "生成器名称、生成器 Skill、生成器内部 references 文件都不是 gene 或 nutrient，禁止写入 usedResourceRefs。",
         ].join("\n"),
       },
       {
@@ -175,4 +181,19 @@ function extractFirstJsonObject(text: string): string | null {
 
 function truncate(value: string, maxLength: number): string {
   return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`;
+}
+
+function formatAllowedResourceRefs(
+  options: BranchGrowthCandidateValidationOptions | undefined,
+): string {
+  const refs = options?.authorizedResourceRefs ?? [];
+  if (refs.length === 0) {
+    return "[]";
+  }
+  return JSON.stringify(
+    refs.map((ref) => ({
+      resourceType: ref.resourceType,
+      resourceId: ref.resourceId,
+    })),
+  );
 }

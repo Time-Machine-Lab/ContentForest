@@ -26,21 +26,15 @@ export class ToolRuntime {
   public async callTool(name: string, input: ToolInput): Promise<ToolOutput> {
     const tool = this.registry.find(name);
     this.trace.record("tool_called", `Tool called: ${name}`, { toolName: name });
-    this.exchangeLog?.record({
-      phase: "tool",
-      direction: "input",
+    this.exchangeLog?.record("tool_selected", {
       name,
-      status: "started",
       content: input,
     });
 
     try {
       const output = await tool.execute(input, this.context);
-      this.exchangeLog?.record({
-        phase: "tool",
-        direction: "output",
+      this.exchangeLog?.record("tool_result", {
         name,
-        status: "completed",
         content: output,
       });
       return output;
@@ -50,11 +44,8 @@ export class ToolRuntime {
         toolName: name,
         reason: message,
       });
-      this.exchangeLog?.record({
-        phase: "tool",
-        direction: "error",
+      this.exchangeLog?.record("tool_error", {
         name,
-        status: "failed",
         content: { reason: message },
       });
 

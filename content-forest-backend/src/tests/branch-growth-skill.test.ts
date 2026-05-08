@@ -137,6 +137,12 @@ describe("BranchGrowthSkill", () => {
     expect(llm.inputs[1]?.messages[0]?.content).toContain(
       "usedResourceRefs 必须是对象数组",
     );
+    expect(llm.inputs[1]?.messages[0]?.content).toContain(
+      '"resourceId":"gene_1"',
+    );
+    expect(llm.inputs[1]?.messages[0]?.content).toContain(
+      "生成器内部 references 文件都不是 gene 或 nutrient",
+    );
     expect(tools.calls.map((call) => call.name)).toEqual([
       "read_growth_source_node",
       "read_generator_skill",
@@ -161,6 +167,35 @@ describe("BranchGrowthSkill", () => {
         usedResourceRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
       },
     });
+  });
+
+  it("repairs unauthorized resource refs with the allowed ref list", async () => {
+    const skill = new BranchGrowthSkill();
+    const llm = new SequenceLlm([
+      "# 生成器 payload",
+      candidateJson("# 候选果实", [
+        { resourceType: "nutrient", resourceId: "xiaohongshu-viral-factors" },
+      ]),
+      candidateJson("# 候选果实", []),
+    ]);
+
+    const output = await skill.execute({
+      context: context(),
+      llm,
+      tools: new FakeTools(),
+      trace: new AgentTrace(),
+    });
+
+    expect(output.content).toMatchObject({
+      payload: { markdown: "# 候选果实" },
+      meta: { usedResourceRefs: [] },
+    });
+    expect(llm.inputs[2]?.messages[0]?.content).toContain(
+      "如果原始输出包含未授权资源引用，请删除该引用",
+    );
+    expect(llm.inputs[2]?.messages[0]?.content).toContain(
+      '"resourceId":"gene_1"',
+    );
   });
 
   it("uses the controlled script tool when a generator script path is provided", async () => {
@@ -197,6 +232,9 @@ describe("BranchGrowthSkill", () => {
     });
     expect(repaired.inputs[2]?.messages[1]?.content).toContain(
       "模型未返回可解析的候选果实 JSON",
+    );
+    expect(repaired.inputs[2]?.messages[0]?.content).toContain(
+      "如果原始输出包含未授权资源引用，请删除该引用",
     );
     expect(repaired.inputs[2]?.messages[1]?.content).not.toContain("{truncate");
 

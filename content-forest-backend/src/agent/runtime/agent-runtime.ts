@@ -68,18 +68,7 @@ export class AgentRuntime implements AgentPort {
       startedAt,
       task,
     });
-    const trace = new AgentTrace(this.now, (event) => {
-      exchangeLog.record({
-        phase: mapTraceTypeToExchangeLogPhase(event.type),
-        direction: event.type.includes("failed") ? "error" : "info",
-        name: event.type,
-        status: event.type.includes("failed") ? "failed" : undefined,
-        content: {
-          message: event.message,
-          metadata: event.metadata,
-        },
-      });
-    });
+    const trace = new AgentTrace(this.now);
 
     try {
       if (!isAgentTaskType(task.type)) {
@@ -116,24 +105,10 @@ export class AgentRuntime implements AgentPort {
         exchangeLog,
       });
       const output = await skillRuntime.executeTask(task, context);
-      exchangeLog.record({
-        phase: "validator",
-        direction: "input",
-        name: "output_validator",
-        status: "started",
-        content: output,
-      });
       const validatedOutput = this.outputValidator.validate(output, context);
       trace.record("output_validated", "Agent output validated", {
         taskId,
         taskType: context.taskType,
-      });
-      exchangeLog.record({
-        phase: "validator",
-        direction: "output",
-        name: "output_validator",
-        status: "completed",
-        content: validatedOutput,
       });
       trace.record("task_completed", `Agent task completed: ${context.taskType}`, {
         taskId,
@@ -158,13 +133,6 @@ export class AgentRuntime implements AgentPort {
         code: failure.code,
         reason: failure.message,
       });
-      exchangeLog.record({
-        phase: "runtime",
-        direction: "error",
-        name: "agent_runtime",
-        status: "failed",
-        content: failure,
-      });
 
       const result = {
         ok: false,
@@ -179,27 +147,6 @@ export class AgentRuntime implements AgentPort {
       };
     }
   }
-}
-
-function mapTraceTypeToExchangeLogPhase(
-  type: string,
-): "task" | "skill" | "tool" | "llm" | "validator" | "runtime" {
-  if (type.startsWith("tool_")) {
-    return "tool";
-  }
-  if (type.startsWith("skill_")) {
-    return "skill";
-  }
-  if (type.startsWith("llm_")) {
-    return "llm";
-  }
-  if (type.startsWith("output_")) {
-    return "validator";
-  }
-  if (type.startsWith("task_")) {
-    return "task";
-  }
-  return "runtime";
 }
 
 async function flushExchangeLog(

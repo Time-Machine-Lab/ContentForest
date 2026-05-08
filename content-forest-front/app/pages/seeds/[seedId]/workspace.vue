@@ -76,8 +76,8 @@ const selectedNodeId = ref('')
 const transform = reactive({ x: -620, y: -360, scale: 1 })
 const treeSize = reactive({ width: 1180, height: 820 })
 const nodeSize = {
-  seed: { width: 220, height: 160 },
-  fruit: { width: 196, height: 152 },
+  seed: { width: 238, height: 172 },
+  fruit: { width: 224, height: 156 },
 }
 
 const workspaceLoading = ref(false)
@@ -89,6 +89,7 @@ const growthLoading = ref(false)
 const growthError = ref('')
 const dragState = ref<DragState | null>(null)
 const suppressClickNodeId = ref('')
+const hideEliminatedNodes = ref(false)
 const resourcePopoverOpen = ref(false)
 const resourceQuery = ref('')
 const generatorMenuOpen = ref(false)
@@ -105,9 +106,13 @@ const pollTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 const isReadOnly = computed(() => Boolean(snapshot.value?.workspaceReadOnly || route.query.readonly === '1'))
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) ?? nodes.value[0] ?? null)
+const visibleNodes = computed(() => getVisibleTreeNodes(nodes.value))
 const isTreeGrowing = computed(() => nodes.value.some((node) => node.status === 'growing'))
 const treeStatusTitle = computed(() => isTreeGrowing.value ? '枝化生长' : workspaceLoading.value ? '加载工作区' : '树已同步')
-const treeStatusValue = computed(() => isTreeGrowing.value ? '生成中' : `${nodes.value.length} 节点`)
+const treeStatusValue = computed(() => {
+  if (isTreeGrowing.value) return '生成中'
+  return hideEliminatedNodes.value ? `${visibleNodes.value.length}/${nodes.value.length} 节点` : `${nodes.value.length} 节点`
+})
 const canShowGrowthComposer = computed(() => {
   const node = selectedNode.value
   if (!node) return false
@@ -118,20 +123,23 @@ const visibleComposer = computed(() => Boolean(canShowGrowthComposer.value && !i
 const selectedGenerator = computed(() => snapshot.value?.resources.generators.find((item) => item.id === selectedGeneratorId.value) ?? null)
 const generatorName = computed(() => selectedGenerator.value?.name ?? '未选择生成器')
 const branchEdges = computed(() => {
+  const visibleIds = new Set(visibleNodes.value.map((node) => node.id))
   const snapshotEdges = snapshot.value?.edges.map((edge, index) => ({
     parentId: edge.parentNodeRef.nodeId,
     childId: edge.childNodeRef.nodeId,
     className: index === 0 ? 'is-primary' : index % 2 === 0 ? 'is-secondary' : 'is-weak',
   })) ?? []
   const existing = new Set(snapshotEdges.map((edge) => `${edge.parentId}->${edge.childId}`))
-  const runtimeEdges = nodes.value
+  const visibleSnapshotEdges = snapshotEdges.filter((edge) => visibleIds.has(edge.parentId) && visibleIds.has(edge.childId))
+  const runtimeEdges = visibleNodes.value
     .filter((node) => node.parentNodeRef && !existing.has(`${node.parentNodeRef.nodeId}->${node.id}`))
+    .filter((node) => visibleIds.has(node.parentNodeRef?.nodeId || ''))
     .map((node) => ({
       parentId: node.parentNodeRef?.nodeId || '',
       childId: node.id,
       className: node.isPlaceholder ? 'is-growth-stream' : 'is-weak',
     }))
-  return [...snapshotEdges, ...runtimeEdges]
+  return [...visibleSnapshotEdges, ...runtimeEdges]
 })
 const branchPaths = computed(() => branchEdges.value.map((edge) => {
   const parent = findNode(edge.parentId)
@@ -214,13 +222,13 @@ async function loadWorkspace(preferredNodeId = selectedNodeId.value) {
   try {
     const nextSnapshot = await workspaceApi.getSeedWorkspace(seedId.value)
     snapshot.value = nextSnapshot
-    nodes.value = layoutTreeNodes(mergeRunningPlaceholders(mapSnapshotNodes(nextSnapshot), nodes.value))
+    nodes.value = layoutVisibleTreeNodes(mergeRunningPlaceholders(mapSnapshotNodes(nextSnapshot), nodes.value))
 
     const routeNodeId = typeof route.query.node === 'string' ? route.query.node : ''
     const nextSelectedId = preferredNodeId || routeNodeId || nextSnapshot.seed.rootNodeId || nodes.value[0]?.id || ''
-    selectedNodeId.value = nodes.value.some((node) => node.id === nextSelectedId)
+    selectedNodeId.value = visibleNodes.value.some((node) => node.id === nextSelectedId)
       ? nextSelectedId
-      : nodes.value[0]?.id || ''
+      : fallbackVisibleNodeId() || ''
 
     if (!selectedGeneratorId.value || !nextSnapshot.resources.generators.some((item) => item.id === selectedGeneratorId.value)) {
       selectedGeneratorId.value = nextSnapshot.resources.generators[0]?.id || ''
@@ -256,6 +264,32 @@ function mergeRunningPlaceholders(nextNodes: TreeNode[], previousNodes: TreeNode
   })
 
   return [...nextNodes, ...preservedPlaceholders]
+}
+
+function getVisibleTreeNodes(treeNodes: TreeNode[]) {
+  if (!hideEliminatedNodes.value) return treeNodes
+  return treeNodes.filter((node) => node.nodeType !== 'fruit' || node.selectionState !== 'eliminated')
+}
+
+function layoutVisibleTreeNodes(treeNodes: TreeNode[]) {
+  const visibleLayout = layoutTreeNodes(getVisibleTreeNodes(treeNodes))
+  const visiblePositions = new Map(visibleLayout.map((node) => [node.id, node]))
+  return treeNodes.map((node) => {
+    const visibleNode = visiblePositions.get(node.id)
+    return visibleNode ? { ...node, x: visibleNode.x, y: visibleNode.y } : node
+  })
+}
+
+function fallbackVisibleNodeId() {
+  const rootId = snapshot.value?.seed.rootNodeId
+  if (rootId && visibleNodes.value.some((node) => node.id === rootId)) return rootId
+  return visibleNodes.value[0]?.id || ''
+}
+
+function ensureSelectedNodeVisible() {
+  if (!selectedNodeId.value || visibleNodes.value.some((node) => node.id === selectedNodeId.value)) return false
+  selectedNodeId.value = fallbackVisibleNodeId()
+  return true
 }
 
 function mapWorkspaceNode(node: WorkspaceNode, position: { x: number; y: number }): TreeNode {
@@ -414,10 +448,10 @@ function layoutTreeNodes(treeNodes: TreeNode[]) {
 }
 
 function fitTreeInView() {
-  if (typeof window === 'undefined' || nodes.value.length === 0) return
+  if (typeof window === 'undefined' || visibleNodes.value.length === 0) return
 
   const canvasRect = document.querySelector<HTMLElement>('.cf-tree-canvas')?.getBoundingClientRect()
-  const bounds = nodes.value.reduce((current, node) => {
+  const bounds = visibleNodes.value.reduce((current, node) => {
     const size = getNodeSize(node)
     return {
       minX: Math.min(current.minX, node.x),
@@ -459,7 +493,7 @@ function fitTreeInView() {
 }
 
 async function arrangeTreeView() {
-  nodes.value = layoutTreeNodes(nodes.value)
+  nodes.value = layoutVisibleTreeNodes(nodes.value)
   await nextTick()
   fitTreeInView()
 }
@@ -660,6 +694,15 @@ function resetView() {
   void arrangeTreeView()
 }
 
+async function toggleEliminatedNodesVisibility() {
+  hideEliminatedNodes.value = !hideEliminatedNodes.value
+  const selectionChanged = ensureSelectedNodeVisible()
+  nodes.value = layoutVisibleTreeNodes(nodes.value)
+  await nextTick()
+  fitTreeInView()
+  if (selectionChanged) await loadSelectedNodeDetail()
+}
+
 function addResource(resource: ResourceRef) {
   if (!referencedResources.value.some((item) => item.id === resource.id && item.kind === resource.kind)) {
     referencedResources.value = [resource, ...referencedResources.value]
@@ -776,7 +819,7 @@ function addGrowthPlaceholders(source: TreeNode, count: number) {
       updatedAt: null,
     },
   }))
-  nodes.value = layoutTreeNodes([...nodes.value, ...placeholders])
+  nodes.value = layoutVisibleTreeNodes([...nodes.value, ...placeholders])
 }
 
 function removeGrowthPlaceholders(sourceNodeId: string) {
@@ -894,6 +937,9 @@ function formatDateTime(value: string) {
       </div>
       <div class="cf-workspace-actions">
         <NuxtLink class="cf-secondary-action" to="/seeds">返回种子库</NuxtLink>
+        <button class="cf-workspace-tool" type="button" @click="toggleEliminatedNodesVisibility">
+          {{ hideEliminatedNodes ? '显示淘汰节点' : '隐藏淘汰节点' }}
+        </button>
         <button class="cf-workspace-tool" type="button" @click="resetView">整理树形</button>
       </div>
     </header>
@@ -935,7 +981,7 @@ function formatDateTime(value: string) {
         </svg>
 
         <button
-          v-for="node in nodes"
+          v-for="node in visibleNodes"
           :key="node.id"
           class="cf-tree-node"
           :class="nodeClasses(node)"
@@ -1528,35 +1574,37 @@ button:disabled {
   stroke: rgba(255, 255, 255, .32);
 }
 
-/* Final node system for this change: simple skeuomorphic cards, one status tag only. */
+/* Botanical specimen nodes: sealed seed core and fruit specimen plates. */
 .cf-tree-node {
-  --node-accent: #d4ae68;
-  --node-rgb: 212, 174, 104;
+  --node-accent: #d8b46a;
+  --node-rgb: 216, 180, 106;
+  --node-ink: rgba(244, 249, 245, .94);
+  --node-muted: rgba(218, 228, 222, .6);
   position: absolute;
   z-index: 5;
-  width: 196px;
-  height: 152px;
+  width: 224px;
+  height: 156px;
   box-sizing: border-box;
   display: grid;
-  grid-template-rows: auto auto minmax(32px, 1fr) auto;
-  gap: 8px;
-  padding: 11px 12px;
+  grid-template-rows: auto 38px minmax(36px, 1fr) auto;
+  gap: 9px;
+  padding: 13px 14px 12px;
   overflow: hidden;
-  color: var(--cf-text);
+  color: var(--node-ink);
   text-align: left;
   appearance: none;
   cursor: grab;
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 18px 18px 12px 12px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, .055), rgba(255, 255, 255, .018)),
-    linear-gradient(145deg, rgba(var(--node-rgb), .08), transparent 42%),
-    rgba(20, 23, 25, .95);
+    radial-gradient(circle at 16% 0%, rgba(255, 255, 255, .18), transparent 24%),
+    radial-gradient(circle at 92% 12%, rgba(var(--node-rgb), .14), transparent 27%),
+    linear-gradient(180deg, rgba(30, 37, 36, .94), rgba(14, 18, 18, .96));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .08),
-    inset 0 -1px 0 rgba(0, 0, 0, .22),
-    0 18px 42px rgba(0, 0, 0, .26);
-  backdrop-filter: none;
+    inset 0 1px 0 rgba(255, 255, 255, .12),
+    inset 0 -18px 32px rgba(0, 0, 0, .14),
+    0 18px 44px rgba(0, 0, 0, .28);
+  backdrop-filter: blur(10px) saturate(1.08);
   transform: none;
   transform-origin: center;
   isolation: isolate;
@@ -1582,101 +1630,116 @@ button:disabled {
 }
 
 .cf-tree-node:hover {
-  border-color: rgba(var(--node-rgb), .38);
+  border-color: rgba(var(--node-rgb), .44);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .1),
-    inset 0 -1px 0 rgba(0, 0, 0, .2),
-    0 20px 50px rgba(0, 0, 0, .31);
-  transform: translateY(-2px);
+    inset 0 1px 0 rgba(255, 255, 255, .14),
+    inset 0 -18px 32px rgba(0, 0, 0, .12),
+    0 22px 56px rgba(0, 0, 0, .34),
+    0 0 0 1px rgba(var(--node-rgb), .08);
+  transform: translateY(-3px);
 }
 
 .cf-tree-node::before {
-  inset: 8px auto 8px 8px;
-  width: 3px;
-  border: 0;
-  border-radius: 999px;
-  background: linear-gradient(180deg, transparent, rgba(var(--node-rgb), .88), transparent);
-  opacity: .78;
-  transform: none;
-  animation: none;
+  inset: 8px;
+  z-index: 0;
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: inherit;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, .08), transparent 34%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 34px);
+  opacity: .75;
 }
 
 .cf-tree-node::after {
   content: "";
-  left: 18px;
-  right: 18px;
-  bottom: 9px;
+  left: 16px;
+  right: 16px;
+  bottom: 10px;
   top: auto;
   z-index: 1;
-  height: 2px;
+  height: 3px;
   border: 0;
   border-radius: 999px;
-  background: rgba(var(--node-rgb), .44);
-  box-shadow: none;
+  background: linear-gradient(90deg, transparent, rgba(var(--node-rgb), .82), transparent);
+  box-shadow: 0 0 18px rgba(var(--node-rgb), .22);
   transform: none;
   animation: none;
 }
 
 .cf-tree-node.is-seed {
-  --node-accent: #6fd9c8;
-  --node-rgb: 111, 217, 200;
-  width: 220px;
-  height: 160px;
-  border-radius: 18px 14px 18px 14px;
-  border-color: rgba(111, 217, 200, .24);
+  --node-accent: #80dfce;
+  --node-rgb: 128, 223, 206;
+  width: 238px;
+  height: 172px;
+  padding: 14px 16px 14px;
+  border-radius: 34px 28px 36px 26px;
+  border-color: rgba(128, 223, 206, .28);
   background:
-    radial-gradient(circle at 20% 12%, rgba(255, 255, 255, .1), transparent 22%),
-    linear-gradient(180deg, rgba(111, 217, 200, .12), rgba(255, 255, 255, .018)),
-    rgba(16, 24, 25, .96);
+    radial-gradient(ellipse at 30% 10%, rgba(255, 255, 255, .18), transparent 26%),
+    radial-gradient(circle at 76% 72%, rgba(128, 223, 206, .18), transparent 34%),
+    linear-gradient(155deg, rgba(24, 48, 45, .98), rgba(11, 18, 18, .96));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .16),
+    inset 0 -22px 42px rgba(0, 0, 0, .16),
+    0 20px 54px rgba(0, 0, 0, .3),
+    0 0 36px rgba(128, 223, 206, .08);
 }
 
 .cf-tree-node.is-fruit {
-  width: 196px;
-  height: 152px;
-  border-radius: 9px;
+  width: 224px;
+  height: 156px;
 }
 
 .cf-tree-node.is-candidate {
-  --node-accent: #d4ae68;
-  --node-rgb: 212, 174, 104;
+  --node-accent: #e1bc72;
+  --node-rgb: 225, 188, 114;
 }
 
 .cf-tree-node.is-selected {
-  --node-accent: #9fd893;
-  --node-rgb: 159, 216, 147;
-  border-color: rgba(159, 216, 147, .3);
+  --node-accent: #a7df9c;
+  --node-rgb: 167, 223, 156;
+  border-color: rgba(167, 223, 156, .38);
+  background:
+    radial-gradient(circle at 16% 0%, rgba(255, 255, 255, .18), transparent 24%),
+    radial-gradient(circle at 88% 18%, rgba(167, 223, 156, .18), transparent 28%),
+    linear-gradient(180deg, rgba(28, 43, 34, .96), rgba(12, 18, 14, .96));
 }
 
 .cf-tree-node.is-eliminated {
-  --node-accent: #8b9290;
-  --node-rgb: 139, 146, 144;
-  border-color: rgba(255, 255, 255, .075);
-  filter: saturate(.45);
-  opacity: .58;
+  --node-accent: #8e9694;
+  --node-rgb: 142, 150, 148;
+  --node-muted: rgba(199, 207, 204, .44);
+  border-color: rgba(255, 255, 255, .08);
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 11px),
+    linear-gradient(180deg, rgba(31, 35, 35, .92), rgba(14, 16, 16, .96));
+  filter: saturate(.36) contrast(.92);
+  opacity: .68;
 }
 
 .cf-tree-node.is-eliminated::after {
   top: 50%;
   bottom: auto;
   height: 1px;
-  background: rgba(222, 228, 226, .28);
-  transform: rotate(-5deg);
+  background: linear-gradient(90deg, transparent, rgba(226, 232, 229, .34), transparent);
+  transform: rotate(-6deg);
 }
 
 .cf-tree-node.is-growing,
 .cf-tree-node.is-growth-placeholder {
-  --node-accent: #74d6c7;
-  --node-rgb: 116, 214, 199;
-  border-color: rgba(116, 214, 199, .32);
-  animation: cf-node-soft-pulse 1.8s ease-in-out infinite;
+  --node-accent: #83d9ff;
+  --node-rgb: 131, 217, 255;
+  border-color: rgba(131, 217, 255, .36);
+  animation: cf-node-soft-pulse 1.65s ease-in-out infinite;
 }
 
 .cf-tree-node.is-active {
   border-color: rgba(var(--node-rgb), .58);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .11),
-    0 0 0 2px rgba(var(--node-rgb), .2),
-    0 22px 54px rgba(0, 0, 0, .34);
+    inset 0 1px 0 rgba(255, 255, 255, .16),
+    inset 0 -18px 32px rgba(0, 0, 0, .12),
+    0 0 0 2px rgba(var(--node-rgb), .18),
+    0 24px 62px rgba(0, 0, 0, .36);
 }
 
 .cf-node-head {
@@ -1684,46 +1747,54 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 7px;
-  color: rgba(226, 235, 232, .58);
+  color: var(--node-muted);
   font-size: 9px;
   font-weight: 850;
   letter-spacing: .08em;
 }
 
 .cf-node-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--node-accent);
-  box-shadow: 0 0 12px rgba(var(--node-rgb), .38);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, .55),
+    0 0 14px rgba(var(--node-rgb), .42);
 }
 
 .cf-node-identity {
   display: grid;
-  grid-template-columns: 30px 1fr;
-  gap: 9px;
+  grid-template-columns: 38px 1fr;
+  gap: 11px;
   align-items: center;
-  min-height: 30px;
+  min-height: 38px;
 }
 
 .cf-node-orb {
   position: relative;
-  width: 30px;
-  height: 30px;
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 8px;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, .15);
+  border-radius: 14px 14px 10px 10px;
   background:
-    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, .26), transparent 18%),
-    rgba(var(--node-rgb), .12);
+    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, .36), transparent 18%),
+    radial-gradient(circle at 72% 78%, rgba(var(--node-rgb), .24), transparent 38%),
+    rgba(255, 255, 255, .055);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .1),
-    inset 0 -6px 10px rgba(0, 0, 0, .16);
+    inset 0 1px 0 rgba(255, 255, 255, .14),
+    inset 0 -9px 16px rgba(0, 0, 0, .16);
   transform: none;
 }
 
 .cf-tree-node.is-seed .cf-node-orb {
-  border-radius: 50% 44% 50% 46%;
-  transform: rotate(-8deg);
+  width: 40px;
+  height: 40px;
+  border-radius: 52% 44% 55% 45%;
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255, 255, 255, .42), transparent 18%),
+    radial-gradient(ellipse at center, rgba(128, 223, 206, .28), rgba(12, 34, 32, .88) 70%);
+  transform: rotate(-12deg);
 }
 
 .cf-orb-core,
@@ -1735,11 +1806,11 @@ button:disabled {
 .cf-orb-core {
   left: 50%;
   top: 50%;
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--node-accent);
-  box-shadow: none;
+  box-shadow: 0 0 14px rgba(var(--node-rgb), .36);
   transform: translate(-50%, -50%);
 }
 
@@ -1764,31 +1835,34 @@ button:disabled {
 
 .cf-node-signature {
   display: grid;
-  gap: 4px;
+  gap: 5px;
   align-content: center;
 }
 
 .cf-node-signature span {
   height: 2px;
-  background: linear-gradient(90deg, rgba(var(--node-rgb), .45), transparent);
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(var(--node-rgb), .5), rgba(255, 255, 255, .08), transparent);
 }
 
 .cf-node-signature span:nth-child(2) {
-  width: 62%;
+  width: 66%;
+  background: linear-gradient(90deg, rgba(255, 255, 255, .16), transparent);
 }
 
 .cf-node-signature span:nth-child(3) {
-  width: 36%;
+  width: 42%;
+  background: linear-gradient(90deg, rgba(var(--node-rgb), .34), transparent);
 }
 
 .cf-node-title {
-  min-height: 32px;
+  min-height: 36px;
   overflow: hidden;
   display: -webkit-box;
-  color: rgba(245, 250, 248, .95);
+  color: var(--node-ink);
   font-size: 13px;
-  font-weight: 760;
-  line-height: 1.36;
+  font-weight: 780;
+  line-height: 1.42;
   text-shadow: none;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1809,11 +1883,13 @@ button:disabled {
   min-height: 22px;
   display: inline-flex;
   align-items: center;
-  padding: 0 8px;
-  border: 1px solid rgba(var(--node-rgb), .22);
-  border-radius: 6px;
-  background: rgba(var(--node-rgb), .08);
-  color: color-mix(in srgb, var(--node-accent) 55%, #dce8e4);
+  padding: 0 9px;
+  border: 1px solid rgba(var(--node-rgb), .24);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .018)),
+    rgba(var(--node-rgb), .08);
+  color: color-mix(in srgb, var(--node-accent) 58%, #e5eee9);
   font-size: 10px;
   text-shadow: none;
   text-overflow: ellipsis;
@@ -1828,12 +1904,11 @@ button:disabled {
 
 .cf-growth-vessel {
   position: relative;
-  height: 16px;
+  height: 15px;
   overflow: hidden;
-  border: 1px solid rgba(116, 214, 199, .16);
-  border-color: rgba(116, 214, 199, .16);
-  border-radius: 6px;
-  background: rgba(116, 214, 199, .055);
+  border: 1px solid rgba(131, 217, 255, .16);
+  border-radius: 999px;
+  background: rgba(131, 217, 255, .055);
 }
 
 .cf-vessel-thread {
@@ -1841,7 +1916,7 @@ button:disabled {
   left: 10px;
   right: 10px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(116, 214, 199, .5), transparent);
+  background: linear-gradient(90deg, transparent, rgba(131, 217, 255, .54), transparent);
   transform-origin: left center;
 }
 
@@ -1861,11 +1936,11 @@ button:disabled {
   top: 50%;
   width: 5px;
   height: 5px;
-  border: 1px solid rgba(116, 214, 199, .38);
+  border: 1px solid rgba(131, 217, 255, .4);
   border-radius: 50%;
-  border-color: rgba(116, 214, 199, .38);
-  background: rgba(116, 214, 199, .35);
-  box-shadow: 0 0 10px rgba(116, 214, 199, .25);
+  border-color: rgba(131, 217, 255, .4);
+  background: rgba(131, 217, 255, .36);
+  box-shadow: 0 0 10px rgba(131, 217, 255, .28);
   transform: translate(-50%, -50%);
   animation: cf-core-seed 1s ease-in-out infinite;
 }

@@ -211,15 +211,58 @@ describe("AgentRuntime", () => {
     expect(result.ok).toBe(true);
     const document = await readSingleLog(logDir);
     expect(document.result.ok).toBe(true);
-    expect(document.events.map((event) => `${event.phase}:${event.direction}`)).toEqual(
+    expect(document.timeline.map((event) => event.type)).toEqual(
       expect.arrayContaining([
-        "task:input",
-        "skill:input",
-        "llm:input",
-        "llm:output",
-        "skill:output",
-        "validator:input",
-        "validator:output",
+        "task_started",
+        "llm_input",
+        "llm_output",
+        "task_finished",
+      ]),
+    );
+    expect(document.timeline.map((event) => event.type)).not.toContain(
+      "skill_called",
+    );
+    await rm(logDir, { recursive: true, force: true });
+  });
+
+  it("splits LLM think blocks into a separate simple timeline item", async () => {
+    const logDir = join(process.cwd(), "tmp-agent-runtime-log-think");
+    await rm(logDir, { recursive: true, force: true });
+    const runtime = createRuntimeWithLog({
+      sink: new FileAgentExchangeLogSink(logDir),
+      llm: new FakeLlmAdapter("<think>reasoning text</think>final answer"),
+      skill: {
+        name: "growth-skill",
+        description: "fake growth",
+        supportedTaskTypes: ["growth"],
+        async execute({ llm }) {
+          const completion = await llm.complete({
+            messages: [{ role: "user", content: "grow" }],
+          });
+          return {
+            taskType: "growth",
+            content: completion.content,
+          };
+        },
+      },
+    });
+
+    await runtime.runTask({
+      type: "growth",
+      input: {},
+    });
+
+    const document = await readSingleLog(logDir);
+    expect(document.timeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "llm_think",
+          content: "reasoning text",
+        }),
+        expect.objectContaining({
+          type: "llm_output",
+          content: { content: "final answer" },
+        }),
       ]),
     );
     await rm(logDir, { recursive: true, force: true });

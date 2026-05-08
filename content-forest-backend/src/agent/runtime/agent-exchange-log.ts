@@ -23,12 +23,20 @@ export interface AgentExchangeLogConfig {
   maxContentChars: number;
 }
 
-export interface AgentExchangeLogEvent {
+export type AgentExchangeLogEntryType =
+  | "task_started"
+  | "llm_input"
+  | "llm_think"
+  | "llm_output"
+  | "tool_selected"
+  | "tool_result"
+  | "tool_error"
+  | "task_finished";
+
+export interface AgentExchangeLogEntry {
   at: string;
-  phase: AgentExchangeLogPhase;
-  direction: AgentExchangeLogDirection;
-  name: string;
-  status?: "started" | "completed" | "failed" | "skipped";
+  type: AgentExchangeLogEntryType;
+  name?: string;
   content?: unknown;
 }
 
@@ -44,7 +52,7 @@ export interface AgentExchangeLogDocument {
     output?: unknown;
     error?: AgentTaskFailure;
   };
-  events: AgentExchangeLogEvent[];
+  timeline: AgentExchangeLogEntry[];
 }
 
 export interface AgentExchangeLogSink {
@@ -81,7 +89,7 @@ export class AgentExchangeLogRecorder {
   private readonly sink: AgentExchangeLogSink;
   private readonly now: () => Date;
   private readonly maxContentChars: number;
-  private readonly events: AgentExchangeLogEvent[] = [];
+  private readonly timeline: AgentExchangeLogEntry[] = [];
   private taskInfo: {
     taskId: string;
     taskType: AgentTaskType | string;
@@ -116,11 +124,8 @@ export class AgentExchangeLogRecorder {
       taskType: input.taskType,
       startedAt: input.startedAt,
     };
-    this.record({
-      phase: "task",
-      direction: "input",
+    this.record("task_started", {
       name: input.taskType,
-      status: "started",
       content: {
         input: input.task.input,
         metadata: input.task.metadata ?? {},
@@ -130,13 +135,17 @@ export class AgentExchangeLogRecorder {
   }
 
   public record(
-    event: Omit<AgentExchangeLogEvent, "at" | "content"> & { content?: unknown },
+    type: AgentExchangeLogEntryType,
+    event: Omit<AgentExchangeLogEntry, "at" | "type" | "content"> & {
+      content?: unknown;
+    } = {},
   ): void {
     if (!this.enabled) {
       return;
     }
-    this.events.push({
+    this.timeline.push({
       ...event,
+      type,
       at: this.now().toISOString(),
       content:
         event.content === undefined
@@ -154,6 +163,10 @@ export class AgentExchangeLogRecorder {
       return null;
     }
     const completedAt = this.now().toISOString();
+    this.record("task_finished", {
+      name: this.taskInfo.taskType,
+      content: result,
+    });
     return await this.sink.write({
       task: {
         ...this.taskInfo,
@@ -164,9 +177,23 @@ export class AgentExchangeLogRecorder {
         output?: unknown;
         error?: AgentTaskFailure;
       },
-      events: this.events.map((event) => ({ ...event })),
+      timeline: this.timeline.map((event) => ({ ...event })),
     });
   }
+}
+
+export function splitLlmThink(content: string): {
+  think: string | null;
+  output: string;
+} {
+  const match = /<think>([\s\S]*?)<\/think>/i.exec(content);
+  if (match === null) {
+    return { think: null, output: content };
+  }
+  return {
+    think: match[1]?.trim() ?? "",
+    output: content.replace(match[0], "").trim(),
+  };
 }
 
 export function createAgentExchangeLogSink(

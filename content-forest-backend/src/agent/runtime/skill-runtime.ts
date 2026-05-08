@@ -1,6 +1,9 @@
 import { ApplicationError, isApplicationError } from "../../shared/errors/application-error.js";
 import type { SkillContract } from "../skills/skill-contract.js";
-import type { AgentExchangeLogRecorder } from "./agent-exchange-log.js";
+import {
+  splitLlmThink,
+  type AgentExchangeLogRecorder,
+} from "./agent-exchange-log.js";
 import type { AgentTask, AgentTaskContext, AgentTaskOutput } from "./agent-task.js";
 import type { AgentTrace } from "./agent-trace.js";
 import type {
@@ -82,45 +85,19 @@ export class SkillRuntime {
     this.trace.record("skill_called", `Skill called: ${skill.name}`, {
       skillName: skill.name,
     });
-    this.exchangeLog?.record({
-      phase: "skill",
-      direction: "input",
-      name: skill.name,
-      status: "started",
-      content: {
-        taskType: context.taskType,
-        input: context.input,
-        metadata: context.metadata,
-      },
-    });
 
     try {
-      const output = await skill.execute({
+      return await skill.execute({
         context,
         tools: this.toolRuntime,
         llm: new TracedLlmAdapter(this.llm, this.trace, this.exchangeLog),
         trace: this.trace,
       });
-      this.exchangeLog?.record({
-        phase: "skill",
-        direction: "output",
-        name: skill.name,
-        status: "completed",
-        content: output,
-      });
-      return output;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Skill execution failed";
       this.trace.record("skill_failed", `Skill failed: ${skill.name}`, {
         skillName: skill.name,
         reason: message,
-      });
-      this.exchangeLog?.record({
-        phase: "skill",
-        direction: "error",
-        name: skill.name,
-        status: "failed",
-        content: { reason: message },
       });
 
       if (isApplicationError(error)) {
@@ -156,32 +133,32 @@ class TracedLlmAdapter implements LlmAdapter {
       model: input.model,
       messageCount: input.messages.length,
     });
-    this.exchangeLog?.record({
-      phase: "llm",
-      direction: "input",
-      name: "complete",
-      status: "started",
+    this.exchangeLog?.record("llm_input", {
+      name: input.model ?? "default",
       content: input,
     });
 
     try {
       const output = await this.inner.complete(input);
-      this.exchangeLog?.record({
-        phase: "llm",
-        direction: "output",
-        name: "complete",
-        status: "completed",
-        content: output,
+      const split = splitLlmThink(output.content);
+      if (split.think !== null && split.think.length > 0) {
+        this.exchangeLog?.record("llm_think", {
+          name: input.model ?? "default",
+          content: split.think,
+        });
+      }
+      this.exchangeLog?.record("llm_output", {
+        name: input.model ?? "default",
+        content: {
+          content: split.output,
+        },
       });
       return output;
     } catch (error) {
       const message = error instanceof Error ? error.message : "LLM call failed";
       this.trace.record("llm_failed", "LLM call failed", { reason: message });
-      this.exchangeLog?.record({
-        phase: "llm",
-        direction: "error",
-        name: "complete",
-        status: "failed",
+      this.exchangeLog?.record("llm_output", {
+        name: input.model ?? "default",
         content: { reason: message },
       });
       throw error;
