@@ -598,7 +598,7 @@ function startCanvasDrag(event: PointerEvent) {
     originY: transform.y,
     moved: false,
   }
-  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+  capturePointer(event)
 }
 
 function startNodeDrag(event: PointerEvent, node: TreeNode) {
@@ -613,7 +613,15 @@ function startNodeDrag(event: PointerEvent, node: TreeNode) {
     originY: node.y,
     moved: false,
   }
-  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+  capturePointer(event)
+}
+
+function capturePointer(event: PointerEvent) {
+  try {
+    ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+  } catch {
+    // Synthetic pointer events and some embedded browsers may not expose an active pointer.
+  }
 }
 
 function handlePointerMove(event: PointerEvent) {
