@@ -42,6 +42,7 @@ async function createFixture(): Promise<{
   workspaceService: WorkspaceService;
   seedService: SeedService;
   fruitService: FruitService;
+  geneService: GeneService;
   growthStorage: InMemoryGrowthStorageAdapter;
   geneStorage: InMemoryGeneStorageAdapter;
   generatorStorage: InMemoryGeneratorStorageAdapter;
@@ -100,6 +101,7 @@ async function createFixture(): Promise<{
     title: "壁纸项目",
     markdown: "# 灵感种子",
   });
+  await geneService.prepareSeedGeneLibrary(seed.id);
   await generatorStorage.createGenerator({
     id: "generator_1",
     name: "小红书生成器",
@@ -154,6 +156,7 @@ async function createFixture(): Promise<{
     }),
     seedService,
     fruitService,
+    geneService,
     growthStorage,
     geneStorage,
     generatorStorage,
@@ -307,5 +310,99 @@ describe("WorkspaceService", () => {
         title: "情绪价值",
       }),
     ]);
+  });
+  it("aggregates gene extraction hub summaries without markdown bodies", async () => {
+    const { workspaceService, geneStorage } = await createFixture();
+    await geneStorage.createReminder({
+      id: "gene-reminder_1",
+      seedId: "seed_1",
+      status: "pending",
+      evidenceSources: [
+        {
+          sourceType: "fruit_selected",
+          sourceId: "fruit_1",
+          strength: "weak",
+        },
+      ],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await geneStorage.createSuggestion({
+      id: "gene-suggestion_1",
+      seedId: "seed_1",
+      taskId: "gene-task_1",
+      status: "pending",
+      title: "Reusable angle",
+      bodyMarkdown: "This markdown body must not be in the workspace snapshot.",
+      lineage: "emotion",
+      niche: "wallpaper",
+      evidenceSources: [
+        {
+          sourceType: "fruit_selected",
+          sourceId: "fruit_1",
+          strength: "weak",
+        },
+      ],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const snapshot = await workspaceService.getWorkspaceSnapshot("seed_1");
+
+    expect(snapshot.geneExtractionHub).toMatchObject({
+      seedId: "seed_1",
+      geneLibrary: {
+        seedId: "seed_1",
+        contentLocation: "genes/seed-scoped/seed_1",
+        insightCount: 1,
+        referableInsightCount: 1,
+      },
+      stats: {
+        pendingReminderCount: 1,
+        pendingSuggestionCount: 1,
+        insightCount: 1,
+        referableInsightCount: 1,
+      },
+      actions: {
+        canStartExtraction: true,
+        canReviewSuggestions: true,
+        canOpenGeneLibrary: true,
+      },
+    });
+    expect(snapshot.geneExtractionHub.pendingReminders).toEqual([
+      expect.objectContaining({
+        id: "gene-reminder_1",
+      }),
+    ]);
+    expect(snapshot.geneExtractionHub.pendingSuggestions).toEqual([
+      expect.objectContaining({
+        id: "gene-suggestion_1",
+        title: "Reusable angle",
+      }),
+    ]);
+    expect(JSON.stringify(snapshot.geneExtractionHub)).not.toContain("bodyMarkdown");
+    expect(JSON.stringify(snapshot.geneExtractionHub)).not.toContain(
+      "This markdown body must not be in the workspace snapshot.",
+    );
+  });
+
+  it("returns a stable empty gene extraction hub state", async () => {
+    const { workspaceService } = await createFixture();
+
+    const snapshot = await workspaceService.getWorkspaceSnapshot("seed_1");
+
+    expect(snapshot.geneExtractionHub.pendingReminders).toEqual([]);
+    expect(snapshot.geneExtractionHub.pendingSuggestions).toEqual([]);
+    expect(snapshot.geneExtractionHub.stats).toMatchObject({
+      pendingReminderCount: 0,
+      pendingSuggestionCount: 0,
+      insightCount: 1,
+      referableInsightCount: 1,
+    });
+    expect(snapshot.geneExtractionHub.actions).toMatchObject({
+      canStartExtraction: false,
+      canReviewSuggestions: false,
+      canOpenGeneLibrary: true,
+    });
   });
 });

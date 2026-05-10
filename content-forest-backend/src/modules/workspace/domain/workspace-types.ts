@@ -1,5 +1,11 @@
 import type { FruitSelectionState, ParentNodeRef } from "../../fruit/domain/fruit-types.js";
-import type { GeneInsightSummary } from "../../gene/domain/gene-types.js";
+import type {
+  GeneEvidenceSource,
+  GeneExtractionReminder,
+  GeneInsightSummary,
+  GeneLibrary,
+  GeneSuggestion,
+} from "../../gene/domain/gene-types.js";
 import type { SelectableGenerator } from "../../generator/domain/generator-types.js";
 import type { GrowthSourceStatus } from "../../growth/domain/growth-types.js";
 import type { ReferableNutrientContent } from "../../nutrient/domain/nutrient-types.js";
@@ -69,10 +75,78 @@ export interface WorkspaceResources {
   geneInsights: GeneInsightSummary[];
 }
 
+export interface WorkspaceGeneLibrarySummary {
+  seedId: string;
+  contentLocation: string;
+  insightCount: number;
+  referableInsightCount: number;
+  updatedAt: string;
+}
+
+export type WorkspaceGeneReminderSummary = GeneExtractionReminder;
+
+export type WorkspaceGeneSuggestionSummary = Omit<GeneSuggestion, "bodyMarkdown">;
+
+export interface WorkspaceGeneExtractionStats {
+  pendingReminderCount: number;
+  pendingSuggestionCount: number;
+  insightCount: number;
+  referableInsightCount: number;
+}
+
+export interface WorkspaceGeneExtractionActions {
+  canStartExtraction: boolean;
+  canReviewSuggestions: boolean;
+  canOpenGeneLibrary: boolean;
+}
+
+export interface WorkspaceGeneExtractionHub {
+  seedId: string;
+  geneLibrary: WorkspaceGeneLibrarySummary;
+  pendingReminders: WorkspaceGeneReminderSummary[];
+  pendingSuggestions: WorkspaceGeneSuggestionSummary[];
+  stats: WorkspaceGeneExtractionStats;
+  actions: WorkspaceGeneExtractionActions;
+}
+
+export function toWorkspaceGeneLibrarySummary(
+  library: GeneLibrary,
+  insightCount: number,
+  referableInsightCount: number,
+): WorkspaceGeneLibrarySummary {
+  return {
+    seedId: library.seedId,
+    contentLocation: library.contentLocation,
+    insightCount,
+    referableInsightCount,
+    updatedAt: library.updatedAt,
+  };
+}
+
+export function toWorkspaceGeneSuggestionSummary(
+  suggestion: GeneSuggestion,
+): WorkspaceGeneSuggestionSummary {
+  return {
+    id: suggestion.id,
+    seedId: suggestion.seedId,
+    taskId: suggestion.taskId,
+    status: suggestion.status,
+    title: suggestion.title,
+    lineage: suggestion.lineage,
+    niche: suggestion.niche,
+    evidenceSources: suggestion.evidenceSources.map(
+      (source): GeneEvidenceSource => ({ ...source }),
+    ),
+    createdAt: suggestion.createdAt,
+    updatedAt: suggestion.updatedAt,
+  };
+}
+
 export interface WorkspaceSnapshot {
   seed: WorkspaceSeedSummary;
   workspaceReadOnly: boolean;
   nodes: WorkspaceNode[];
   edges: WorkspaceEdge[];
   resources: WorkspaceResources;
+  geneExtractionHub: WorkspaceGeneExtractionHub;
 }

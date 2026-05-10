@@ -1,0 +1,1401 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Content Forest Workspace Card & Input Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090b0f;
+      --canvas: #0b0e13;
+      --panel: rgba(19, 22, 28, .92);
+      --panel-strong: rgba(26, 30, 38, .96);
+      --panel-soft: rgba(255, 255, 255, .045);
+      --border: rgba(255, 255, 255, .12);
+      --border-soft: rgba(255, 255, 255, .075);
+      --text: #eef3f5;
+      --muted: #9aa4aa;
+      --faint: #69737a;
+      --blue: #7aa7ff;
+      --cyan: #60d5c8;
+      --green: #9cdd8f;
+      --amber: #e7bd68;
+      --red: #e5827b;
+      --shadow-lg: 0 28px 90px rgba(0, 0, 0, .46);
+      --shadow-md: 0 18px 48px rgba(0, 0, 0, .32);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    button,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+    }
+
+    .workspace {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background:
+        linear-gradient(rgba(255, 255, 255, .025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .025) 1px, transparent 1px),
+        radial-gradient(circle at 52% 38%, rgba(122, 167, 255, .07), transparent 34%),
+        var(--canvas);
+      background-size: 32px 32px, 32px 32px, 100% 100%, 100% 100%;
+    }
+
+    .topbar {
+      position: absolute;
+      z-index: 20;
+      top: 16px;
+      left: 18px;
+      right: 438px;
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px;
+      border: 1px solid var(--border-soft);
+      border-radius: 8px;
+      background: rgba(12, 15, 20, .78);
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(22px);
+    }
+
+    .crumb {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-left: 8px;
+    }
+
+    .crumb strong {
+      overflow: hidden;
+      font-size: 13px;
+      font-weight: 720;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .status span:first-child {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 16px rgba(96, 213, 200, .48);
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ghost-btn {
+      min-height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 0 10px;
+      border: 1px solid var(--border-soft);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, .045);
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color .16s ease, background .16s ease, color .16s ease;
+    }
+
+    .ghost-btn:hover,
+    .ghost-btn:focus-visible {
+      border-color: rgba(122, 167, 255, .34);
+      background: rgba(122, 167, 255, .09);
+      color: var(--text);
+      outline: 0;
+    }
+
+    .canvas-note {
+      position: absolute;
+      left: 26px;
+      bottom: 26px;
+      display: grid;
+      gap: 4px;
+      color: var(--faint);
+      font-size: 11px;
+      pointer-events: none;
+    }
+
+    .tree {
+      position: absolute;
+      inset: 96px 438px 190px 38px;
+    }
+
+    .branch-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .branch {
+      fill: none;
+      stroke: rgba(125, 153, 170, .36);
+      stroke-width: 1.4;
+    }
+
+    .branch.primary {
+      stroke: rgba(96, 213, 200, .58);
+      stroke-width: 1.7;
+    }
+
+    .node {
+      --accent: var(--amber);
+      --accent-rgb: 231, 189, 104;
+      position: absolute;
+      width: 232px;
+      min-height: 158px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 11px;
+      padding: 13px;
+      border: 1px solid rgba(var(--accent-rgb), .22);
+      border-radius: 8px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .018)),
+        linear-gradient(135deg, rgba(var(--accent-rgb), .08), rgba(20, 24, 31, .96) 34%),
+        rgba(17, 20, 26, .96);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, .09),
+        0 18px 44px rgba(0, 0, 0, .34);
+      color: var(--text);
+      cursor: pointer;
+      isolation: isolate;
+      text-align: left;
+      transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, opacity .18s ease;
+    }
+
+    .node::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      border-radius: inherit;
+      background:
+        linear-gradient(90deg, rgba(var(--accent-rgb), .28), transparent 46%),
+        linear-gradient(180deg, rgba(255, 255, 255, .045), transparent 52%);
+      opacity: .42;
+      mask: linear-gradient(#000, transparent 62%);
+    }
+
+    .node:hover,
+    .node:focus-visible {
+      border-color: rgba(var(--accent-rgb), .45);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, .11),
+        0 22px 58px rgba(0, 0, 0, .42),
+        0 0 0 1px rgba(var(--accent-rgb), .08);
+      outline: 0;
+      transform: translateY(-3px);
+    }
+
+    .node.active {
+      border-color: rgba(var(--accent-rgb), .72);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, .12),
+        0 0 0 2px rgba(var(--accent-rgb), .16),
+        0 24px 62px rgba(0, 0, 0, .45);
+    }
+
+    .node.seed {
+      --accent: var(--cyan);
+      --accent-rgb: 96, 213, 200;
+      width: 252px;
+      min-height: 176px;
+    }
+
+    .node.selected {
+      --accent: var(--green);
+      --accent-rgb: 156, 221, 143;
+    }
+
+    .node.eliminated {
+      --accent: #8f989d;
+      --accent-rgb: 143, 152, 157;
+      opacity: .58;
+      filter: saturate(.45);
+    }
+
+    .node.growing {
+      --accent: var(--blue);
+      --accent-rgb: 122, 167, 255;
+      animation: nodePulse 1.7s ease-in-out infinite;
+    }
+
+    .node-head,
+    .node-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .node-type {
+      color: rgba(238, 243, 245, .54);
+      font-size: 10px;
+      font-weight: 760;
+      letter-spacing: .08em;
+    }
+
+    .node-mark {
+      width: 25px;
+      height: 25px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(var(--accent-rgb), .24);
+      border-radius: 7px;
+      background: rgba(var(--accent-rgb), .09);
+      color: var(--accent);
+    }
+
+    .node-title {
+      margin: 0;
+      overflow: hidden;
+      display: -webkit-box;
+      color: #f4f7f8;
+      font-size: 14px;
+      font-weight: 760;
+      line-height: 1.42;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+    }
+
+    .node-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .node-chip {
+      max-width: 100%;
+      min-height: 22px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 8px;
+      border: 1px solid rgba(var(--accent-rgb), .2);
+      border-radius: 999px;
+      background: rgba(var(--accent-rgb), .08);
+      color: rgba(238, 243, 245, .78);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .node-score {
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .growth-line {
+      position: relative;
+      height: 18px;
+      overflow: hidden;
+      border: 1px solid rgba(122, 167, 255, .18);
+      border-radius: 999px;
+      background: rgba(122, 167, 255, .055);
+    }
+
+    .growth-line span {
+      position: absolute;
+      top: 7px;
+      left: 12px;
+      width: 62%;
+      height: 2px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, transparent, rgba(122, 167, 255, .78), transparent);
+      animation: scan 1.25s ease-in-out infinite;
+    }
+
+    .detail {
+      position: absolute;
+      z-index: 18;
+      top: 0;
+      right: 0;
+      width: 406px;
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      border-left: 1px solid var(--border-soft);
+      background: rgba(12, 15, 20, .94);
+      box-shadow: -18px 0 70px rgba(0, 0, 0, .34);
+      backdrop-filter: blur(24px);
+    }
+
+    .detail-header {
+      padding: 18px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .detail h1 {
+      margin: 12px 0 14px;
+      font-size: 20px;
+      line-height: 1.28;
+      letter-spacing: 0;
+    }
+
+    .selection-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .primary-btn,
+    .secondary-btn,
+    .icon-btn {
+      min-height: 34px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: transform .15s ease, background .15s ease, border-color .15s ease;
+    }
+
+    .primary-btn {
+      background: #edf3f3;
+      color: #101418;
+      font-weight: 760;
+    }
+
+    .primary-btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .secondary-btn {
+      border: 1px solid var(--border-soft);
+      background: rgba(255, 255, 255, .045);
+      color: var(--text);
+    }
+
+    .secondary-btn:hover,
+    .secondary-btn:focus-visible {
+      border-color: rgba(122, 167, 255, .34);
+      background: rgba(122, 167, 255, .08);
+      outline: 0;
+    }
+
+    .detail-body {
+      overflow: auto;
+      padding: 4px 18px 18px;
+    }
+
+    .section {
+      padding: 16px 0;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .section h2 {
+      margin: 0 0 10px;
+      color: #c4ccd1;
+      font-size: 12px;
+      letter-spacing: 0;
+    }
+
+    .section p {
+      margin: 0;
+      color: #cbd3d6;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .tag-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .tag {
+      min-height: 26px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 9px;
+      border: 1px solid rgba(96, 213, 200, .19);
+      border-radius: 6px;
+      background: rgba(96, 213, 200, .065);
+      color: #b8eee8;
+      font-size: 12px;
+    }
+
+    .detail-footer {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 14px 18px 18px;
+      border-top: 1px solid var(--border-soft);
+    }
+
+    .composer {
+      position: absolute;
+      z-index: 30;
+      left: 50%;
+      bottom: 18px;
+      width: min(900px, calc(100vw - 560px));
+      min-width: 620px;
+      border: 1px solid rgba(255, 255, 255, .15);
+      border-radius: 8px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, .055), rgba(255, 255, 255, .02)),
+        rgba(22, 25, 31, .97);
+      box-shadow: var(--shadow-lg);
+      transform: translateX(calc(-50% - 190px));
+      backdrop-filter: blur(26px);
+    }
+
+    .composer-top,
+    .composer-footer,
+    .control-row,
+    .tool-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .composer-top {
+      justify-content: space-between;
+      padding: 10px 10px 8px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .source-pill,
+    .picker {
+      min-height: 34px;
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 10px;
+      border: 1px solid var(--border-soft);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, .045);
+      color: var(--muted);
+    }
+
+    .source-pill {
+      max-width: 280px;
+    }
+
+    .source-pill strong,
+    .picker strong {
+      overflow: hidden;
+      color: var(--text);
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .source-pill span,
+    .picker span {
+      flex: 0 0 auto;
+      font-size: 11px;
+    }
+
+    .menu-wrap {
+      position: relative;
+    }
+
+    .picker {
+      cursor: pointer;
+    }
+
+    .picker:hover,
+    .picker[aria-expanded="true"] {
+      border-color: rgba(122, 167, 255, .38);
+      background: rgba(122, 167, 255, .08);
+    }
+
+    .menu {
+      position: absolute;
+      z-index: 60;
+      bottom: calc(100% + 10px);
+      left: 0;
+      width: 286px;
+      max-height: 242px;
+      display: none;
+      overflow: auto;
+      padding: 6px;
+      border: 1px solid rgba(255, 255, 255, .14);
+      border-radius: 8px;
+      background: rgba(18, 21, 27, .98);
+      box-shadow: var(--shadow-lg);
+      animation: menuIn .16s ease both;
+      scrollbar-color: rgba(122, 167, 255, .42) rgba(255, 255, 255, .04);
+    }
+
+    .menu.compact {
+      width: 112px;
+    }
+
+    .menu.open {
+      display: grid;
+      gap: 4px;
+    }
+
+    .menu-item {
+      min-height: 38px;
+      display: grid;
+      grid-template-columns: 26px 1fr auto;
+      gap: 9px;
+      align-items: center;
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .menu.compact .menu-item {
+      grid-template-columns: 1fr auto;
+      min-height: 32px;
+    }
+
+    .menu-item:hover,
+    .menu-item.active {
+      background: rgba(122, 167, 255, .11);
+      color: var(--text);
+    }
+
+    .mini-icon {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border-soft);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, .045);
+      color: var(--blue);
+    }
+
+    .menu-text {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+
+    .menu-text strong {
+      overflow: hidden;
+      color: inherit;
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .menu-text em {
+      overflow: hidden;
+      color: var(--faint);
+      font-size: 11px;
+      font-style: normal;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .check {
+      color: var(--green);
+      font-size: 12px;
+    }
+
+    .input-shell {
+      position: relative;
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+    }
+
+    .ref-popover {
+      position: absolute;
+      z-index: 70;
+      left: 10px;
+      bottom: calc(100% + 10px);
+      width: min(420px, calc(100% - 20px));
+      max-height: 268px;
+      display: none;
+      overflow: auto;
+      padding: 7px;
+      border: 1px solid rgba(255, 255, 255, .14);
+      border-radius: 8px;
+      background: rgba(17, 20, 26, .99);
+      box-shadow: var(--shadow-lg);
+      animation: menuIn .16s ease both;
+      scrollbar-color: rgba(96, 213, 200, .42) rgba(255, 255, 255, .04);
+    }
+
+    .ref-popover.open {
+      display: grid;
+      gap: 5px;
+    }
+
+    .resource-row {
+      min-height: 52px;
+      display: grid;
+      grid-template-columns: 34px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 7px;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .resource-row:hover {
+      background: rgba(96, 213, 200, .095);
+      color: var(--text);
+    }
+
+    .resource-icon {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border-soft);
+      border-radius: 7px;
+      background: rgba(96, 213, 200, .075);
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .resource-row[data-kind="nutrient"] .resource-icon {
+      background: rgba(231, 189, 104, .08);
+      color: var(--amber);
+    }
+
+    .resource-copy {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+    }
+
+    .resource-copy strong {
+      overflow: hidden;
+      color: inherit;
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .resource-copy em {
+      overflow: hidden;
+      color: var(--faint);
+      font-size: 11px;
+      font-style: normal;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .kbd {
+      min-width: 25px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border-soft);
+      border-radius: 5px;
+      background: rgba(255, 255, 255, .04);
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .ref-tray {
+      max-height: 62px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      overflow: auto;
+      padding: 0 2px;
+      scrollbar-color: rgba(255, 255, 255, .22) transparent;
+    }
+
+    .ref-chip {
+      max-width: 260px;
+      min-height: 26px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 6px 0 9px;
+      border: 1px solid rgba(96, 213, 200, .23);
+      border-radius: 6px;
+      background: rgba(96, 213, 200, .08);
+      color: #bff3ee;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .ref-chip[data-kind="nutrient"] {
+      border-color: rgba(231, 189, 104, .24);
+      background: rgba(231, 189, 104, .08);
+      color: #f2d59d;
+    }
+
+    .ref-chip span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .chip-remove {
+      width: 18px;
+      height: 18px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 4px;
+      background: transparent;
+      color: currentColor;
+      cursor: pointer;
+      opacity: .72;
+    }
+
+    .chip-remove:hover,
+    .chip-remove:focus-visible {
+      background: rgba(255, 255, 255, .1);
+      opacity: 1;
+      outline: 0;
+    }
+
+    .textarea-wrap {
+      min-height: 96px;
+      border: 1px solid var(--border-soft);
+      border-radius: 8px;
+      background: rgba(8, 10, 14, .62);
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 94px;
+      max-height: 180px;
+      padding: 12px;
+      border: 0;
+      outline: 0;
+      resize: vertical;
+      background: transparent;
+      color: var(--text);
+      line-height: 1.55;
+      caret-color: var(--cyan);
+    }
+
+    textarea::placeholder {
+      color: #69737a;
+    }
+
+    .composer-footer {
+      justify-content: space-between;
+      padding: 0 10px 10px;
+    }
+
+    .icon-btn,
+    .send-btn {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .icon-btn {
+      border: 1px solid var(--border-soft);
+      background: rgba(255, 255, 255, .04);
+      color: var(--muted);
+    }
+
+    .icon-btn:hover,
+    .icon-btn:focus-visible {
+      border-color: rgba(96, 213, 200, .32);
+      background: rgba(96, 213, 200, .075);
+      color: var(--text);
+      outline: 0;
+    }
+
+    .send-btn {
+      background: #eef3f3;
+      color: #101418;
+    }
+
+    .detail-pop {
+      position: absolute;
+      right: 48px;
+      bottom: 54px;
+      width: 330px;
+      display: none;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, .14);
+      border-radius: 8px;
+      background: rgba(17, 20, 26, .99);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .detail-pop.open {
+      display: grid;
+    }
+
+    .detail-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .detail-row strong {
+      color: var(--text);
+      font-weight: 680;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+    }
+
+    svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    @keyframes menuIn {
+      from {
+        opacity: 0;
+        transform: translateY(6px) scale(.985);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @keyframes nodePulse {
+      0%,
+      100% {
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, .09),
+          0 18px 44px rgba(0, 0, 0, .34),
+          0 0 0 1px rgba(122, 167, 255, .06);
+      }
+
+      50% {
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, .12),
+          0 20px 54px rgba(0, 0, 0, .4),
+          0 0 0 3px rgba(122, 167, 255, .12);
+      }
+    }
+
+    @keyframes scan {
+      0% {
+        transform: translateX(-44%);
+        opacity: .3;
+      }
+
+      50% {
+        opacity: 1;
+      }
+
+      100% {
+        transform: translateX(76%);
+        opacity: .3;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: .01ms !important;
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .detail {
+        width: 360px;
+      }
+
+      .topbar {
+        right: 388px;
+      }
+
+      .tree {
+        right: 388px;
+      }
+
+      .composer {
+        min-width: 500px;
+        width: calc(100vw - 470px);
+        transform: translateX(calc(-50% - 170px));
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="workspace">
+    <header class="topbar">
+      <div class="crumb">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M4 6h16M4 18h10" /></svg>
+        <strong>长期主义内容增长策略工作区</strong>
+      </div>
+      <div class="status"><span aria-hidden="true"></span><strong>树已同步</strong><span>5 节点</span></div>
+      <div class="actions">
+        <button class="ghost-btn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+          返回
+        </button>
+        <button class="ghost-btn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h18v18H3z" /><path d="m8 8 8 8M16 8l-8 8" /></svg>
+          隐藏淘汰
+        </button>
+        <button class="ghost-btn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></svg>
+          整理
+        </button>
+      </div>
+    </header>
+
+    <section class="tree" aria-label="内容树画布预览">
+      <svg class="branch-layer" viewBox="0 0 940 520" aria-hidden="true">
+        <path class="branch primary" d="M470 415 C470 350 350 342 322 282" />
+        <path class="branch" d="M470 415 C470 352 558 342 603 286" />
+        <path class="branch" d="M603 286 C603 226 688 214 720 152" />
+        <path class="branch" d="M603 286 C603 226 515 214 486 152" />
+      </svg>
+
+      <button class="node seed" type="button" style="left: 350px; top: 336px;">
+        <span class="node-head">
+          <span class="node-type">SEED</span>
+          <span class="node-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c4 4 6 7 6 10a6 6 0 0 1-12 0c0-3 2-6 6-10Z" /></svg></span>
+        </span>
+        <strong class="node-title">长期主义内容增长策略：从单篇爆款到可复用内容资产</strong>
+        <span class="node-foot">
+          <span class="node-meta">
+            <span class="node-chip">根种子</span>
+            <span class="node-chip">可生长</span>
+          </span>
+          <span class="node-score">Root</span>
+        </span>
+      </button>
+
+      <button class="node selected active" type="button" style="left: 202px; top: 204px;">
+        <span class="node-head">
+          <span class="node-type">FRUIT</span>
+          <span class="node-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 6-11 11-5-5" /></svg></span>
+        </span>
+        <strong class="node-title">把内容树拆成“选题、素材、验证、复盘”四个可循环层</strong>
+        <span class="node-foot">
+          <span class="node-meta">
+            <span class="node-chip">已选择</span>
+            <span class="node-chip">增长模型</span>
+          </span>
+          <span class="node-score">92</span>
+        </span>
+      </button>
+
+      <button class="node" type="button" style="left: 496px; top: 208px;">
+        <span class="node-head">
+          <span class="node-type">FRUIT</span>
+          <span class="node-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg></span>
+        </span>
+        <strong class="node-title">用营养库保存跨平台素材，降低下一次枝化成本</strong>
+        <span class="node-foot">
+          <span class="node-meta">
+            <span class="node-chip">候选</span>
+            <span class="node-chip">素材系统</span>
+          </span>
+          <span class="node-score">81</span>
+        </span>
+      </button>
+
+      <button class="node growing" type="button" style="left: 596px; top: 72px;">
+        <span class="node-head">
+          <span class="node-type">FRUIT</span>
+          <span class="node-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h5l2-8 2 16 2-8h5" /></svg></span>
+        </span>
+        <strong class="node-title">从已选择果实继续生成发布验证路径</strong>
+        <span class="growth-line" aria-hidden="true"><span></span></span>
+        <span class="node-foot">
+          <span class="node-meta"><span class="node-chip">生成中</span></span>
+          <span class="node-score">...</span>
+        </span>
+      </button>
+
+      <button class="node eliminated" type="button" style="left: 374px; top: 72px;">
+        <span class="node-head">
+          <span class="node-type">FRUIT</span>
+          <span class="node-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg></span>
+        </span>
+        <strong class="node-title">只追热点话题，不保留结构化经验</strong>
+        <span class="node-foot">
+          <span class="node-meta"><span class="node-chip">已淘汰</span></span>
+          <span class="node-score">34</span>
+        </span>
+      </button>
+    </section>
+
+    <aside class="detail" aria-label="节点详情预览">
+      <header class="detail-header">
+        <div class="eyebrow">
+          <span>果实卡片</span>
+          <span class="tag">已选择</span>
+        </div>
+        <h1>把内容树拆成“选题、素材、验证、复盘”四个可循环层</h1>
+        <div class="selection-actions">
+          <button class="primary-btn" type="button">继续生长</button>
+          <button class="secondary-btn" type="button">淘汰</button>
+        </div>
+      </header>
+      <div class="detail-body">
+        <section class="section">
+          <h2>正文</h2>
+          <p>每一次枝化都应该保留“为什么生成、引用了什么、最后选择了什么”。这样果实不是一次性文本，而是可以继续复利的创作节点。</p>
+        </section>
+        <section class="section">
+          <h2>基因标签</h2>
+          <div class="tag-grid">
+            <span class="tag">复利结构</span>
+            <span class="tag">可验证假设</span>
+            <span class="tag">内容资产化</span>
+          </div>
+        </section>
+        <section class="section">
+          <h2>记录</h2>
+          <p>由“长期主义内容增长策略工作区”生成。最近更新：2026-05-10 18:40。</p>
+        </section>
+      </div>
+      <footer class="detail-footer">
+        <button class="secondary-btn" type="button">发布器</button>
+        <button class="secondary-btn" type="button">监控器</button>
+        <button class="secondary-btn" type="button">发布记录</button>
+        <button class="secondary-btn" type="button">数据反馈</button>
+      </footer>
+    </aside>
+
+    <section class="composer" aria-label="枝化生长输入框预览">
+      <div class="composer-top">
+        <div class="source-pill">
+          <span>生长源</span>
+          <strong>已选择果实：四层循环模型</strong>
+        </div>
+        <div class="control-row">
+          <div class="menu-wrap">
+            <button class="picker" type="button" data-menu-button="generator-menu" aria-expanded="false">
+              <span>生成器</span>
+              <strong id="generator-label">深度研究生成器</strong>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+            </button>
+            <div class="menu" id="generator-menu" role="listbox" aria-label="生成器">
+              <button class="menu-item active" type="button" data-generator="深度研究生成器">
+                <span class="mini-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5V5a2 2 0 0 1 2-2h11v18H6a2 2 0 0 1-2-1.5Z" /><path d="M8 7h5M8 11h6" /></svg></span>
+                <span class="menu-text"><strong>深度研究生成器</strong><em>适合策略、长文、框架化输出</em></span>
+                <span class="check">已选</span>
+              </button>
+              <button class="menu-item" type="button" data-generator="短内容分发生成器">
+                <span class="mini-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7" /></svg></span>
+                <span class="menu-text"><strong>短内容分发生成器</strong><em>生成多平台短帖和标题变体</em></span>
+                <span></span>
+              </button>
+              <button class="menu-item" type="button" data-generator="发布验证生成器">
+                <span class="mini-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg></span>
+                <span class="menu-text"><strong>发布验证生成器</strong><em>输出验证指标、假设和回收口径</em></span>
+                <span></span>
+              </button>
+              <button class="menu-item" type="button" data-generator="访谈提纲生成器">
+                <span class="mini-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H7l-4 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" /></svg></span>
+                <span class="menu-text"><strong>访谈提纲生成器</strong><em>拆解问题链与追问路径</em></span>
+                <span></span>
+              </button>
+              <button class="menu-item" type="button" data-generator="案例拆解生成器">
+                <span class="mini-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h18v18H3z" /><path d="M8 3v18M16 3v18M3 8h18M3 16h18" /></svg></span>
+                <span class="menu-text"><strong>案例拆解生成器</strong><em>从案例中抽取可迁移模式</em></span>
+                <span></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="menu-wrap">
+            <button class="picker" type="button" data-menu-button="fruit-menu" aria-expanded="false">
+              <span>果实</span>
+              <strong id="fruit-label">3</strong>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+            </button>
+            <div class="menu compact" id="fruit-menu" role="listbox" aria-label="果实数量">
+              <button class="menu-item" type="button" data-count="1"><span>1</span><span></span></button>
+              <button class="menu-item" type="button" data-count="2"><span>2</span><span></span></button>
+              <button class="menu-item active" type="button" data-count="3"><span>3</span><span class="check">已选</span></button>
+              <button class="menu-item" type="button" data-count="4"><span>4</span><span></span></button>
+              <button class="menu-item" type="button" data-count="5"><span>5</span><span></span></button>
+              <button class="menu-item" type="button" data-count="6"><span>6</span><span></span></button>
+            </div>
+          </div>
+
+          <div class="picker" aria-label="突变概率">
+            <span>突变</span>
+            <strong>18%</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="input-shell">
+        <div class="ref-popover" id="ref-popover" aria-label="@资源提示">
+          <button class="resource-row" type="button" data-kind="nutrient" data-ref="行业案例库：Notion 内容模板增长">
+            <span class="resource-icon">养</span>
+            <span class="resource-copy"><strong>行业案例库：Notion 内容模板增长</strong><em>公共营养库 · docs/nutrients/notion-template-growth.md</em></span>
+            <span class="kbd">@</span>
+          </button>
+          <button class="resource-row" type="button" data-kind="gene" data-ref="基因：可验证假设优先">
+            <span class="resource-icon">因</span>
+            <span class="resource-copy"><strong>基因：可验证假设优先</strong><em>种子基因库 · evidence/selected-fruits</em></span>
+            <span class="kbd">@</span>
+          </button>
+          <button class="resource-row" type="button" data-kind="nutrient" data-ref="竞品观察：Linear Changelog 叙事">
+            <span class="resource-icon">养</span>
+            <span class="resource-copy"><strong>竞品观察：Linear Changelog 叙事</strong><em>公共营养库 · docs/nutrients/linear-changelog.md</em></span>
+            <span class="kbd">@</span>
+          </button>
+          <button class="resource-row" type="button" data-kind="gene" data-ref="基因：从反馈回收标题变量">
+            <span class="resource-icon">因</span>
+            <span class="resource-copy"><strong>基因：从反馈回收标题变量</strong><em>种子基因库 · lineage/content-loop</em></span>
+            <span class="kbd">@</span>
+          </button>
+        </div>
+
+        <div class="ref-tray" id="ref-tray">
+          <span class="ref-chip" data-kind="nutrient" data-ref="行业案例库：Notion 内容模板增长">
+            <span>行业案例库：Notion 内容模板增长</span>
+            <button class="chip-remove" type="button" aria-label="移除引用">×</button>
+          </span>
+          <span class="ref-chip" data-kind="gene" data-ref="基因：可验证假设优先">
+            <span>基因：可验证假设优先</span>
+            <button class="chip-remove" type="button" aria-label="移除引用">×</button>
+          </span>
+        </div>
+
+        <div class="textarea-wrap">
+          <label class="sr-only" for="growth-input">枝化生长意图</label>
+          <textarea id="growth-input" placeholder="输入本次枝化生长的想法，或使用 @ 引用营养库和基因库...">围绕当前已选择果实继续生成“发布验证路径”，重点拆出可观测指标、最低成本实验和复盘字段。输入 @ 可以呼出资源。</textarea>
+        </div>
+      </div>
+
+      <div class="composer-footer">
+        <div class="tool-row">
+          <button class="icon-btn" type="button" id="open-ref" aria-label="引用资源">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          </button>
+          <button class="icon-btn" type="button" aria-label="更多参数">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4" /></svg>
+          </button>
+        </div>
+        <div class="tool-row">
+          <button class="secondary-btn" type="button" id="detail-toggle">枝化详情</button>
+          <button class="send-btn" type="button" aria-label="发起枝化生长">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="detail-pop" id="detail-pop" aria-label="枝化详情">
+        <div class="detail-row"><span>生成器</span><strong id="detail-generator">深度研究生成器</strong></div>
+        <div class="detail-row"><span>果实数量</span><strong id="detail-fruit">3</strong></div>
+        <div class="detail-row"><span>突变概率</span><strong>18%</strong></div>
+        <div class="detail-row"><span>引用资源</span><strong id="detail-ref-count">2</strong></div>
+      </div>
+    </section>
+
+    <div class="canvas-note">
+      <span>Preview focus: advanced node cards, bounded dropup menus, non-overlapping resource picker, removable reference chips.</span>
+      <span>Pure HTML prototype for proposal discussion.</span>
+    </div>
+  </main>
+
+  <script>
+    const menuButtons = Array.from(document.querySelectorAll("[data-menu-button]"));
+    const menus = Array.from(document.querySelectorAll(".menu"));
+    const refPopover = document.getElementById("ref-popover");
+    const refTray = document.getElementById("ref-tray");
+    const input = document.getElementById("growth-input");
+    const detailPop = document.getElementById("detail-pop");
+    const detailToggle = document.getElementById("detail-toggle");
+    const detailRefCount = document.getElementById("detail-ref-count");
+
+    function closeMenus(except) {
+      menus.forEach((menu) => {
+        if (menu !== except) menu.classList.remove("open");
+      });
+      menuButtons.forEach((button) => {
+        const menu = document.getElementById(button.dataset.menuButton);
+        button.setAttribute("aria-expanded", menu && menu.classList.contains("open") ? "true" : "false");
+      });
+    }
+
+    function updateRefCount() {
+      detailRefCount.textContent = String(refTray.querySelectorAll(".ref-chip").length);
+    }
+
+    function createRefChip(kind, label) {
+      const chip = document.createElement("span");
+      chip.className = "ref-chip";
+      chip.dataset.kind = kind;
+      chip.dataset.ref = label;
+      chip.innerHTML = `<span></span><button class="chip-remove" type="button" aria-label="移除引用">×</button>`;
+      chip.querySelector("span").textContent = label;
+      return chip;
+    }
+
+    menuButtons.forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const menu = document.getElementById(button.dataset.menuButton);
+        const willOpen = !menu.classList.contains("open");
+        closeMenus(menu);
+        menu.classList.toggle("open", willOpen);
+        button.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        refPopover.classList.remove("open");
+      });
+    });
+
+    document.querySelectorAll("[data-generator]").forEach((item) => {
+      item.addEventListener("click", () => {
+        document.querySelectorAll("[data-generator]").forEach((entry) => {
+          entry.classList.remove("active");
+          const check = entry.querySelector(".check");
+          if (check) check.textContent = "";
+        });
+        item.classList.add("active");
+        item.querySelector(".check").textContent = "已选";
+        document.getElementById("generator-label").textContent = item.dataset.generator;
+        document.getElementById("detail-generator").textContent = item.dataset.generator;
+        closeMenus();
+      });
+    });
+
+    document.querySelectorAll("[data-count]").forEach((item) => {
+      item.addEventListener("click", () => {
+        document.querySelectorAll("[data-count]").forEach((entry) => {
+          entry.classList.remove("active");
+          const check = entry.querySelector(".check");
+          if (check) check.textContent = "";
+        });
+        item.classList.add("active");
+        const check = item.querySelector(".check");
+        if (check) check.textContent = "已选";
+        document.getElementById("fruit-label").textContent = item.dataset.count;
+        document.getElementById("detail-fruit").textContent = item.dataset.count;
+        closeMenus();
+      });
+    });
+
+    document.getElementById("open-ref").addEventListener("click", (event) => {
+      event.stopPropagation();
+      refPopover.classList.toggle("open");
+      closeMenus();
+      input.focus();
+    });
+
+    input.addEventListener("input", () => {
+      const beforeCursor = input.value.slice(0, input.selectionStart || input.value.length);
+      refPopover.classList.toggle("open", /(^|\s)@[^\s@]*$/.test(beforeCursor));
+    });
+
+    input.addEventListener("click", () => {
+      const beforeCursor = input.value.slice(0, input.selectionStart || input.value.length);
+      refPopover.classList.toggle("open", /(^|\s)@[^\s@]*$/.test(beforeCursor));
+    });
+
+    document.querySelectorAll(".resource-row").forEach((row) => {
+      row.addEventListener("click", () => {
+        const label = row.dataset.ref;
+        const kind = row.dataset.kind;
+        const exists = Array.from(refTray.querySelectorAll(".ref-chip")).some((chip) => chip.dataset.ref === label && chip.dataset.kind === kind);
+        if (!exists) {
+          refTray.prepend(createRefChip(kind, label));
+        }
+        input.value = input.value.replace(/(^|\s)@[^\s@]*$/, "$1").replace(/\s+$/, " ");
+        refPopover.classList.remove("open");
+        updateRefCount();
+        input.focus();
+      });
+    });
+
+    refTray.addEventListener("click", (event) => {
+      const remove = event.target.closest(".chip-remove");
+      if (!remove) return;
+      remove.closest(".ref-chip").remove();
+      updateRefCount();
+    });
+
+    detailToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      detailPop.classList.toggle("open");
+      refPopover.classList.remove("open");
+      closeMenus();
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest(".menu-wrap")) closeMenus();
+      if (!event.target.closest(".input-shell") && !event.target.closest("#open-ref")) refPopover.classList.remove("open");
+      if (!event.target.closest(".detail-pop") && !event.target.closest("#detail-toggle")) detailPop.classList.remove("open");
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeMenus();
+        refPopover.classList.remove("open");
+        detailPop.classList.remove("open");
+      }
+    });
+  </script>
+</body>
+</html>

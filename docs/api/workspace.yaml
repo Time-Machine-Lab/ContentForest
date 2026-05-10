@@ -34,7 +34,7 @@ components:
   schemas:
     WorkspaceSnapshot:
       type: object
-      required: [seed, workspaceReadOnly, nodes, edges, resources]
+      required: [seed, workspaceReadOnly, nodes, edges, resources, geneExtractionHub]
       properties:
         seed:
           $ref: '#/components/schemas/WorkspaceSeedSummary'
@@ -50,6 +50,8 @@ components:
             $ref: '#/components/schemas/WorkspaceEdge'
         resources:
           $ref: '#/components/schemas/WorkspaceResources'
+        geneExtractionHub:
+          $ref: '#/components/schemas/WorkspaceGeneExtractionHub'
     WorkspaceSeedSummary:
       type: object
       required: [id, title, archiveState, rootNodeId, contentLocation, createdAt, updatedAt]
@@ -314,6 +316,137 @@ components:
           type: string
           format: date-time
           nullable: true
+    WorkspaceGeneExtractionHub:
+      type: object
+      required:
+        - seedId
+        - geneLibrary
+        - pendingReminders
+        - pendingSuggestions
+        - stats
+        - actions
+      properties:
+        seedId:
+          type: string
+        geneLibrary:
+          $ref: '#/components/schemas/WorkspaceGeneLibrarySummary'
+        pendingReminders:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceGeneReminderSummary'
+        pendingSuggestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceGeneSuggestionSummary'
+        stats:
+          $ref: '#/components/schemas/WorkspaceGeneExtractionStats'
+        actions:
+          $ref: '#/components/schemas/WorkspaceGeneExtractionActions'
+    WorkspaceGeneLibrarySummary:
+      type: object
+      required: [seedId, contentLocation, insightCount, referableInsightCount, updatedAt]
+      properties:
+        seedId:
+          type: string
+        contentLocation:
+          type: string
+        insightCount:
+          type: integer
+          minimum: 0
+        referableInsightCount:
+          type: integer
+          minimum: 0
+        updatedAt:
+          type: string
+          format: date-time
+    WorkspaceGeneReminderSummary:
+      type: object
+      required: [id, seedId, status, evidenceSources, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        seedId:
+          type: string
+        status:
+          type: string
+          enum: [pending]
+        evidenceSources:
+          type: array
+          items:
+            $ref: '#/components/schemas/GeneEvidenceSource'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    WorkspaceGeneSuggestionSummary:
+      type: object
+      required: [id, seedId, taskId, status, title, lineage, niche, evidenceSources, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        seedId:
+          type: string
+        taskId:
+          type: string
+        status:
+          type: string
+          enum: [pending]
+        title:
+          type: string
+        lineage:
+          type: string
+        niche:
+          type: string
+        evidenceSources:
+          type: array
+          items:
+            $ref: '#/components/schemas/GeneEvidenceSource'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    WorkspaceGeneExtractionStats:
+      type: object
+      required: [pendingReminderCount, pendingSuggestionCount, insightCount, referableInsightCount]
+      properties:
+        pendingReminderCount:
+          type: integer
+          minimum: 0
+        pendingSuggestionCount:
+          type: integer
+          minimum: 0
+        insightCount:
+          type: integer
+          minimum: 0
+        referableInsightCount:
+          type: integer
+          minimum: 0
+    WorkspaceGeneExtractionActions:
+      type: object
+      required: [canStartExtraction, canReviewSuggestions, canOpenGeneLibrary]
+      properties:
+        canStartExtraction:
+          type: boolean
+        canReviewSuggestions:
+          type: boolean
+        canOpenGeneLibrary:
+          type: boolean
+    GeneEvidenceSource:
+      type: object
+      required: [sourceType, sourceId, strength]
+      properties:
+        sourceType:
+          type: string
+          enum: [fruit_selected, fruit_eliminated, publication, feedback]
+        sourceId:
+          type: string
+        strength:
+          type: string
+          enum: [weak, medium, strong]
     ErrorResponse:
       type: object
       required: [code, message]

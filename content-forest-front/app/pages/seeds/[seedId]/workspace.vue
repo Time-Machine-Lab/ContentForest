@@ -97,6 +97,7 @@ const fruitCountMenuOpen = ref(false)
 const growthDetailOpen = ref(false)
 const growthIntent = ref('')
 const referencedResources = ref<ResourceRef[]>([])
+const growthInputEl = ref<HTMLTextAreaElement | null>(null)
 const selectedGeneratorId = ref('')
 const fruitCount = ref(3)
 const mutationRate = ref(18)
@@ -586,6 +587,12 @@ function nodeStateLabel(node: TreeNode) {
   return '候选'
 }
 
+function nodeSecondaryLabel(node: TreeNode) {
+  if (node.status === 'growing') return '...'
+  if (node.nodeType === 'seed') return 'Root'
+  return node.geneTags[0] || node.contentLocation || 'Fruit'
+}
+
 async function selectNode(nodeId: string) {
   if (suppressClickNodeId.value === nodeId) {
     suppressClickNodeId.value = ''
@@ -711,6 +718,11 @@ function addResource(resource: ResourceRef) {
   growthIntent.value = removeActiveMention(growthIntent.value)
   resourcePopoverOpen.value = false
   resourceQuery.value = ''
+  void nextTick(() => growthInputEl.value?.focus())
+}
+
+function removeResource(resource: ResourceRef) {
+  referencedResources.value = referencedResources.value.filter((item) => !(item.id === resource.id && item.kind === resource.kind))
 }
 
 function removeActiveMention(value: string) {
@@ -736,6 +748,21 @@ function openResourceMention() {
     : `${growthIntent.value} @`
   resourceQuery.value = ''
   resourcePopoverOpen.value = true
+  generatorMenuOpen.value = false
+  fruitCountMenuOpen.value = false
+  void nextTick(() => growthInputEl.value?.focus())
+}
+
+function toggleGeneratorMenu() {
+  generatorMenuOpen.value = !generatorMenuOpen.value
+  fruitCountMenuOpen.value = false
+  resourcePopoverOpen.value = false
+}
+
+function toggleFruitCountMenu() {
+  fruitCountMenuOpen.value = !fruitCountMenuOpen.value
+  generatorMenuOpen.value = false
+  resourcePopoverOpen.value = false
 }
 
 function selectGenerator(generatorId: string) {
@@ -1020,30 +1047,22 @@ function formatDateTime(value: string) {
           @pointercancel="endDrag"
         >
           <span class="cf-node-head">
-            <span>{{ node.nodeType === 'seed' ? 'SEED' : 'FRUIT' }}</span>
-            <span class="cf-node-dot" />
-          </span>
-          <span class="cf-node-identity" aria-hidden="true">
-            <span class="cf-node-orb">
-              <span class="cf-orb-core" />
-              <span class="cf-orb-vein is-a" />
-              <span class="cf-orb-vein is-b" />
-            </span>
-            <span class="cf-node-signature">
-              <span />
-              <span />
-              <span />
-            </span>
+            <span class="cf-node-type">{{ node.nodeType === 'seed' ? 'SEED' : 'FRUIT' }}</span>
+            <span class="cf-node-mark" aria-hidden="true" />
           </span>
           <span class="cf-node-title">{{ node.title }}</span>
-          <span v-if="node.isPlaceholder" class="cf-growth-vessel" aria-hidden="true">
+          <span v-if="node.status === 'growing' || node.isPlaceholder" class="cf-growth-vessel" aria-hidden="true">
             <span class="cf-vessel-thread is-a" />
             <span class="cf-vessel-thread is-b" />
             <span class="cf-vessel-core" />
             <span class="cf-vessel-scan" />
           </span>
-          <span class="cf-node-tags">
-            <span class="cf-node-tag">{{ nodeStateLabel(node) }}</span>
+          <span class="cf-node-foot">
+            <span class="cf-node-tags">
+              <span class="cf-node-tag">{{ nodeStateLabel(node) }}</span>
+              <span v-if="node.geneTags[0]" class="cf-node-tag">{{ node.geneTags[0] }}</span>
+            </span>
+            <span class="cf-node-score">{{ nodeSecondaryLabel(node) }}</span>
           </span>
         </button>
       </div>
@@ -1157,7 +1176,7 @@ function formatDateTime(value: string) {
           <strong>{{ selectedNode.summary }}</strong>
         </div>
         <div class="cf-growth-menu-wrap">
-          <button class="cf-growth-pill cf-growth-picker" type="button" @click="generatorMenuOpen = !generatorMenuOpen">
+          <button class="cf-growth-pill cf-growth-picker" type="button" :aria-expanded="generatorMenuOpen" @click="toggleGeneratorMenu">
           <span>生成器</span>
           <strong>{{ generatorName }}</strong>
           <span class="cf-picker-caret">⌄</span>
@@ -1171,13 +1190,17 @@ function formatDateTime(value: string) {
               type="button"
               @click="selectGenerator(generator.id)"
             >
-              {{ generator.name }}
+              <span>
+                <strong>{{ generator.name }}</strong>
+                <em>{{ generator.description }}</em>
+              </span>
+              <span class="cf-menu-check">{{ generator.id === selectedGeneratorId ? '*' : '' }}</span>
             </button>
             <span v-if="!snapshot?.resources.generators.length" class="cf-pill-menu-empty">暂无生成器</span>
           </div>
         </div>
         <div class="cf-growth-menu-wrap">
-          <button class="cf-growth-pill cf-growth-picker" type="button" @click="fruitCountMenuOpen = !fruitCountMenuOpen">
+          <button class="cf-growth-pill cf-growth-picker" type="button" :aria-expanded="fruitCountMenuOpen" @click="toggleFruitCountMenu">
           <span>果实</span>
           <strong>{{ fruitCount }}</strong>
           <span class="cf-picker-caret">⌄</span>
@@ -1191,7 +1214,8 @@ function formatDateTime(value: string) {
               type="button"
               @click="selectFruitCount(count)"
             >
-              {{ count }}
+              <span>{{ count }}</span>
+              <span class="cf-menu-check">{{ count === fruitCount ? '*' : '' }}</span>
             </button>
           </div>
         </div>
@@ -1201,7 +1225,7 @@ function formatDateTime(value: string) {
         </div>
       </div>
 
-      <label class="cf-growth-input">
+      <div class="cf-growth-input">
         <span v-if="referencedResources.length > 0" class="cf-inline-refs">
           <span
             v-for="resource in referencedResources"
@@ -1209,10 +1233,19 @@ function formatDateTime(value: string) {
             class="cf-mention"
             :class="`is-${resource.kind}`"
           >
-            {{ resource.label }}
+            <span>{{ resource.label }}</span>
+            <button
+              class="cf-mention-remove"
+              type="button"
+              :aria-label="`移除引用 ${resource.label}`"
+              @click.stop="removeResource(resource)"
+            >
+              x
+            </button>
           </span>
         </span>
         <textarea
+          ref="growthInputEl"
           v-model="growthIntent"
           aria-label="枝化生长意图"
           placeholder="输入本次枝化生长的想法，或使用 @ 引用营养库和基因库..."
@@ -1220,7 +1253,7 @@ function formatDateTime(value: string) {
           @keyup="updateResourcePopover"
           @input="updateResourcePopover"
         />
-      </label>
+      </div>
 
       <p v-if="growthError" class="cf-inline-error">{{ growthError }}</p>
 
@@ -1251,6 +1284,14 @@ function formatDateTime(value: string) {
             :class="`is-${resource.kind}`"
           >
             {{ resource.kindLabel }} · {{ resource.label.replace(/^.* · /, '') }}
+            <button
+              class="cf-mention-remove"
+              type="button"
+              :aria-label="`移除引用 ${resource.label}`"
+              @click.stop="removeResource(resource)"
+            >
+              x
+            </button>
           </span>
         </div>
       </div>
@@ -1600,37 +1641,36 @@ button:disabled {
   stroke: rgba(255, 255, 255, .32);
 }
 
-/* Botanical specimen nodes: sealed seed core and fruit specimen plates. */
+/* Compact command-workspace nodes. */
 .cf-tree-node {
-  --node-accent: #d8b46a;
-  --node-rgb: 216, 180, 106;
-  --node-ink: rgba(244, 249, 245, .94);
-  --node-muted: rgba(218, 228, 222, .6);
+  --node-accent: #e7bd68;
+  --node-rgb: 231, 189, 104;
+  --node-ink: #f4f7f8;
+  --node-muted: rgba(238, 243, 245, .54);
   position: absolute;
   z-index: 5;
-  width: 224px;
-  height: 156px;
+  width: 232px;
+  min-height: 158px;
   box-sizing: border-box;
   display: grid;
-  grid-template-rows: auto 38px minmax(36px, 1fr) auto;
-  gap: 9px;
-  padding: 13px 14px 12px;
+  grid-template-rows: auto 1fr auto;
+  gap: 11px;
+  padding: 13px;
   overflow: hidden;
   color: var(--node-ink);
   text-align: left;
   appearance: none;
   cursor: grab;
-  border: 1px solid rgba(255, 255, 255, .13);
-  border-radius: 18px 18px 12px 12px;
+  border: 1px solid rgba(var(--node-rgb), .22);
+  border-radius: 8px;
   background:
-    radial-gradient(circle at 16% 0%, rgba(255, 255, 255, .18), transparent 24%),
-    radial-gradient(circle at 92% 12%, rgba(var(--node-rgb), .14), transparent 27%),
-    linear-gradient(180deg, rgba(30, 37, 36, .94), rgba(14, 18, 18, .96));
+    linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .018)),
+    linear-gradient(135deg, rgba(var(--node-rgb), .08), rgba(20, 24, 31, .96) 34%),
+    rgba(17, 20, 26, .96);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .12),
-    inset 0 -18px 32px rgba(0, 0, 0, .14),
-    0 18px 44px rgba(0, 0, 0, .28);
-  backdrop-filter: blur(10px) saturate(1.08);
+    inset 0 1px 0 rgba(255, 255, 255, .09),
+    0 18px 44px rgba(0, 0, 0, .34);
+  backdrop-filter: none;
   transform: none;
   transform-origin: center;
   isolation: isolate;
@@ -1656,91 +1696,57 @@ button:disabled {
 }
 
 .cf-tree-node:hover {
-  border-color: rgba(var(--node-rgb), .44);
+  border-color: rgba(var(--node-rgb), .45);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .14),
-    inset 0 -18px 32px rgba(0, 0, 0, .12),
-    0 22px 56px rgba(0, 0, 0, .34),
+    inset 0 1px 0 rgba(255, 255, 255, .11),
+    0 22px 58px rgba(0, 0, 0, .42),
     0 0 0 1px rgba(var(--node-rgb), .08);
+  outline: 0;
   transform: translateY(-3px);
 }
 
 .cf-tree-node::before {
-  inset: 8px;
-  z-index: 0;
-  border: 1px solid rgba(255, 255, 255, .07);
+  inset: 0;
+  z-index: -1;
   border-radius: inherit;
   background:
-    linear-gradient(120deg, rgba(255, 255, 255, .08), transparent 34%),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 34px);
-  opacity: .75;
+    linear-gradient(90deg, rgba(var(--node-rgb), .28), transparent 46%),
+    linear-gradient(180deg, rgba(255, 255, 255, .045), transparent 52%);
+  opacity: .42;
+  mask: linear-gradient(#000, transparent 62%);
 }
 
 .cf-tree-node::after {
-  content: "";
-  left: 16px;
-  right: 16px;
-  bottom: 10px;
-  top: auto;
-  z-index: 1;
-  height: 3px;
-  border: 0;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, rgba(var(--node-rgb), .82), transparent);
-  box-shadow: 0 0 18px rgba(var(--node-rgb), .22);
-  transform: none;
-  animation: none;
+  display: none;
 }
 
 .cf-tree-node.is-seed {
-  --node-accent: #80dfce;
-  --node-rgb: 128, 223, 206;
-  width: 238px;
-  height: 172px;
-  padding: 14px 16px 14px;
-  border-radius: 34px 28px 36px 26px;
-  border-color: rgba(128, 223, 206, .28);
-  background:
-    radial-gradient(ellipse at 30% 10%, rgba(255, 255, 255, .18), transparent 26%),
-    radial-gradient(circle at 76% 72%, rgba(128, 223, 206, .18), transparent 34%),
-    linear-gradient(155deg, rgba(24, 48, 45, .98), rgba(11, 18, 18, .96));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .16),
-    inset 0 -22px 42px rgba(0, 0, 0, .16),
-    0 20px 54px rgba(0, 0, 0, .3),
-    0 0 36px rgba(128, 223, 206, .08);
+  --node-accent: #60d5c8;
+  --node-rgb: 96, 213, 200;
+  width: 252px;
+  min-height: 176px;
 }
 
 .cf-tree-node.is-fruit {
-  width: 224px;
-  height: 156px;
+  width: 232px;
+  min-height: 158px;
 }
 
 .cf-tree-node.is-candidate {
-  --node-accent: #e1bc72;
-  --node-rgb: 225, 188, 114;
+  --node-accent: #e7bd68;
+  --node-rgb: 231, 189, 104;
 }
 
 .cf-tree-node.is-selected {
-  --node-accent: #a7df9c;
-  --node-rgb: 167, 223, 156;
-  border-color: rgba(167, 223, 156, .38);
-  background:
-    radial-gradient(circle at 16% 0%, rgba(255, 255, 255, .18), transparent 24%),
-    radial-gradient(circle at 88% 18%, rgba(167, 223, 156, .18), transparent 28%),
-    linear-gradient(180deg, rgba(28, 43, 34, .96), rgba(12, 18, 14, .96));
+  --node-accent: #9cdd8f;
+  --node-rgb: 156, 221, 143;
 }
 
 .cf-tree-node.is-eliminated {
-  --node-accent: #8e9694;
-  --node-rgb: 142, 150, 148;
-  --node-muted: rgba(199, 207, 204, .44);
-  border-color: rgba(255, 255, 255, .08);
-  background:
-    repeating-linear-gradient(135deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 11px),
-    linear-gradient(180deg, rgba(31, 35, 35, .92), rgba(14, 16, 16, .96));
-  filter: saturate(.36) contrast(.92);
-  opacity: .68;
+  --node-accent: #8f989d;
+  --node-rgb: 143, 152, 157;
+  filter: saturate(.45);
+  opacity: .58;
 }
 
 .cf-tree-node.is-eliminated::after {
@@ -1753,30 +1759,95 @@ button:disabled {
 
 .cf-tree-node.is-growing,
 .cf-tree-node.is-growth-placeholder {
-  --node-accent: #83d9ff;
-  --node-rgb: 131, 217, 255;
-  border-color: rgba(131, 217, 255, .36);
+  --node-accent: #7aa7ff;
+  --node-rgb: 122, 167, 255;
   animation: cf-node-soft-pulse 1.65s ease-in-out infinite;
 }
 
 .cf-tree-node.is-active {
-  border-color: rgba(var(--node-rgb), .58);
+  border-color: rgba(var(--node-rgb), .72);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .16),
-    inset 0 -18px 32px rgba(0, 0, 0, .12),
-    0 0 0 2px rgba(var(--node-rgb), .18),
-    0 24px 62px rgba(0, 0, 0, .36);
+    inset 0 1px 0 rgba(255, 255, 255, .12),
+    0 0 0 2px rgba(var(--node-rgb), .16),
+    0 24px 62px rgba(0, 0, 0, .45);
 }
 
 .cf-node-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 7px;
+  gap: 10px;
+}
+
+.cf-node-type {
   color: var(--node-muted);
-  font-size: 9px;
-  font-weight: 850;
+  font-size: 10px;
+  font-weight: 760;
   letter-spacing: .08em;
+}
+
+.cf-node-mark {
+  position: relative;
+  width: 25px;
+  height: 25px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(var(--node-rgb), .24);
+  border-radius: 7px;
+  background: rgba(var(--node-rgb), .09);
+  color: var(--node-accent);
+}
+
+.cf-node-mark::before,
+.cf-node-mark::after {
+  content: "";
+  position: absolute;
+  width: 11px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.cf-node-mark::after {
+  transform: rotate(90deg);
+}
+
+.cf-tree-node.is-selected .cf-node-mark::before {
+  width: 7px;
+  transform: translate(-3px, 2px) rotate(45deg);
+}
+
+.cf-tree-node.is-selected .cf-node-mark::after {
+  width: 13px;
+  transform: translate(2px, 0) rotate(-45deg);
+}
+
+.cf-tree-node.is-eliminated .cf-node-mark::before {
+  transform: rotate(45deg);
+}
+
+.cf-tree-node.is-eliminated .cf-node-mark::after {
+  transform: rotate(-45deg);
+}
+
+.cf-tree-node.is-growing .cf-node-mark::before,
+.cf-tree-node.is-growth-placeholder .cf-node-mark::before {
+  width: 13px;
+  height: 1px;
+  background: transparent;
+  border-top: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+}
+
+.cf-tree-node.is-growing .cf-node-mark::after,
+.cf-tree-node.is-growth-placeholder .cf-node-mark::after {
+  width: 5px;
+  height: 5px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: rgba(var(--node-rgb), .12);
+  transform: none;
 }
 
 .cf-node-dot {
@@ -1789,117 +1860,32 @@ button:disabled {
     0 0 14px rgba(var(--node-rgb), .42);
 }
 
-.cf-node-identity {
-  display: grid;
-  grid-template-columns: 38px 1fr;
-  gap: 11px;
-  align-items: center;
-  min-height: 38px;
-}
-
-.cf-node-orb {
-  position: relative;
-  width: 38px;
-  height: 38px;
-  border: 1px solid rgba(255, 255, 255, .15);
-  border-radius: 14px 14px 10px 10px;
-  background:
-    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, .36), transparent 18%),
-    radial-gradient(circle at 72% 78%, rgba(var(--node-rgb), .24), transparent 38%),
-    rgba(255, 255, 255, .055);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .14),
-    inset 0 -9px 16px rgba(0, 0, 0, .16);
-  transform: none;
-}
-
-.cf-tree-node.is-seed .cf-node-orb {
-  width: 40px;
-  height: 40px;
-  border-radius: 52% 44% 55% 45%;
-  background:
-    radial-gradient(circle at 34% 24%, rgba(255, 255, 255, .42), transparent 18%),
-    radial-gradient(ellipse at center, rgba(128, 223, 206, .28), rgba(12, 34, 32, .88) 70%);
-  transform: rotate(-12deg);
-}
-
-.cf-orb-core,
-.cf-orb-vein {
-  position: absolute;
-  pointer-events: none;
-}
-
-.cf-orb-core {
-  left: 50%;
-  top: 50%;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--node-accent);
-  box-shadow: 0 0 14px rgba(var(--node-rgb), .36);
-  transform: translate(-50%, -50%);
-}
-
-.cf-orb-vein {
-  left: 7px;
-  right: 7px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .4), transparent);
-  opacity: .18;
-  transform-origin: center;
-}
-
-.cf-orb-vein.is-a {
-  top: 11px;
-  transform: rotate(32deg);
-}
-
-.cf-orb-vein.is-b {
-  bottom: 11px;
-  transform: rotate(-34deg);
-}
-
-.cf-node-signature {
-  display: grid;
-  gap: 5px;
-  align-content: center;
-}
-
-.cf-node-signature span {
-  height: 2px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(var(--node-rgb), .5), rgba(255, 255, 255, .08), transparent);
-}
-
-.cf-node-signature span:nth-child(2) {
-  width: 66%;
-  background: linear-gradient(90deg, rgba(255, 255, 255, .16), transparent);
-}
-
-.cf-node-signature span:nth-child(3) {
-  width: 42%;
-  background: linear-gradient(90deg, rgba(var(--node-rgb), .34), transparent);
-}
-
 .cf-node-title {
-  min-height: 36px;
   overflow: hidden;
   display: -webkit-box;
-  color: var(--node-ink);
-  font-size: 13px;
-  font-weight: 780;
+  align-self: center;
+  color: #f4f7f8;
+  font-size: 14px;
+  font-weight: 760;
   line-height: 1.42;
   text-shadow: none;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
+}
+
+.cf-node-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .cf-node-tags,
 .cf-tree-node.is-growth-placeholder .cf-node-tags {
+  min-width: 0;
   display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 7px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .cf-node-tag,
@@ -1909,22 +1895,32 @@ button:disabled {
   min-height: 22px;
   display: inline-flex;
   align-items: center;
-  padding: 0 9px;
-  border: 1px solid rgba(var(--node-rgb), .24);
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid rgba(var(--node-rgb), .2);
   border-radius: 999px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .018)),
-    rgba(var(--node-rgb), .08);
-  color: color-mix(in srgb, var(--node-accent) 58%, #e5eee9);
-  font-size: 10px;
+  background: rgba(var(--node-rgb), .08);
+  color: rgba(238, 243, 245, .78);
+  font-size: 11px;
   text-shadow: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-node-score {
+  overflow: hidden;
+  flex: 0 0 auto;
+  max-width: 62px;
+  color: rgba(151, 166, 174, .86);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .cf-tree-node.is-eliminated .cf-node-title,
 .cf-tree-node.is-eliminated .cf-node-tag,
-.cf-tree-node.is-eliminated .cf-node-head {
+.cf-tree-node.is-eliminated .cf-node-type,
+.cf-tree-node.is-eliminated .cf-node-score {
   color: rgba(214, 220, 218, .5);
 }
 
@@ -2138,31 +2134,35 @@ button:disabled {
 .cf-growth-composer {
   position: absolute;
   z-index: 25;
-  left: 50%;
+  left: calc(50% - 203px);
   bottom: 18px;
-  width: min(920px, calc(100vw - 556px));
-  min-width: 620px;
+  width: min(760px, calc(100vw - 650px));
+  min-width: 540px;
   border: 1px solid rgba(255, 255, 255, .16);
-  border-radius: 18px;
-  background: rgba(35, 36, 37, .96);
-  box-shadow: 0 30px 100px rgba(0, 0, 0, .55);
-  transform: translateX(calc(-50% - 190px));
-  backdrop-filter: blur(30px);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .055), rgba(255, 255, 255, .02)),
+    rgba(22, 25, 31, .97);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .46);
+  transform: translateX(-50%);
+  backdrop-filter: blur(26px);
 }
 
 .cf-growth-top {
-  padding: 10px 12px 0;
+  justify-content: space-between;
+  padding: 10px;
+  border-bottom: 1px solid var(--cf-border-soft);
 }
 
 .cf-growth-pill {
-  min-height: 28px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   padding: 0 10px;
   border: 1px solid var(--cf-border);
-  border-radius: 14px;
+  border-radius: 6px;
   background: rgba(255, 255, 255, .045);
 }
 
@@ -2193,8 +2193,13 @@ button:disabled {
 }
 
 .cf-growth-picker:hover {
-  border-color: rgba(94, 215, 197, .28);
-  background: rgba(94, 215, 197, .07);
+  border-color: rgba(122, 167, 255, .38);
+  background: rgba(122, 167, 255, .08);
+}
+
+.cf-growth-picker[aria-expanded="true"] {
+  border-color: rgba(122, 167, 255, .42);
+  background: rgba(122, 167, 255, .09);
 }
 
 .cf-picker-caret {
@@ -2205,29 +2210,35 @@ button:disabled {
 .cf-pill-menu {
   position: absolute;
   z-index: 35;
-  top: calc(100% + 8px);
+  bottom: calc(100% + 8px);
   left: 0;
-  width: 236px;
+  width: 286px;
+  max-height: 242px;
   display: grid;
   gap: 4px;
+  overflow: auto;
   padding: 6px;
-  border: 1px solid var(--cf-border);
-  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 8px;
   background: rgba(18, 21, 24, .98);
-  box-shadow: 0 18px 60px rgba(0, 0, 0, .36);
+  box-shadow: 0 22px 72px rgba(0, 0, 0, .42);
+  scrollbar-color: rgba(122, 167, 255, .42) rgba(255, 255, 255, .04);
+  animation: cf-menu-in .16s ease both;
 }
 
 .cf-pill-menu.is-compact {
-  width: 84px;
+  width: 112px;
 }
 
 .cf-pill-menu-item,
 .cf-pill-menu-empty {
-  min-height: 30px;
-  display: flex;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
   align-items: center;
-  padding: 0 9px;
-  border-radius: 7px;
+  padding: 6px 8px;
+  border-radius: 6px;
   color: var(--cf-muted);
   font-size: 12px;
   text-align: left;
@@ -2244,13 +2255,36 @@ button:disabled {
   color: var(--cf-text);
 }
 
+.cf-pill-menu-item strong,
+.cf-pill-menu-item em {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-pill-menu-item strong {
+  font-size: 12px;
+}
+
+.cf-pill-menu-item em {
+  margin-top: 2px;
+  color: var(--cf-muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.cf-menu-check {
+  color: var(--cf-select);
+  font-size: 12px;
+}
+
 .cf-growth-input {
   position: relative;
   display: grid;
   gap: 8px;
-  min-height: 76px;
-  margin: 8px 12px 6px;
-  padding: 10px 0;
+  margin: 0;
+  padding: 10px;
   color: var(--cf-text);
   font-size: 14px;
   line-height: 1.45;
@@ -2258,12 +2292,14 @@ button:disabled {
 
 .cf-growth-input textarea {
   width: 100%;
-  min-height: 76px;
-  padding: 10px 0;
-  border: 0;
+  min-height: 96px;
+  max-height: 180px;
+  padding: 12px;
+  border: 1px solid var(--cf-border-soft);
+  border-radius: 8px;
   outline: 0;
   resize: none;
-  background: transparent;
+  background: rgba(8, 10, 14, .62);
   color: var(--cf-text);
   caret-color: var(--cf-text);
   line-height: 1.45;
@@ -2274,21 +2310,34 @@ button:disabled {
 }
 
 .cf-inline-refs {
+  max-height: 62px;
+  overflow: auto;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  padding: 0 2px;
+  scrollbar-color: rgba(255, 255, 255, .22) transparent;
 }
 
 .cf-mention {
+  max-width: 260px;
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   min-height: 22px;
-  padding: 0 6px;
+  padding: 0 5px 0 8px;
   border: 1px solid rgba(94, 215, 197, .24);
   border-radius: 6px;
   background: rgba(94, 215, 197, .12);
   color: #bffff3;
   font-weight: 700;
+  white-space: nowrap;
+}
+
+.cf-mention span,
+.cf-ref-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cf-mention.is-nutrient {
@@ -2299,7 +2348,7 @@ button:disabled {
 
 .cf-growth-footer {
   justify-content: space-between;
-  padding: 4px 12px 12px;
+  padding: 0 10px 10px;
 }
 
 .cf-growth-refs {
@@ -2312,12 +2361,13 @@ button:disabled {
   height: 34px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
+  border-radius: 6px;
   cursor: pointer;
 }
 
 .cf-round-tool {
-  background: transparent;
+  border: 1px solid var(--cf-border-soft);
+  background: rgba(255, 255, 255, .04);
   color: var(--cf-muted);
   font-size: 22px;
 }
@@ -2330,9 +2380,33 @@ button:disabled {
 .cf-ref-chip {
   max-width: 180px;
   overflow: hidden;
-  padding: 6px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 5px 6px 8px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.cf-mention-remove {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+  opacity: .72;
+}
+
+.cf-mention-remove:hover,
+.cf-mention-remove:focus-visible {
+  background: rgba(255, 255, 255, .1);
+  opacity: 1;
+  outline: 0;
 }
 
 .cf-ref-chip.is-nutrient {
@@ -2358,12 +2432,17 @@ button:disabled {
 
 .cf-resource-popover {
   left: 12px;
-  bottom: 166px;
-  width: 350px;
+  bottom: calc(100% + 10px);
+  width: min(420px, calc(100% - 24px));
+  max-height: 268px;
   display: grid;
   gap: 5px;
+  overflow: auto;
   padding: 8px;
   border-radius: 8px;
+  background: rgba(17, 20, 26, .99);
+  scrollbar-color: rgba(94, 215, 197, .42) rgba(255, 255, 255, .04);
+  animation: cf-menu-in .16s ease both;
 }
 
 .cf-resource-row {
@@ -2383,6 +2462,14 @@ button:disabled {
 .cf-resource-row:hover {
   background: rgba(94, 215, 197, .1);
   color: var(--cf-text);
+}
+
+.cf-resource-row:focus-visible,
+.cf-pill-menu-item:focus-visible,
+.cf-round-tool:focus-visible,
+.cf-send-button:focus-visible {
+  outline: 2px solid rgba(122, 167, 255, .42);
+  outline-offset: 2px;
 }
 
 .cf-resource-icon {
@@ -2468,6 +2555,18 @@ button:disabled {
   }
 }
 
+@keyframes cf-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @keyframes cf-thread-grow {
   0%,
   100% {
@@ -2532,6 +2631,26 @@ button:disabled {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .cf-tree-node,
+  .cf-tree-node.is-growing,
+  .cf-tree-node.is-growth-placeholder,
+  .cf-branch.is-growth-stream,
+  .cf-vessel-thread,
+  .cf-vessel-core,
+  .cf-vessel-scan,
+  .cf-pill-menu,
+  .cf-resource-popover,
+  .cf-header-tree-status.is-growing .cf-growth-meter span {
+    animation: none;
+    transition-duration: .01ms;
+  }
+
+  .cf-tree-node:hover {
+    transform: none;
+  }
+}
+
 @media (max-width: 1180px) {
   .cf-node-detail {
     width: 360px;
@@ -2542,9 +2661,10 @@ button:disabled {
   }
 
   .cf-growth-composer {
+    left: calc(50% - 180px);
     min-width: 500px;
-    width: calc(100vw - 470px);
-    transform: translateX(calc(-50% - 170px));
+    width: calc(100vw - 650px);
+    transform: translateX(-50%);
   }
 
   .cf-growth-top {

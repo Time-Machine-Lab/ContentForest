@@ -18,6 +18,7 @@ export interface GrowthLockRecord {
 export interface GrowthStoragePort {
   createTask(record: GrowthTaskRecord): Promise<void>;
   findTaskById(taskId: string): Promise<GrowthTaskRecord | null>;
+  listRunningTasks(): Promise<GrowthTaskRecord[]>;
   saveTask(record: GrowthTaskRecord): Promise<void>;
 
   createAttempt(record: GrowthAttemptRecord): Promise<void>;
@@ -29,6 +30,7 @@ export interface GrowthStoragePort {
   findLockBySource(
     sourceNodeRef: GrowthSourceNodeRef,
   ): Promise<GrowthLockRecord | null>;
+  listLocks(): Promise<GrowthLockRecord[]>;
 
   upsertFailedInput(record: GrowthFailedInputRecord): Promise<void>;
   findFailedInputBySource(

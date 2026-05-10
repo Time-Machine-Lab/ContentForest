@@ -131,6 +131,17 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
     return row === undefined ? null : this.toTaskRecord(row);
   }
 
+  public async listRunningTasks(): Promise<GrowthTaskRecord[]> {
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM growth_tasks
+          WHERE status = 'running'
+          ORDER BY created_at ASC`,
+      )
+      .all() as unknown as GrowthTaskRow[];
+    return rows.map((row) => this.toTaskRecord(row));
+  }
+
   public async saveTask(record: GrowthTaskRecord): Promise<void> {
     this.database
       .prepare(
@@ -287,6 +298,16 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       | GrowthLockRow
       | undefined;
     return row === undefined ? null : this.toLockRecord(row);
+  }
+
+  public async listLocks(): Promise<GrowthLockRecord[]> {
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM growth_locks
+          ORDER BY locked_at ASC`,
+      )
+      .all() as unknown as GrowthLockRow[];
+    return rows.map((row) => this.toLockRecord(row));
   }
 
   public async upsertFailedInput(record: GrowthFailedInputRecord): Promise<void> {

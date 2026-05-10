@@ -1,0 +1,906 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>内容森林 - 基因库页面预览</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080a0e;
+      --panel: #10141b;
+      --panel-2: #141923;
+      --panel-3: #181f2a;
+      --line: rgba(255, 255, 255, .09);
+      --line-strong: rgba(122, 167, 255, .35);
+      --text: #edf3f4;
+      --muted: #9ba6ad;
+      --faint: #68727b;
+      --blue: #7aa7ff;
+      --cyan: #60d5c8;
+      --green: #9cdd8f;
+      --amber: #e7bd68;
+      --red: #e5827b;
+      --shadow: 0 24px 76px rgba(0, 0, 0, .38);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background:
+        linear-gradient(rgba(255, 255, 255, .018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .018) 1px, transparent 1px),
+        var(--bg);
+      background-size: 32px 32px, 32px 32px, auto;
+      color: var(--text);
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      cursor: pointer;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 224px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+      background: rgba(8, 10, 14, .88);
+      padding: 18px 14px;
+    }
+
+    .brand {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(96, 213, 200, .32);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(96, 213, 200, .2), rgba(122, 167, 255, .08)),
+        rgba(255, 255, 255, .04);
+    }
+
+    .brand strong,
+    .brand span {
+      display: block;
+    }
+
+    .brand strong {
+      font-size: 14px;
+    }
+
+    .brand span,
+    .nav-label,
+    .mini-copy,
+    .muted {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .nav-label {
+      margin: 18px 6px 8px;
+      text-transform: uppercase;
+    }
+
+    .nav-item {
+      min-height: 38px;
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      width: 100%;
+      padding: 0 10px;
+      border-radius: 8px;
+      color: var(--muted);
+      background: transparent;
+      text-align: left;
+    }
+
+    .nav-item.is-active,
+    .nav-item:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, .06);
+    }
+
+    .nav-icon {
+      width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--cyan);
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 18px;
+    }
+
+    .topbar {
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 14px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(12, 15, 20, .82);
+      box-shadow: var(--shadow);
+    }
+
+    .title-group {
+      min-width: 0;
+      display: grid;
+      gap: 5px;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      overflow: hidden;
+      font-size: 18px;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .seed-chip,
+    .status-chip,
+    .tag {
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 8px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, .045);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .status-chip.is-live {
+      border-color: rgba(96, 213, 200, .28);
+      color: #bffff3;
+      background: rgba(96, 213, 200, .08);
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 0 12px;
+      border-radius: 7px;
+      background: rgba(255, 255, 255, .06);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, .09);
+    }
+
+    .btn.primary {
+      background: #f4f7f2;
+      color: #101418;
+    }
+
+    .btn.ghost {
+      color: var(--muted);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 284px minmax(0, 1fr) 376px;
+      gap: 14px;
+      height: calc(100vh - 108px);
+      min-height: 620px;
+    }
+
+    .panel {
+      min-height: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(15, 19, 26, .84);
+      box-shadow: 0 16px 42px rgba(0, 0, 0, .22);
+    }
+
+    .panel-head {
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-head h2 {
+      font-size: 13px;
+    }
+
+    .panel-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+      scrollbar-color: rgba(122, 167, 255, .34) rgba(255, 255, 255, .03);
+    }
+
+    .search {
+      height: 36px;
+      display: grid;
+      grid-template-columns: 24px 1fr;
+      gap: 6px;
+      align-items: center;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: rgba(5, 7, 10, .48);
+      color: var(--muted);
+    }
+
+    .search input {
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+    }
+
+    .metric-list,
+    .reminder-list,
+    .insight-list,
+    .evidence-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .metric {
+      min-height: 62px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .035);
+    }
+
+    .metric strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 18px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .metric-mark {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(96, 213, 200, .22);
+      border-radius: 7px;
+      color: var(--cyan);
+      background: rgba(96, 213, 200, .07);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .tab {
+      min-height: 30px;
+      padding: 0 10px;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .tab.is-active {
+      color: var(--text);
+      background: rgba(122, 167, 255, .11);
+      box-shadow: inset 0 0 0 1px rgba(122, 167, 255, .22);
+    }
+
+    .lineage-board {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .lineage {
+      min-height: 92px;
+      padding: 11px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .035);
+    }
+
+    .lineage h3 {
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+
+    .lineage-meter {
+      height: 4px;
+      overflow: hidden;
+      margin-top: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .08);
+    }
+
+    .lineage-meter span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--cyan), var(--blue));
+    }
+
+    .insight-card,
+    .reminder-card,
+    .evidence {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .035);
+    }
+
+    .insight-card {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+    }
+
+    .insight-card.is-selected {
+      border-color: rgba(96, 213, 200, .38);
+      background:
+        linear-gradient(135deg, rgba(96, 213, 200, .08), transparent 44%),
+        rgba(255, 255, 255, .04);
+    }
+
+    .card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .card-head h3 {
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .card-copy {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tag.is-green {
+      border-color: rgba(156, 221, 143, .24);
+      color: #cff7cb;
+      background: rgba(156, 221, 143, .08);
+    }
+
+    .tag.is-amber {
+      border-color: rgba(231, 189, 104, .26);
+      color: #ffe0ad;
+      background: rgba(231, 189, 104, .08);
+    }
+
+    .tag.is-red {
+      border-color: rgba(229, 130, 123, .26);
+      color: #ffd0cc;
+      background: rgba(229, 130, 123, .08);
+    }
+
+    .reminder-card {
+      padding: 10px;
+    }
+
+    .reminder-card h3 {
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+
+    .reminder-card p {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .reminder-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .detail {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    .detail-title {
+      display: grid;
+      gap: 8px;
+    }
+
+    .detail-title h2 {
+      font-size: 16px;
+      line-height: 1.35;
+    }
+
+    .markdown {
+      display: grid;
+      gap: 12px;
+      color: #dbe4e6;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .markdown h3 {
+      margin-top: 2px;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .markdown ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .evidence {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 10px;
+      align-items: center;
+      padding: 9px;
+    }
+
+    .evidence-mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--cyan);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .evidence strong,
+    .evidence span {
+      display: block;
+    }
+
+    .evidence strong {
+      font-size: 12px;
+    }
+
+    .evidence span {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .extraction-box {
+      padding: 12px;
+      border-top: 1px solid var(--line);
+      background: rgba(8, 10, 14, .56);
+    }
+
+    .extraction-box textarea {
+      width: 100%;
+      min-height: 78px;
+      resize: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      outline: 0;
+      padding: 10px;
+      background: rgba(0, 0, 0, .26);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .extraction-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .workbench-strip {
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px solid rgba(122, 167, 255, .18);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(122, 167, 255, .08), transparent 40%),
+        rgba(255, 255, 255, .03);
+    }
+
+    .workbench-strip h3 {
+      margin-bottom: 9px;
+      font-size: 13px;
+    }
+
+    .mini-map {
+      position: relative;
+      height: 112px;
+      margin-top: 8px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background:
+        linear-gradient(rgba(255, 255, 255, .024) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .024) 1px, transparent 1px),
+        rgba(4, 6, 9, .36);
+      background-size: 20px 20px, 20px 20px, auto;
+    }
+
+    .node {
+      position: absolute;
+      width: 58px;
+      height: 34px;
+      border: 1px solid rgba(96, 213, 200, .32);
+      border-radius: 7px;
+      background: rgba(96, 213, 200, .08);
+    }
+
+    .node.is-a { left: 26px; bottom: 16px; }
+    .node.is-b { left: 112px; bottom: 58px; border-color: rgba(156, 221, 143, .34); background: rgba(156, 221, 143, .08); }
+    .node.is-c { left: 204px; bottom: 36px; border-color: rgba(231, 189, 104, .34); background: rgba(231, 189, 104, .08); }
+    .node.is-d { left: 290px; bottom: 70px; border-color: rgba(122, 167, 255, .34); background: rgba(122, 167, 255, .08); }
+
+    .gene-pin {
+      position: absolute;
+      right: -7px;
+      top: -7px;
+      width: 18px;
+      height: 18px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(96, 213, 200, .42);
+      border-radius: 6px;
+      background: #111923;
+      color: var(--cyan);
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    @media (max-width: 1180px) {
+      .layout {
+        grid-template-columns: 260px minmax(0, 1fr);
+      }
+
+      .detail {
+        display: none;
+      }
+    }
+
+    @media (max-width: 820px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .layout {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+
+      .main {
+        padding: 12px;
+      }
+
+      .lineage-board {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <strong>Content Forest</strong>
+          <span>Quiet Growth Workspace</span>
+        </div>
+      </div>
+
+      <p class="nav-label">Workspace</p>
+      <button class="nav-item" type="button"><span class="nav-icon">S</span><span>种子库</span></button>
+      <button class="nav-item" type="button"><span class="nav-icon">G</span><span>生成器</span></button>
+      <button class="nav-item" type="button"><span class="nav-icon">N</span><span>营养库</span></button>
+      <button class="nav-item is-active" type="button"><span class="nav-icon">DNA</span><span>基因库</span><span class="mini-copy">seed</span></button>
+
+      <p class="nav-label">Seed</p>
+      <button class="nav-item" type="button"><span class="nav-icon">T</span><span>内容树</span></button>
+      <button class="nav-item" type="button"><span class="nav-icon">R</span><span>汲取提醒</span><span class="mini-copy">3</span></button>
+      <button class="nav-item" type="button"><span class="nav-icon">Q</span><span>待确认建议</span><span class="mini-copy">2</span></button>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="title-group">
+          <div class="title-row">
+            <h1>壁纸项目宣传 / 基因库</h1>
+            <span class="status-chip is-live">已同步</span>
+          </div>
+          <div class="title-row">
+            <span class="seed-chip">种子级基因库</span>
+            <span class="seed-chip">12 条经验</span>
+            <span class="seed-chip">3 条谱系</span>
+          </div>
+        </div>
+        <div class="top-actions">
+          <button class="btn ghost" type="button">回到工作区</button>
+          <button class="btn" type="button">忽略提醒</button>
+          <button class="btn primary" type="button">发起汲取</button>
+        </div>
+      </header>
+
+      <section class="layout">
+        <aside class="panel">
+          <header class="panel-head">
+            <h2>汲取队列</h2>
+            <span class="status-chip">3 pending</span>
+          </header>
+          <div class="panel-body">
+            <label class="search">
+              <span>⌕</span>
+              <input value="" placeholder="搜索提醒、建议、证据">
+            </label>
+
+            <div class="metric-list" style="margin-top:12px;">
+              <div class="metric">
+                <div><strong>3</strong><span>待处理提醒</span></div>
+                <span class="metric-mark">R</span>
+              </div>
+              <div class="metric">
+                <div><strong>2</strong><span>待确认建议</span></div>
+                <span class="metric-mark">Q</span>
+              </div>
+              <div class="metric">
+                <div><strong>9</strong><span>可引用经验</span></div>
+                <span class="metric-mark">I</span>
+              </div>
+            </div>
+
+            <div class="reminder-list" style="margin-top:12px;">
+              <article class="reminder-card">
+                <h3>果实被选择</h3>
+                <p>情绪价值开头被标记为已选择，可汲取正向表达特征。</p>
+                <div class="reminder-actions">
+                  <button class="btn primary" type="button">汲取</button>
+                  <button class="btn ghost" type="button">忽略</button>
+                </div>
+              </article>
+              <article class="reminder-card">
+                <h3>果实被淘汰</h3>
+                <p>功能堆叠文案被淘汰，可沉淀反向规避经验。</p>
+                <div class="reminder-actions">
+                  <button class="btn primary" type="button">汲取</button>
+                  <button class="btn ghost" type="button">忽略</button>
+                </div>
+              </article>
+              <article class="reminder-card">
+                <h3>发布记录已创建</h3>
+                <p>小红书手动发布记录可作为外部验证证据。</p>
+                <div class="reminder-actions">
+                  <button class="btn primary" type="button">汲取</button>
+                  <button class="btn ghost" type="button">忽略</button>
+                </div>
+              </article>
+            </div>
+          </div>
+        </aside>
+
+        <section class="panel">
+          <header class="panel-head">
+            <h2>基因经验</h2>
+            <div class="tabs">
+              <button class="tab is-active" type="button">已沉淀</button>
+              <button class="tab" type="button">待确认</button>
+              <button class="tab" type="button">已归档</button>
+            </div>
+          </header>
+          <div class="panel-body">
+            <section class="lineage-board">
+              <article class="lineage">
+                <h3>情绪价值谱系</h3>
+                <p class="muted">5 条经验 · 正向优势明显</p>
+                <div class="lineage-meter"><span style="width:82%;"></span></div>
+              </article>
+              <article class="lineage">
+                <h3>小众精品谱系</h3>
+                <p class="muted">3 条经验 · 适合高质感图集</p>
+                <div class="lineage-meter"><span style="width:64%;"></span></div>
+              </article>
+              <article class="lineage">
+                <h3>功能效率谱系</h3>
+                <p class="muted">4 条经验 · 需谨慎使用</p>
+                <div class="lineage-meter"><span style="width:38%;"></span></div>
+              </article>
+            </section>
+
+            <section class="insight-list">
+              <article class="insight-card is-selected">
+                <div class="card-head">
+                  <h3>标题先给情绪收益，再出现壁纸本体</h3>
+                  <span class="status-chip is-live">active</span>
+                </div>
+                <p class="card-copy">被选择果实反复出现“被理解、被治愈、被陪伴”的开头结构，后续生长应优先尝试情绪收益切入。</p>
+                <div class="tag-row">
+                  <span class="tag is-green">正向基因</span>
+                  <span class="tag">情绪价值</span>
+                  <span class="tag">开头结构</span>
+                </div>
+              </article>
+
+              <article class="insight-card">
+                <div class="card-head">
+                  <h3>避免直接罗列分辨率、数量、格式</h3>
+                  <span class="status-chip">active</span>
+                </div>
+                <p class="card-copy">被淘汰果实倾向于先讲规格，缺少使用场景。规格可以放在第二屏或评论引导。</p>
+                <div class="tag-row">
+                  <span class="tag is-red">反向基因</span>
+                  <span class="tag">功能效率</span>
+                  <span class="tag">规避规则</span>
+                </div>
+              </article>
+
+              <article class="insight-card">
+                <div class="card-head">
+                  <h3>小众精品方向适合用“收藏感”表达</h3>
+                  <span class="status-chip">active</span>
+                </div>
+                <p class="card-copy">适合强调“不是量产图，而是私人审美库”，更贴近精品壁纸账号的用户预期。</p>
+                <div class="tag-row">
+                  <span class="tag is-green">正向基因</span>
+                  <span class="tag">小众精品</span>
+                  <span class="tag">定位表达</span>
+                </div>
+              </article>
+            </section>
+
+            <section class="workbench-strip">
+              <h3>工作区接入预览</h3>
+              <p class="muted">节点详情中增加汲取入口，生长输入框继续支持 @基因引用，内容树可标记已沉淀经验来源。</p>
+              <div class="mini-map">
+                <span class="node is-a"></span>
+                <span class="node is-b"><span class="gene-pin">G</span></span>
+                <span class="node is-c"></span>
+                <span class="node is-d"><span class="gene-pin">G</span></span>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <aside class="panel detail">
+          <header class="panel-head">
+            <div class="detail-title">
+              <span class="status-chip is-live">基因经验详情</span>
+              <h2>标题先给情绪收益，再出现壁纸本体</h2>
+            </div>
+          </header>
+          <div class="panel-body">
+            <div class="markdown">
+              <h3>经验正文</h3>
+              <p>当果实面向壁纸产品宣传时，优先让用户感知“这张壁纸解决了什么情绪状态”，再说明壁纸风格、规格或下载方式。</p>
+              <ul>
+                <li>适合：小红书笔记标题、短视频开头、推特短帖首句。</li>
+                <li>避免：一开头直接堆叠“4K、高清、免费、数量”。</li>
+                <li>下一轮生长可尝试：孤独感、专注感、睡前放松、桌面秩序。</li>
+              </ul>
+
+              <h3>证据来源</h3>
+              <div class="evidence-list">
+                <div class="evidence">
+                  <span class="evidence-mark">果</span>
+                  <div><strong>果实被选择</strong><span>情绪价值开头 · strong</span></div>
+                </div>
+                <div class="evidence">
+                  <span class="evidence-mark">发</span>
+                  <div><strong>发布记录</strong><span>小红书手动发布 · medium</span></div>
+                </div>
+              </div>
+
+              <h3>谱系与生态位</h3>
+              <div class="tag-row">
+                <span class="tag is-green">情绪价值谱系</span>
+                <span class="tag">壁纸宣传</span>
+                <span class="tag">开头结构</span>
+              </div>
+            </div>
+          </div>
+          <footer class="extraction-box">
+            <textarea>基于当前选中的果实、发布记录或淘汰记录，继续汲取新的表达经验...</textarea>
+            <div class="extraction-row">
+              <span class="muted">证据 2 · Agent 建议 · 人为确认</span>
+              <div class="top-actions">
+                <button class="btn ghost" type="button">编辑</button>
+                <button class="btn primary" type="button">确认入库</button>
+              </div>
+            </div>
+          </footer>
+        </aside>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

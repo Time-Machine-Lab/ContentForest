@@ -228,6 +228,7 @@ export async function bootstrapApp(
       },
     },
   });
+  await growthService.recoverInterruptedGrowthTasks();
   const publicationService = new PublicationService({
     storage: publicationStorage,
     publishableFruitPort: fruitService,

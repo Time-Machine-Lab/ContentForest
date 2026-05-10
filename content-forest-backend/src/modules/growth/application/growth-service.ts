@@ -62,9 +62,12 @@ export interface GrowthServiceDependencies {
   idGenerator?: IdGenerator;
   now?: () => Date;
   scheduleTaskExecution?: GrowthTaskExecutionScheduler;
+  attemptConcurrency?: number;
 }
 
 export class GrowthService {
+  private static readonly defaultAttemptConcurrency = 2;
+  private static readonly maxAttemptConcurrency = 3;
   private readonly storage: GrowthStoragePort;
   private readonly seedStorage: SeedStoragePort;
   private readonly fruitStorage: FruitStoragePort;
@@ -75,6 +78,8 @@ export class GrowthService {
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
   private readonly scheduleTaskExecution: GrowthTaskExecutionScheduler;
+  private readonly attemptConcurrency: number;
+  private readonly activeGrowthTaskIds = new Set<string>();
 
   public constructor(dependencies: GrowthServiceDependencies) {
     this.storage = dependencies.storage;
@@ -89,6 +94,10 @@ export class GrowthService {
     this.now = dependencies.now ?? (() => new Date());
     this.scheduleTaskExecution =
       dependencies.scheduleTaskExecution ?? scheduleAsyncGrowthTaskExecution;
+    this.attemptConcurrency = this.normalizeAttemptConcurrency(
+      dependencies.attemptConcurrency ?? GrowthService.defaultAttemptConcurrency,
+      Number.POSITIVE_INFINITY,
+    );
   }
 
   public async startGrowthTask(
@@ -177,6 +186,29 @@ export class GrowthService {
     };
   }
 
+  public async recoverInterruptedGrowthTasks(): Promise<void> {
+    const runningTasks = await this.storage.listRunningTasks();
+    for (const task of runningTasks) {
+      if (this.activeGrowthTaskIds.has(task.id)) {
+        continue;
+      }
+      await this.settleInterruptedTask(task);
+    }
+
+    const activeRunningTaskIds = new Set(
+      (await this.storage.listRunningTasks()).map((task) => task.id),
+    );
+    const locks = await this.storage.listLocks();
+    for (const lock of locks) {
+      if (
+        !this.activeGrowthTaskIds.has(lock.taskId) &&
+        !activeRunningTaskIds.has(lock.taskId)
+      ) {
+        await this.storage.releaseLock(lock.sourceNodeRef, lock.taskId);
+      }
+    }
+  }
+
   public async getSourceStatus(
     sourceNodeRef: GrowthSourceNodeRef,
   ): Promise<GrowthSourceStatus> {
@@ -211,11 +243,13 @@ export class GrowthService {
       return;
     }
 
+    this.activeGrowthTaskIds.add(task.id);
     try {
       await this.executeTaskAttempts(task);
     } catch (error) {
       await this.failTaskFromUnexpectedError(task, error);
     } finally {
+      this.activeGrowthTaskIds.delete(task.id);
       await this.storage.releaseLock(task.sourceNodeRef, task.id);
     }
   }
@@ -223,47 +257,31 @@ export class GrowthService {
   private async executeTaskAttempts(
     task: GrowthTaskRecord,
   ): Promise<GrowthTaskRecord> {
-    let currentTask = task;
-    const failureReasons: string[] = [];
-
-    for (let attemptIndex = 1; attemptIndex <= task.fruitCount; attemptIndex += 1) {
-      const attempt = await this.createRunningAttempt(task, attemptIndex);
-      const result = await this.runSingleAttempt(task, attempt);
-      if (result.status === GROWTH_ATTEMPT_STATUSES.succeeded && result.fruitId !== null) {
-        currentTask = {
-          ...currentTask,
-          successfulFruitIds: [...currentTask.successfulFruitIds, result.fruitId],
-          updatedAt: result.updatedAt,
-        };
-        await this.storage.saveTask(currentTask);
-      } else if (result.failureReason !== null) {
-        failureReasons.push(result.failureReason);
+    let nextAttemptIndex = 1;
+    const workerCount = this.normalizeAttemptConcurrency(
+      this.attemptConcurrency,
+      task.fruitCount,
+    );
+    const runWorker = async (): Promise<void> => {
+      while (true) {
+        const attemptIndex = nextAttemptIndex;
+        nextAttemptIndex += 1;
+        if (attemptIndex > task.fruitCount) {
+          return;
+        }
+        const attempt = await this.createRunningAttempt(task, attemptIndex);
+        await this.runSingleAttempt(task, attempt);
       }
-    }
-
-    const timestamp = this.timestamp();
-    const completed = currentTask.successfulFruitIds.length > 0;
-    const finishedTask: GrowthTaskRecord = {
-      ...currentTask,
-      status: completed
-        ? GROWTH_TASK_STATUSES.completed
-        : GROWTH_TASK_STATUSES.failed,
-      failureReason: completed
-        ? null
-        : this.firstFailureReason(failureReasons, "枝化生长没有生成任何果实"),
-      updatedAt: timestamp,
-      finishedAt: timestamp,
     };
-    await this.storage.saveTask(finishedTask);
 
-    if (completed) {
-      await this.storage.clearFailedInput(task.sourceNodeRef);
-    } else {
-      await this.storage.upsertFailedInput(
-        this.toFailedInput(finishedTask, finishedTask.failureReason ?? "枝化生长失败"),
-      );
-    }
-    return finishedTask;
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => runWorker()),
+    );
+
+    return this.finalizeTaskFromAttempts(
+      task,
+      "枝化生长没有生成任何果实",
+    );
   }
 
   private async createRunningAttempt(
@@ -379,6 +397,73 @@ export class GrowthService {
     };
     await this.storage.saveTask(failedTask);
     await this.storage.upsertFailedInput(this.toFailedInput(failedTask, message));
+  }
+
+  private async settleInterruptedTask(task: GrowthTaskRecord): Promise<void> {
+    await this.failRunningAttemptsForInterruptedTask(task);
+    const settled = await this.finalizeTaskFromAttempts(
+      task,
+      "枝化生长任务因服务中断而停止",
+    );
+    await this.storage.releaseLock(settled.sourceNodeRef, settled.id);
+  }
+
+  private async failRunningAttemptsForInterruptedTask(
+    task: GrowthTaskRecord,
+  ): Promise<void> {
+    const attempts = await this.storage.listAttemptsByTaskId(task.id);
+    for (const attempt of attempts) {
+      if (attempt.status !== GROWTH_ATTEMPT_STATUSES.running) {
+        continue;
+      }
+      await this.storage.saveAttempt({
+        ...attempt,
+        status: GROWTH_ATTEMPT_STATUSES.failed,
+        failureReason: "枝化生长任务因服务中断而停止",
+        updatedAt: this.timestamp(),
+      });
+    }
+  }
+
+  private async finalizeTaskFromAttempts(
+    task: GrowthTaskRecord,
+    fallbackFailureReason: string,
+  ): Promise<GrowthTaskRecord> {
+    const attempts = await this.storage.listAttemptsByTaskId(task.id);
+    const successfulFruitIds = attempts
+      .filter((attempt) =>
+        attempt.status === GROWTH_ATTEMPT_STATUSES.succeeded &&
+        attempt.fruitId !== null,
+      )
+      .map((attempt) => attempt.fruitId as string);
+    const failureReasons = attempts
+      .filter((attempt) => attempt.failureReason !== null)
+      .map((attempt) => attempt.failureReason as string);
+
+    const timestamp = this.timestamp();
+    const completed = successfulFruitIds.length > 0;
+    const finishedTask: GrowthTaskRecord = {
+      ...task,
+      successfulFruitIds,
+      status: completed
+        ? GROWTH_TASK_STATUSES.completed
+        : GROWTH_TASK_STATUSES.failed,
+      failureReason: completed
+        ? null
+        : this.firstFailureReason(failureReasons, fallbackFailureReason),
+      updatedAt: timestamp,
+      finishedAt: timestamp,
+    };
+    await this.storage.saveTask(finishedTask);
+
+    if (completed) {
+      await this.storage.clearFailedInput(task.sourceNodeRef);
+    } else {
+      await this.storage.upsertFailedInput(
+        this.toFailedInput(finishedTask, finishedTask.failureReason ?? fallbackFailureReason),
+      );
+    }
+    return finishedTask;
   }
 
   private async normalizeStartInput(
@@ -515,6 +600,18 @@ export class GrowthService {
       );
     }
     return value;
+  }
+
+  private normalizeAttemptConcurrency(value: number, fruitCount: number): number {
+    const integer = Number.isInteger(value)
+      ? value
+      : GrowthService.defaultAttemptConcurrency;
+    const bounded = Math.min(
+      Math.max(integer, 1),
+      GrowthService.maxAttemptConcurrency,
+      fruitCount,
+    );
+    return Math.max(1, bounded);
   }
 
   private normalizeResourceRefs(

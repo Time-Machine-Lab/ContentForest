@@ -26,6 +26,13 @@ export class InMemoryGrowthStorageAdapter implements GrowthStoragePort {
     return record === undefined ? null : this.cloneTask(record);
   }
 
+  public async listRunningTasks(): Promise<GrowthTaskRecord[]> {
+    return [...this.tasks.values()]
+      .filter((record) => record.status === "running")
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map((record) => this.cloneTask(record));
+  }
+
   public async saveTask(record: GrowthTaskRecord): Promise<void> {
     this.tasks.set(record.id, this.cloneTask(record));
   }
@@ -76,6 +83,12 @@ export class InMemoryGrowthStorageAdapter implements GrowthStoragePort {
   ): Promise<GrowthLockRecord | null> {
     const record = this.locks.get(this.sourceKey(sourceNodeRef));
     return record === undefined ? null : this.cloneLock(record);
+  }
+
+  public async listLocks(): Promise<GrowthLockRecord[]> {
+    return [...this.locks.values()]
+      .sort((left, right) => left.lockedAt.localeCompare(right.lockedAt))
+      .map((record) => this.cloneLock(record));
   }
 
   public async upsertFailedInput(record: GrowthFailedInputRecord): Promise<void> {

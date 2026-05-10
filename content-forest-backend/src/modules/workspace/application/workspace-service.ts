@@ -8,10 +8,15 @@ import type { GrowthFailedInput, GrowthSourceNodeRef } from "../../growth/domain
 import type { NutrientService } from "../../nutrient/application/nutrient-service.js";
 import type { SeedService } from "../../seed/application/seed-service.js";
 import { SEED_ARCHIVE_STATES } from "../../seed/domain/seed-types.js";
+import {
+  toWorkspaceGeneLibrarySummary,
+  toWorkspaceGeneSuggestionSummary,
+} from "../domain/workspace-types.js";
 import type {
   WorkspaceEdge,
   WorkspaceFailedInputHint,
   WorkspaceFruitNode,
+  WorkspaceGeneExtractionHub,
   WorkspaceNode,
   WorkspaceNodeRef,
   WorkspaceResources,
@@ -78,6 +83,7 @@ export class WorkspaceService {
       nodes,
       edges,
       resources: await this.getResources(seed.id),
+      geneExtractionHub: await this.getGeneExtractionHub(seed.id),
     };
   }
 
@@ -159,6 +165,49 @@ export class WorkspaceService {
       generators,
       nutrients,
       geneInsights,
+    };
+  }
+
+  private async getGeneExtractionHub(
+    seedId: string,
+  ): Promise<WorkspaceGeneExtractionHub> {
+    const [
+      geneLibrary,
+      pendingReminders,
+      pendingSuggestions,
+      insights,
+      referableInsights,
+    ] = await Promise.all([
+      this.geneService.getSeedGeneLibrary(seedId),
+      this.geneService.listPendingReminders(seedId),
+      this.geneService.listPendingSuggestions(seedId),
+      this.geneService.listInsights(seedId),
+      this.geneService.listReferableInsights(seedId),
+    ]);
+
+    return {
+      seedId,
+      geneLibrary: toWorkspaceGeneLibrarySummary(
+        geneLibrary,
+        insights.length,
+        referableInsights.length,
+      ),
+      pendingReminders: pendingReminders.map((reminder) => ({
+        ...reminder,
+        evidenceSources: reminder.evidenceSources.map((source) => ({ ...source })),
+      })),
+      pendingSuggestions: pendingSuggestions.map(toWorkspaceGeneSuggestionSummary),
+      stats: {
+        pendingReminderCount: pendingReminders.length,
+        pendingSuggestionCount: pendingSuggestions.length,
+        insightCount: insights.length,
+        referableInsightCount: referableInsights.length,
+      },
+      actions: {
+        canStartExtraction: pendingReminders.length > 0,
+        canReviewSuggestions: pendingSuggestions.length > 0,
+        canOpenGeneLibrary: true,
+      },
     };
   }
 

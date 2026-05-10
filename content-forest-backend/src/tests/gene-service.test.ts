@@ -15,6 +15,7 @@ import {
   GENE_SUGGESTION_STATUSES,
 } from "../modules/gene/domain/gene-types.js";
 import type { PublicationRecord } from "../modules/publication/domain/publication-types.js";
+import { PublicationService } from "../modules/publication/application/publication-service.js";
 import { SeedService } from "../modules/seed/application/seed-service.js";
 import { ApplicationError } from "../shared/errors/application-error.js";
 import type { IdGenerator } from "../shared/utils/id-generator.js";
@@ -588,6 +589,77 @@ describe("GeneService", () => {
       status: GENE_EXTRACTION_TASK_STATUSES.failed,
       failureReason: "Agent unavailable",
     });
+  });
+
+  it("creates lightweight reminders from fruit elimination without running Agent", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const { fruitService, seedService, geneService } = createServices(
+      successAgent(capturedTasks),
+    );
+    const seed = await seedService.createSeed({
+      title: "Seed A",
+      markdown: "Seed A body",
+    });
+    const fruit = await fruitService.createFruitFromCandidate({
+      markdown: "Weak angle",
+      parentNodeRef: { nodeType: "seed", nodeId: seed.rootNodeId },
+    });
+
+    await fruitService.eliminateFruit(fruit.id);
+    const reminders = await geneService.listPendingReminders(seed.id);
+
+    expect(capturedTasks).toHaveLength(0);
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0]).toMatchObject({
+      seedId: seed.id,
+      status: GENE_REMINDER_STATUSES.pending,
+      evidenceSources: [
+        {
+          sourceType: GENE_EVIDENCE_SOURCE_TYPES.fruitEliminated,
+          sourceId: fruit.id,
+          strength: "weak",
+        },
+      ],
+    });
+  });
+
+  it("does not create gene reminders or tasks from publication operations", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const {
+      fruitService,
+      seedService,
+      geneService,
+      publicationStorage,
+    } = createServices(successAgent(capturedTasks));
+    const seed = await seedService.createSeed({
+      title: "Seed A",
+      markdown: "Seed A body",
+    });
+    const fruit = await fruitService.createFruitFromCandidate({
+      markdown: "Published fruit",
+      parentNodeRef: { nodeType: "seed", nodeId: seed.rootNodeId },
+    });
+    await fruitService.selectFruit(fruit.id);
+    const remindersBeforePublish = await geneService.listPendingReminders(seed.id);
+    const publicationService = new PublicationService({
+      storage: publicationStorage,
+      publishableFruitPort: fruitService,
+      idGenerator: createIdGenerator(),
+      now: createNow(),
+    });
+
+    const publication = await publicationService.createPublicationRecord({
+      fruitId: fruit.id,
+      publicationTarget: "X post",
+      publicationEvidence: "https://example.test/post/1",
+    });
+    await publicationService.editPublicationRecord(publication.id, {
+      publicationNote: "updated",
+    });
+    const remindersAfterPublish = await geneService.listPendingReminders(seed.id);
+
+    expect(remindersAfterPublish).toHaveLength(remindersBeforePublish.length);
+    expect(capturedTasks).toHaveLength(0);
   });
 
   it("does not expose hard delete capabilities", () => {

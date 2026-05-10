@@ -165,7 +165,39 @@ function structuredCandidateAgent(): AgentPort {
   };
 }
 
-async function createFixture(agentPort: AgentPort = successAgent()): Promise<{
+function concurrentSuccessAgent(input: {
+  capturedTasks: AgentTask[];
+  metrics: { active: number; maxActive: number };
+}): AgentPort {
+  return {
+    async runTask(task: AgentTask): Promise<AgentTaskResult> {
+      input.capturedTasks.push(task);
+      input.metrics.active += 1;
+      input.metrics.maxActive = Math.max(
+        input.metrics.maxActive,
+        input.metrics.active,
+      );
+      await Promise.resolve();
+      input.metrics.active -= 1;
+      return {
+        ok: true,
+        taskId: task.taskId ?? `agent_${input.capturedTasks.length}`,
+        output: {
+          taskType: "growth",
+          content: {
+            markdown: `# 并发果实 ${String(task.input.attemptIndex)}`,
+          },
+        },
+        trace: [],
+      };
+    },
+  };
+}
+
+async function createFixture(
+  agentPort: AgentPort = successAgent(),
+  options: { attemptConcurrency?: number } = {},
+): Promise<{
   service: GrowthService;
   storage: InMemoryGrowthStorageAdapter;
   seedStorage: InMemorySeedStorageAdapter;
@@ -238,6 +270,7 @@ async function createFixture(agentPort: AgentPort = successAgent()): Promise<{
     idGenerator: createIdGenerator(),
     now,
     scheduleTaskExecution: scheduler.schedule,
+    attemptConcurrency: options.attemptConcurrency,
   });
   return {
     service,
@@ -447,9 +480,13 @@ describe("GrowthService", () => {
     });
   });
 
-  it("runs five serial Agent attempts when fruit count is five", async () => {
+  it("runs five Agent attempts with bounded concurrency when fruit count is five", async () => {
     const capturedTasks: AgentTask[] = [];
-    const { service, scheduler } = await createFixture(successAgent(capturedTasks));
+    const metrics = { active: 0, maxActive: 0 };
+    const { service, scheduler } = await createFixture(
+      concurrentSuccessAgent({ capturedTasks, metrics }),
+      { attemptConcurrency: 2 },
+    );
 
     const result = await service.startGrowthTask({
       seedId: "seed_1",
@@ -462,6 +499,7 @@ describe("GrowthService", () => {
     expect(capturedTasks).toHaveLength(0);
     await scheduler.runAll();
     expect(capturedTasks).toHaveLength(5);
+    expect(metrics.maxActive).toBe(2);
     expect(capturedTasks.map((task) => task.input.attemptIndex)).toEqual([
       1,
       2,
@@ -469,6 +507,28 @@ describe("GrowthService", () => {
       4,
       5,
     ]);
+  });
+
+  it("caps attempt concurrency at three and keeps consuming remaining attempts", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const metrics = { active: 0, maxActive: 0 };
+    const { service, scheduler } = await createFixture(
+      concurrentSuccessAgent({ capturedTasks, metrics }),
+      { attemptConcurrency: 5 },
+    );
+
+    const result = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 6,
+    });
+
+    await scheduler.runAll();
+    const completed = await service.getGrowthTask(result.task.id);
+    expect(capturedTasks).toHaveLength(6);
+    expect(metrics.maxActive).toBe(3);
+    expect(completed.successfulFruitIds).toHaveLength(6);
   });
 
   it("completes partial success without rolling back created fruits", async () => {
@@ -528,6 +588,94 @@ describe("GrowthService", () => {
     await expect(service.getGrowthTask(retried.task.id)).resolves.toMatchObject({
       status: GROWTH_TASK_STATUSES.failed,
     });
+  });
+
+  it("recovers interrupted running tasks with successful attempts as completed and releases the lock", async () => {
+    const { service, storage } = await createFixture();
+    const started = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 2,
+    });
+    await storage.createAttempt({
+      id: "growth-attempt_orphan_success",
+      taskId: started.task.id,
+      attemptIndex: 1,
+      status: GROWTH_ATTEMPT_STATUSES.succeeded,
+      agentTaskId: "agent_orphan_success",
+      fruitId: "fruit_orphan_1",
+      failureReason: null,
+      agentOutput: {},
+      createdAt: "2026-01-01T00:00:10.000Z",
+      updatedAt: "2026-01-01T00:00:11.000Z",
+    });
+    await storage.createAttempt({
+      id: "growth-attempt_orphan_running",
+      taskId: started.task.id,
+      attemptIndex: 2,
+      status: GROWTH_ATTEMPT_STATUSES.running,
+      agentTaskId: null,
+      fruitId: null,
+      failureReason: null,
+      agentOutput: {},
+      createdAt: "2026-01-01T00:00:12.000Z",
+      updatedAt: "2026-01-01T00:00:12.000Z",
+    });
+
+    await service.recoverInterruptedGrowthTasks();
+
+    const recovered = await service.getGrowthTask(started.task.id);
+    expect(recovered.status).toBe(GROWTH_TASK_STATUSES.completed);
+    expect(recovered.successfulFruitIds).toEqual(["fruit_orphan_1"]);
+    expect(recovered.attempts.map((attempt) => attempt.status)).toEqual([
+      GROWTH_ATTEMPT_STATUSES.succeeded,
+      GROWTH_ATTEMPT_STATUSES.failed,
+    ]);
+    await expect(
+      service.getSourceStatus({ nodeType: "seed", nodeId: "seed-node_seed_1" }),
+    ).resolves.toMatchObject({ isGrowing: false, taskId: null });
+  });
+
+  it("recovers interrupted running tasks without successful attempts as failed input and releases the lock", async () => {
+    const { service, storage } = await createFixture();
+    const started = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      userInput: "中断前输入",
+      generatorId: "generator_1",
+      fruitCount: 1,
+    });
+    await storage.createAttempt({
+      id: "growth-attempt_orphan_failed",
+      taskId: started.task.id,
+      attemptIndex: 1,
+      status: GROWTH_ATTEMPT_STATUSES.running,
+      agentTaskId: null,
+      fruitId: null,
+      failureReason: null,
+      agentOutput: {},
+      createdAt: "2026-01-01T00:00:10.000Z",
+      updatedAt: "2026-01-01T00:00:10.000Z",
+    });
+
+    await service.recoverInterruptedGrowthTasks();
+
+    const recovered = await service.getGrowthTask(started.task.id);
+    expect(recovered.status).toBe(GROWTH_TASK_STATUSES.failed);
+    expect(recovered.failureReason).toBe("枝化生长任务因服务中断而停止");
+    await expect(
+      service.getLatestFailedInput({
+        nodeType: "seed",
+        nodeId: "seed-node_seed_1",
+      }),
+    ).resolves.toMatchObject({
+      userInput: "中断前输入",
+      failureReason: "枝化生长任务因服务中断而停止",
+    });
+    await expect(
+      service.getSourceStatus({ nodeType: "seed", nodeId: "seed-node_seed_1" }),
+    ).resolves.toMatchObject({ isGrowing: false, taskId: null });
   });
 
   it("rejects retry when there is no latest failed input", async () => {
