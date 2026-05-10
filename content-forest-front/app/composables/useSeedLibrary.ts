@@ -187,6 +187,12 @@ export function useSeedLibrary() {
     }
   }
 
+  async function openSelectedGeneLibrary() {
+    if (!selectedSeed.value) return
+
+    await navigateTo(`/seeds/${encodeURIComponent(selectedSeed.value.id)}/genes`)
+  }
+
   return {
     view,
     query,
@@ -210,5 +216,6 @@ export function useSeedLibrary() {
     archiveSelectedSeed,
     restoreSelectedSeed,
     openSelectedWorkspace,
+    openSelectedGeneLibrary,
   }
 }

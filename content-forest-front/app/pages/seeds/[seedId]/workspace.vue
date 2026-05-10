@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { createFruitApi, type FruitDetail, type FruitSelectionState } from '../../../../src/modules/fruit'
+import { createGeneApi, type GeneSuggestion } from '../../../../src/modules/gene'
 import { createGrowthApi, type GrowthFailedInput, type GrowthNodeType, type GrowthTaskDetail } from '../../../../src/modules/growth'
 import { createSeedApi } from '../../../../src/modules/seed'
 import { createWorkspaceApi, type WorkspaceNode, type WorkspaceNodeRef, type WorkspaceSnapshot } from '../../../../src/modules/workspace'
@@ -68,6 +69,7 @@ const workspaceApi = createWorkspaceApi(fetcher, apiBase)
 const seedApi = createSeedApi(fetcher, apiBase)
 const fruitApi = createFruitApi(fetcher, apiBase)
 const growthApi = createGrowthApi(fetcher, apiBase)
+const geneApi = createGeneApi(fetcher, apiBase)
 
 const seedId = computed(() => String(route.params.seedId || ''))
 const snapshot = ref<WorkspaceSnapshot | null>(null)
@@ -102,6 +104,16 @@ const selectedGeneratorId = ref('')
 const fruitCount = ref(3)
 const mutationRate = ref(18)
 const fruitCountOptions = [1, 2, 3, 4, 5, 6]
+const geneHubExpanded = ref(true)
+const geneActionLoading = ref('')
+const geneActionError = ref('')
+const activeGeneSuggestion = ref<GeneSuggestion | null>(null)
+const geneSuggestionDraft = reactive({
+  title: '',
+  bodyMarkdown: '',
+  lineage: '',
+  niche: '',
+})
 
 const pollTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const growthTaskFruitCounts = new Map<string, number>()
@@ -124,6 +136,19 @@ const canShowGrowthComposer = computed(() => {
 const visibleComposer = computed(() => Boolean(canShowGrowthComposer.value && !isReadOnly.value && selectedNode.value?.status !== 'growing'))
 const selectedGenerator = computed(() => snapshot.value?.resources.generators.find((item) => item.id === selectedGeneratorId.value) ?? null)
 const generatorName = computed(() => selectedGenerator.value?.name ?? '未选择生成器')
+const geneHub = computed(() => snapshot.value?.geneExtractionHub ?? null)
+const geneHubStats = computed(() => geneHub.value?.stats ?? {
+  pendingReminderCount: 0,
+  pendingSuggestionCount: 0,
+  insightCount: 0,
+  referableInsightCount: 0,
+})
+const hasGeneHubWork = computed(() => geneHubStats.value.pendingReminderCount > 0 || geneHubStats.value.pendingSuggestionCount > 0)
+const geneHubStatusText = computed(() => {
+  if (!geneHub.value) return '等待同步'
+  if (hasGeneHubWork.value) return `${geneHubStats.value.pendingReminderCount} 提醒 / ${geneHubStats.value.pendingSuggestionCount} 建议`
+  return `${geneHubStats.value.referableInsightCount} 可引用经验`
+})
 const branchEdges = computed(() => {
   const visibleIds = new Set(visibleNodes.value.map((node) => node.id))
   const snapshotEdges = snapshot.value?.edges.map((edge, index) => ({
@@ -630,6 +655,133 @@ async function setSelectionState(state: FruitSelectionState) {
   }
 }
 
+function evidenceLabel(sourceType: string) {
+  if (sourceType === 'fruit_selected') return '选择果实'
+  if (sourceType === 'fruit_eliminated') return '淘汰果实'
+  if (sourceType === 'publication') return '发布记录'
+  if (sourceType === 'feedback') return '数据反馈'
+  return sourceType
+}
+
+function openGeneLibrary() {
+  void navigateTo(`/seeds/${encodeURIComponent(seedId.value)}/genes`)
+}
+
+function resetGeneSuggestionDraft(suggestion: GeneSuggestion | null) {
+  activeGeneSuggestion.value = suggestion
+  geneSuggestionDraft.title = suggestion?.title ?? ''
+  geneSuggestionDraft.bodyMarkdown = suggestion?.bodyMarkdown ?? ''
+  geneSuggestionDraft.lineage = suggestion?.lineage ?? ''
+  geneSuggestionDraft.niche = suggestion?.niche ?? ''
+}
+
+async function startGeneExtraction(reminderId: string) {
+  const reminder = geneHub.value?.pendingReminders.find((item) => item.id === reminderId)
+  if (!reminder || geneActionLoading.value) return
+
+  geneActionLoading.value = `extract:${reminderId}`
+  geneActionError.value = ''
+
+  try {
+    await geneApi.startExtractionTask(seedId.value, {
+      reminderId: reminder.id,
+      evidenceSources: reminder.evidenceSources,
+    })
+    await loadWorkspace(selectedNodeId.value)
+  } catch (error) {
+    geneActionError.value = errorMessage(error)
+  } finally {
+    geneActionLoading.value = ''
+  }
+}
+
+async function ignoreGeneReminder(reminderId: string) {
+  if (geneActionLoading.value) return
+  geneActionLoading.value = `ignore:${reminderId}`
+  geneActionError.value = ''
+
+  try {
+    await geneApi.ignoreReminder(reminderId)
+    await loadWorkspace(selectedNodeId.value)
+  } catch (error) {
+    geneActionError.value = errorMessage(error)
+  } finally {
+    geneActionLoading.value = ''
+  }
+}
+
+async function viewGeneSuggestion(suggestionId: string) {
+  if (geneActionLoading.value) return
+  geneActionLoading.value = `view:${suggestionId}`
+  geneActionError.value = ''
+
+  try {
+    resetGeneSuggestionDraft(await geneApi.getSuggestion(suggestionId))
+    geneHubExpanded.value = true
+  } catch (error) {
+    geneActionError.value = errorMessage(error)
+  } finally {
+    geneActionLoading.value = ''
+  }
+}
+
+async function saveGeneSuggestion() {
+  if (!activeGeneSuggestion.value || geneActionLoading.value) return
+  geneActionLoading.value = `save:${activeGeneSuggestion.value.id}`
+  geneActionError.value = ''
+
+  try {
+    resetGeneSuggestionDraft(await geneApi.editSuggestion(activeGeneSuggestion.value.id, {
+      title: geneSuggestionDraft.title,
+      bodyMarkdown: geneSuggestionDraft.bodyMarkdown,
+      lineage: geneSuggestionDraft.lineage,
+      niche: geneSuggestionDraft.niche,
+    }))
+    await loadWorkspace(selectedNodeId.value)
+  } catch (error) {
+    geneActionError.value = errorMessage(error)
+  } finally {
+    geneActionLoading.value = ''
+  }
+}
+
+async function confirmGeneSuggestion() {
+  if (!activeGeneSuggestion.value || geneActionLoading.value) return
+  geneActionLoading.value = `confirm:${activeGeneSuggestion.value.id}`
+  geneActionError.value = ''
+
+  try {
+    await geneApi.confirmSuggestion(activeGeneSuggestion.value.id, {
+      title: geneSuggestionDraft.title,
+      bodyMarkdown: geneSuggestionDraft.bodyMarkdown,
+      lineage: geneSuggestionDraft.lineage,
+      niche: geneSuggestionDraft.niche,
+    })
+    resetGeneSuggestionDraft(null)
+    await loadWorkspace(selectedNodeId.value)
+  } catch (error) {
+    geneActionError.value = errorMessage(error)
+  } finally {
+    geneActionLoading.value = ''
+  }
+}
+
+async function dismissGeneSuggestion(suggestionId = activeGeneSuggestion.value?.id) {
+  if (!suggestionId || geneActionLoading.value) return
+  geneActionLoading.value = `dismiss:${suggestionId}`
+  geneActionError.value = ''
+
+  try {
+    await geneApi.dismissSuggestion(suggestionId)
+    if (activeGeneSuggestion.value?.id === suggestionId) resetGeneSuggestionDraft(null)
+    await loadWorkspace(selectedNodeId.value)
+  } catch (error) {
+    geneActionError.value = errorMessage(error)
+  } finally {
+    geneActionLoading.value = ''
+  }
+}
+
 function startCanvasDrag(event: PointerEvent) {
   if (event.button !== 0) return
   dragState.value = {
@@ -996,6 +1148,86 @@ function formatDateTime(value: string) {
         <button class="cf-workspace-tool" type="button" @click="resetView">整理树形</button>
       </div>
     </header>
+
+    <aside v-if="geneHub" class="cf-gene-hub" :class="{ 'is-open': geneHubExpanded, 'has-work': hasGeneHubWork }" aria-label="基因汲取建议">
+      <header class="cf-gene-hub-head">
+        <button class="cf-gene-hub-toggle" type="button" :aria-expanded="geneHubExpanded" @click="geneHubExpanded = !geneHubExpanded">
+          <span>基因汲取建议</span>
+          <strong>{{ hasGeneHubWork ? geneHubStatusText : '暂无待处理建议' }}</strong>
+        </button>
+        <button class="cf-gene-hub-library" type="button" @click="openGeneLibrary">基因库</button>
+      </header>
+
+      <div v-if="geneHubExpanded" class="cf-gene-hub-body">
+        <p v-if="geneActionError" class="cf-inline-error">{{ geneActionError }}</p>
+
+        <section class="cf-gene-hub-summary">
+          <span>{{ geneHub.stats.pendingReminderCount }} 个待汲取信号</span>
+          <span>{{ geneHub.stats.pendingSuggestionCount }} 条待沉淀建议</span>
+        </section>
+
+        <section v-if="hasGeneHubWork" class="cf-gene-hub-list">
+          <article v-for="reminder in geneHub.pendingReminders" :key="reminder.id" class="cf-gene-hub-item is-reminder">
+            <div class="cf-gene-hub-item-main">
+              <span class="cf-gene-hub-badge">待汲取</span>
+              <strong>{{ reminder.evidenceSources.map((source) => evidenceLabel(source.sourceType)).join(' / ') }}</strong>
+              <span>{{ reminder.evidenceSources.map((source) => `${source.sourceId} · ${source.strength}`).join('，') }}</span>
+            </div>
+            <div class="cf-gene-hub-item-actions">
+              <button type="button" :disabled="Boolean(geneActionLoading)" @click="startGeneExtraction(reminder.id)">
+                {{ geneActionLoading === `extract:${reminder.id}` ? '汲取中' : '汲取' }}
+              </button>
+              <button type="button" :disabled="Boolean(geneActionLoading)" @click="ignoreGeneReminder(reminder.id)">忽略</button>
+            </div>
+          </article>
+
+          <article v-for="suggestion in geneHub.pendingSuggestions" :key="suggestion.id" class="cf-gene-hub-item is-suggestion">
+            <div class="cf-gene-hub-item-main">
+              <span class="cf-gene-hub-badge">待沉淀</span>
+              <strong>{{ suggestion.title }}</strong>
+              <span>{{ suggestion.lineage || '未分配谱系' }} · {{ suggestion.niche || '未分配生态位' }} · {{ suggestion.evidenceSources.length }} 条证据</span>
+            </div>
+            <div class="cf-gene-hub-item-actions">
+              <button type="button" :disabled="Boolean(geneActionLoading)" @click="viewGeneSuggestion(suggestion.id)">查看</button>
+              <button type="button" :disabled="Boolean(geneActionLoading)" @click="dismissGeneSuggestion(suggestion.id)">忽略</button>
+            </div>
+          </article>
+        </section>
+
+        <section v-else class="cf-gene-hub-empty">
+          <strong>当前没有需要处理的基因建议</strong>
+          <span>选择或淘汰果实后，后端会把可汲取信号推送到这里。</span>
+        </section>
+
+        <section v-if="activeGeneSuggestion" class="cf-gene-editor" aria-label="基因建议确认">
+          <header class="cf-gene-editor-head">
+            <strong>确认基因建议</strong>
+            <button type="button" @click="resetGeneSuggestionDraft(null)">收起</button>
+          </header>
+          <label>
+            <span>标题</span>
+            <input v-model="geneSuggestionDraft.title" type="text">
+          </label>
+          <label>
+            <span>谱系</span>
+            <input v-model="geneSuggestionDraft.lineage" type="text">
+          </label>
+          <label>
+            <span>生态位</span>
+            <input v-model="geneSuggestionDraft.niche" type="text">
+          </label>
+          <label class="is-wide">
+            <span>建议正文</span>
+            <textarea v-model="geneSuggestionDraft.bodyMarkdown" />
+          </label>
+          <div class="cf-gene-editor-actions">
+            <button type="button" :disabled="Boolean(geneActionLoading)" @click="saveGeneSuggestion">保存</button>
+            <button type="button" :disabled="Boolean(geneActionLoading)" @click="confirmGeneSuggestion">沉淀到基因库</button>
+            <button type="button" :disabled="Boolean(geneActionLoading)" @click="dismissGeneSuggestion()">忽略</button>
+          </div>
+        </section>
+      </div>
+    </aside>
 
     <section
       class="cf-tree-canvas"
@@ -1975,6 +2207,276 @@ button:disabled {
   animation: cf-vessel-scan 1.5s ease-in-out infinite;
 }
 
+.cf-gene-hub {
+  position: absolute;
+  z-index: 24;
+  top: 82px;
+  left: 18px;
+  width: 386px;
+  max-height: calc(100vh - 128px);
+  overflow: hidden;
+  border: 1px solid rgba(94, 215, 197, .18);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(94, 215, 197, .08), transparent 42%),
+    rgba(12, 15, 18, .94);
+  box-shadow: 0 22px 72px rgba(0, 0, 0, .34);
+  backdrop-filter: blur(22px);
+}
+
+.cf-gene-hub.has-work {
+  border-color: rgba(240, 195, 107, .28);
+}
+
+.cf-gene-hub-head,
+.cf-gene-hub-section-head,
+.cf-gene-hub-item-actions,
+.cf-gene-editor-actions,
+.cf-gene-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cf-gene-hub-toggle,
+.cf-gene-hub-library,
+.cf-gene-hub-item-actions button,
+.cf-gene-editor-actions button {
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .045);
+  color: var(--cf-text);
+  cursor: pointer;
+}
+
+.cf-gene-hub-toggle {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  padding: 12px;
+  text-align: left;
+}
+
+.cf-gene-hub-toggle span,
+.cf-gene-hub-section-head span,
+.cf-gene-hub-item span,
+.cf-gene-editor label span {
+  color: var(--cf-muted);
+  font-size: 11px;
+}
+
+.cf-gene-hub-toggle strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-gene-hub-library {
+  min-height: 42px;
+  margin-right: 8px;
+  padding: 0 10px;
+  color: #bffff3;
+}
+
+.cf-gene-hub-body {
+  max-height: calc(100vh - 184px);
+  overflow: auto;
+  display: grid;
+  gap: 12px;
+  padding: 0 12px 12px;
+  scrollbar-color: rgba(94, 215, 197, .36) rgba(255, 255, 255, .04);
+}
+
+.cf-gene-hub-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.cf-gene-hub-summary span {
+  min-width: 0;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .035);
+  color: #d5dde8;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cf-gene-hub-section,
+.cf-gene-editor {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .035);
+}
+
+.cf-gene-hub-section-head strong {
+  color: var(--cf-text);
+  font-size: 12px;
+}
+
+.cf-gene-hub-list {
+  display: grid;
+  gap: 9px;
+}
+
+.cf-gene-hub-item {
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 8px;
+  background: rgba(8, 10, 14, .42);
+}
+
+.cf-gene-hub-item.is-reminder {
+  border-color: rgba(240, 195, 107, .2);
+  background:
+    linear-gradient(135deg, rgba(240, 195, 107, .07), transparent 48%),
+    rgba(8, 10, 14, .48);
+}
+
+.cf-gene-hub-item.is-suggestion {
+  border-color: rgba(94, 215, 197, .2);
+}
+
+.cf-gene-hub-item-main {
+  display: grid;
+  gap: 6px;
+}
+
+.cf-gene-hub-item strong,
+.cf-gene-hub-item span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+}
+
+.cf-gene-hub-item strong {
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.cf-gene-hub-badge {
+  width: fit-content;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid rgba(94, 215, 197, .2);
+  border-radius: 6px;
+  background: rgba(94, 215, 197, .08);
+  color: #c0fff4;
+  font-size: 11px;
+}
+
+.cf-gene-hub-item-actions {
+  justify-content: flex-end;
+}
+
+.cf-gene-hub-item-actions button,
+.cf-gene-editor-actions button {
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.cf-gene-hub-item-actions button:first-child,
+.cf-gene-editor-actions button:nth-child(2) {
+  border-color: rgba(94, 215, 197, .28);
+  background: rgba(94, 215, 197, .12);
+  color: #c0fff4;
+}
+
+.cf-gene-hub-empty {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .035);
+}
+
+.cf-gene-hub-empty strong {
+  color: var(--cf-text);
+  font-size: 12px;
+}
+
+.cf-gene-hub-empty span {
+  color: var(--cf-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.cf-gene-editor {
+  grid-template-columns: 1fr 1fr;
+}
+
+.cf-gene-editor-head {
+  grid-column: 1 / -1;
+}
+
+.cf-gene-editor-head strong {
+  color: var(--cf-text);
+  font-size: 12px;
+}
+
+.cf-gene-editor-head button {
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .045);
+  color: var(--cf-muted);
+  cursor: pointer;
+}
+
+.cf-gene-editor label {
+  display: grid;
+  gap: 5px;
+}
+
+.cf-gene-editor label.is-wide {
+  grid-column: 1 / -1;
+}
+
+.cf-gene-editor input,
+.cf-gene-editor textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--cf-border-soft);
+  border-radius: 7px;
+  outline: 0;
+  background: rgba(8, 10, 14, .62);
+  color: var(--cf-text);
+}
+
+.cf-gene-editor input {
+  min-height: 32px;
+  padding: 0 8px;
+}
+
+.cf-gene-editor textarea {
+  min-height: 118px;
+  padding: 8px;
+  resize: vertical;
+}
+
+.cf-gene-editor-actions {
+  grid-column: 1 / -1;
+}
+
 .cf-node-detail {
   position: absolute;
   z-index: 22;
@@ -2669,6 +3171,15 @@ button:disabled {
 
   .cf-growth-top {
     flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .cf-gene-hub {
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: min(520px, calc(100vh - 144px));
   }
 }
 </style>

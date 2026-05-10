@@ -15,6 +15,7 @@ const emit = defineEmits<{
   archive: []
   restore: []
   openWorkspace: []
+  openGeneLibrary: []
 }>()
 
 const titleDraft = ref('')
@@ -165,6 +166,9 @@ function toggleArchiveState() {
             </div>
 
             <div class="cf-seed-reader-actions">
+              <button class="cf-secondary-action" type="button" :disabled="operating" @click="emit('openGeneLibrary')">
+                基因库
+              </button>
               <button class="cf-primary-action" type="button" :disabled="operating" @click="emit('openWorkspace')">
                 {{ operating ? '处理中' : '打开工作区' }}
               </button>

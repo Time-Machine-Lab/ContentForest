@@ -118,12 +118,65 @@ export interface WorkspaceResources {
   geneInsights: ReferableWorkspaceGeneInsight[]
 }
 
+export interface WorkspaceGeneLibrarySummary {
+  seedId: string
+  contentLocation: string
+  insightCount: number
+  referableInsightCount: number
+  updatedAt: string
+}
+
+export interface WorkspaceGeneReminderSummary {
+  id: string
+  seedId: string
+  status: 'pending'
+  evidenceSources: WorkspaceEvidenceSource[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WorkspaceGeneSuggestionSummary {
+  id: string
+  seedId: string
+  taskId: string
+  status: 'pending'
+  title: string
+  lineage: string
+  niche: string
+  evidenceSources: WorkspaceEvidenceSource[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WorkspaceGeneExtractionStats {
+  pendingReminderCount: number
+  pendingSuggestionCount: number
+  insightCount: number
+  referableInsightCount: number
+}
+
+export interface WorkspaceGeneExtractionActions {
+  canStartExtraction: boolean
+  canReviewSuggestions: boolean
+  canOpenGeneLibrary: boolean
+}
+
+export interface WorkspaceGeneExtractionHub {
+  seedId: string
+  geneLibrary: WorkspaceGeneLibrarySummary
+  pendingReminders: WorkspaceGeneReminderSummary[]
+  pendingSuggestions: WorkspaceGeneSuggestionSummary[]
+  stats: WorkspaceGeneExtractionStats
+  actions: WorkspaceGeneExtractionActions
+}
+
 export interface WorkspaceSnapshot {
   seed: WorkspaceSeedSummary
   workspaceReadOnly: boolean
   nodes: WorkspaceNode[]
   edges: WorkspaceEdge[]
   resources: WorkspaceResources
+  geneExtractionHub: WorkspaceGeneExtractionHub
 }
 
 export interface ApiErrorResponse {

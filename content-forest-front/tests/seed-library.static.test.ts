@@ -29,7 +29,20 @@ test('seed library exposes create, edit, archive, restore and workspace actions'
   assert.equal(detailPanel.includes("emit('archive'"), true)
   assert.equal(detailPanel.includes("emit('restore'"), true)
   assert.equal(detailPanel.includes("emit('openWorkspace'"), true)
+  assert.equal(detailPanel.includes("emit('openGeneLibrary'"), true)
   assert.equal(modal.includes('标题和 Markdown 正文都不能为空'), true)
+})
+
+test('seed detail opens seed-scoped gene library without adding sidebar entry', () => {
+  const shell = readProjectFile('app/components/WorkbenchShell.vue')
+  const seedPage = readProjectFile('app/pages/seeds/index.vue')
+  const detailPanel = readProjectFile('app/components/seed/SeedDetailPanel.vue')
+  const composable = readProjectFile('app/composables/useSeedLibrary.ts')
+
+  assert.equal(shell.includes("{ label: '基因库'"), false)
+  assert.equal(detailPanel.includes('基因库'), true)
+  assert.equal(seedPage.includes('@open-gene-library="openSelectedGeneLibrary"'), true)
+  assert.equal(composable.includes('/genes'), true)
 })
 
 test('seed library uses exception notice component for visible errors', () => {

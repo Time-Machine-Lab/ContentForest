@@ -23,6 +23,7 @@ const {
   archiveSelectedSeed,
   restoreSelectedSeed,
   openSelectedWorkspace,
+  openSelectedGeneLibrary,
 } = useSeedLibrary()
 
 const modalOpen = ref(false)
@@ -142,6 +143,7 @@ async function handleCreate(payload: { title: string; markdown: string }) {
         @archive="archiveSelectedSeed"
         @restore="restoreSelectedSeed"
         @open-workspace="openSelectedWorkspace"
+        @open-gene-library="openSelectedGeneLibrary"
       />
     </div>
 
