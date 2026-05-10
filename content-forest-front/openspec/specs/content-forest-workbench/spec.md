@@ -60,18 +60,20 @@
 - **AND** 前端 MUST 提供重新加载工作区快照的操作入口
 
 ### Requirement: 内容树画布与运行时树布局
-前端 SHALL 提供全屏内容树画布，支持画布拖拽浏览、节点拖拽和基于父子关系的动态连接线。前端 MUST 在后端不提供节点坐标的情况下，根据工作区快照的节点和边生成运行时树布局；节点拖拽位置 MUST 只作为前端运行时状态，不持久化到后端。
+前端 SHALL 提供全屏内容树画布，支持画布拖拽浏览、节点拖拽、基于父子关系的动态连接线和一键树形整理。前端 MUST 在后端不提供节点坐标的情况下，根据工作区快照的节点和边生成自底向上的运行时树布局；节点拖拽位置 MUST 只作为前端运行时状态，不持久化到后端。
 
 #### Scenario: 根据快照构建树布局
 - **WHEN** 工作区快照返回节点和边
 - **THEN** 前端 MUST 以种子节点作为内容树根节点
 - **AND** 前端 MUST 根据父子边关系分层展示果实节点
 - **AND** 前端 MUST 使用真实边关系绘制连接线
+- **AND** 前端 MUST 默认形成自底向上、父节点居中于子节点集合、兄弟子树保持合理间距的树形布局
 
 #### Scenario: 展示真实父子连接线
 - **WHEN** 工作区展示内容树
 - **THEN** 前端 MUST 根据父子关系绘制种子与果实、果实与果实之间的连接线
 - **AND** 每条连接线 MUST 连接到对应父节点和子节点附近
+- **AND** 连接线 MUST 随节点自动布局、节点拖拽和树形整理结果同步更新
 
 #### Scenario: 拖拽节点
 - **WHEN** 用户拖拽工作区中的种子或果实节点
@@ -85,20 +87,42 @@
 - **THEN** 前端 MUST 平移内容树视图
 - **AND** 节点和连接线 MUST 作为同一内容树整体移动
 
+#### Scenario: 整理混乱树形布局
+- **WHEN** 用户点击整理树形或适应视图入口
+- **THEN** 前端 MUST 基于当前节点和边重新计算运行时树布局
+- **AND** 前端 MUST 将节点整理为自底向上的清晰树形结构
+- **AND** 前端 MUST 调整画布视图使整理后的内容树尽量居中可见
+- **AND** 前端 MUST NOT 将整理后的节点坐标持久化到后端
+
+#### Scenario: 生成中占位节点自然落位
+- **WHEN** 用户发起枝化生长且前端展示生成中占位果实
+- **THEN** 前端 MUST 将生成中占位果实作为来源节点的临时子节点参与运行时树布局
+- **AND** 生成中占位果实 MUST 与来源节点和其他兄弟节点保持合理间距
+- **AND** 生成中占位果实 MUST 使用真实父子关系绘制临时连接线
+
 ### Requirement: 种子与果实节点视觉状态
-前端 SHALL 在内容树中清晰区分种子节点和果实节点，并展示果实物竞天择状态。果实状态 MUST 使用 `candidate`、`selected`、`eliminated` 的领域语义映射，MUST 保持已淘汰果实可见但弱化展示。
+前端 SHALL 在内容树中清晰区分种子节点和果实节点，并展示果实物竞天择状态。果实状态 MUST 使用 `candidate`、`selected`、`eliminated` 的领域语义映射，MUST 保持已淘汰果实可见但弱化展示。节点卡片 MUST 使用简洁、拟物化但不过度花哨的视觉语言，并且节点底部 MUST 只展示当前状态标签。
 
 #### Scenario: 区分种子和果实节点
 - **WHEN** 工作区展示内容树节点
 - **THEN** 前端 MUST 使用不同视觉样式区分种子节点和果实节点
-- **AND** 种子节点 MUST 表达根节点语义
+- **AND** 种子节点 MUST 表达根节点和灵感源语义
 - **AND** 果实节点 MUST 表达内容产物语义
+- **AND** 种子节点与果实节点 MUST 在形状、材质或结构上具备明显差异
 
 #### Scenario: 展示果实选择状态
 - **WHEN** 果实处于候选、已选择或已淘汰状态
 - **THEN** 前端 MUST 在节点上展示对应状态
 - **AND** 已选择果实 MUST 比候选果实更突出
 - **AND** 已淘汰果实 MUST 保持可见但视觉弱化
+- **AND** 节点底部 MUST 只展示当前状态标签
+- **AND** 节点底部 MUST NOT 展示额外基因标签、内容路径或其他详情信息
+
+#### Scenario: 展示生长中节点状态
+- **WHEN** 种子、果实或生成中占位果实处于生长中状态
+- **THEN** 前端 MUST 使用可感知但克制的动效展示生长中状态
+- **AND** 生长中动效 MUST 不影响用户点击、拖拽和阅读节点标题
+- **AND** 生长中节点底部 MUST 只展示当前状态标签
 
 ### Requirement: 节点详情读取与展示
 前端 SHALL 在用户点击工作区节点时展示右侧详情面板，并按节点类型读取对应 Markdown 详情。种子详情 MUST 使用 `docs/api/seed.yaml` 定义的 `GET /api/seeds/{seedId}`，果实详情 MUST 使用 `docs/api/fruit.yaml` 定义的 `GET /api/fruits/{fruitId}`。
@@ -425,3 +449,99 @@
 - **WHEN** 用户查看工作区统一基因汲取组件和枝化生长输入框
 - **THEN** 前端 MUST 让统一组件负责基因汲取提示、建议处理和基因库入口
 - **AND** 前端 MUST 让枝化生长输入框负责引用已确认且可引用的基因经验
+
+### Requirement: 工作区接入人工发布记录
+前端 SHALL 在种子工作区果实详情中接入人工发布记录能力。该能力 MUST 使用 `docs/api/publication.yaml` 中定义的 `POST /api/publication-records` 创建发布记录，且 MUST 只允许已选择果实发起发布记录创建。
+
+#### Scenario: 已选择果实创建发布记录
+- **WHEN** 用户选中已选择果实并打开人工发布记录创建入口
+- **THEN** 前端 MUST 展示发布目标、发布凭证和发布备注输入
+- **AND** 用户提交后前端 MUST 调用 `POST /api/publication-records`
+- **AND** 请求体 MUST 包含当前果实的 `fruitId`、`publicationTarget` 和 `publicationEvidence`
+
+#### Scenario: 候选或已淘汰果实不可创建发布记录
+- **WHEN** 用户选中候选果实或已淘汰果实
+- **THEN** 前端 MUST NOT 展示可执行的发布记录创建按钮
+- **AND** 前端 MUST 表达只有已选择果实才能进入发布验证
+
+#### Scenario: 只读工作区禁止创建发布记录
+- **WHEN** 工作区处于只读状态
+- **THEN** 前端 MUST 禁用发布记录创建能力
+- **AND** 前端 MUST 保留发布记录查看能力
+
+### Requirement: 工作区展示和编辑发布记录
+前端 SHALL 在果实详情中展示当前果实的发布记录列表。列表数据 MUST 使用 `docs/api/publication.yaml` 中定义的 `GET /api/fruits/{fruitId}/publication-records` 获取；编辑发布记录 MUST 使用 `PATCH /api/publication-records/{publicationRecordId}`。
+
+#### Scenario: 打开发布记录列表
+- **WHEN** 用户在果实详情中打开发布记录区域
+- **THEN** 前端 MUST 调用 `GET /api/fruits/{fruitId}/publication-records`
+- **AND** 前端 MUST 展示该果实关联的全部发布记录
+- **AND** 每条记录 MUST 展示发布目标、发布凭证、发布备注、发布器语义和发布时间
+
+#### Scenario: 编辑发布记录
+- **WHEN** 用户编辑一条发布记录的发布目标、发布凭证或发布备注
+- **THEN** 前端 MUST 调用 `PATCH /api/publication-records/{publicationRecordId}`
+- **AND** 前端 MUST NOT 尝试修改发布记录关联的果实或发布时间
+- **AND** 编辑成功后前端 MUST 刷新该发布记录展示
+
+#### Scenario: 发布记录为空
+- **WHEN** 已选择果实尚无发布记录
+- **THEN** 前端 MUST 展示空状态
+- **AND** 前端 MUST 提供创建人工发布记录的入口
+
+### Requirement: 发布记录作为数据回流入口
+前端 SHALL 将数据回流入口展示在具体发布记录下，而不是直接挂在果实一级。监控器挂载、反馈快照创建和反馈历史查看 MUST 基于后端 `add-feedback-module` 提供的 `docs/api/feedback.yaml` 契约实现。
+
+#### Scenario: 发布记录下展示数据回流入口
+- **WHEN** 用户查看某条发布记录
+- **THEN** 前端 MUST 在该发布记录范围内展示监控器和数据反馈入口
+- **AND** 前端 MUST 表达数据反馈属于该发布记录而不是整个果实
+
+#### Scenario: 无发布记录时不允许录入反馈
+- **WHEN** 当前果实没有任何发布记录
+- **THEN** 前端 MUST NOT 提供反馈快照创建入口
+- **AND** 前端 MUST 提示需要先创建发布记录
+
+#### Scenario: 反馈 API 契约未存在时标记依赖
+- **WHEN** `docs/api/feedback.yaml` 尚未由后端提案落地
+- **THEN** 前端实现任务 MUST NOT 私自定义反馈接口
+- **AND** 前端任务 MUST 将监控器和反馈快照真实对接标记为依赖后端更新
+
+### Requirement: 工作区接入人为监控器和反馈快照
+在 `docs/api/feedback.yaml` 可用后，前端 SHALL 支持在发布记录下挂载人为监控器、创建反馈快照、编辑反馈快照和查看反馈历史。表现数据 MUST 保持自由结构，不做固定平台指标枚举。
+
+#### Scenario: 挂载人为监控器
+- **WHEN** 用户在未挂载监控器的发布记录下点击挂载监控器
+- **THEN** 前端 MUST 调用 `docs/api/feedback.yaml` 定义的监控器挂载接口
+- **AND** 前端 MUST 在成功后展示该发布记录已挂载人为监控器
+
+#### Scenario: 创建反馈快照
+- **WHEN** 用户在已挂载监控器的发布记录下提交表现数据和用户观察
+- **THEN** 前端 MUST 调用 `docs/api/feedback.yaml` 定义的反馈快照创建接口
+- **AND** 前端 MUST 保留自由结构表现数据输入
+- **AND** 创建成功后前端 MUST 刷新该发布记录的反馈历史
+
+#### Scenario: 编辑反馈快照
+- **WHEN** 用户编辑已有反馈快照
+- **THEN** 前端 MUST 调用 `docs/api/feedback.yaml` 定义的反馈快照编辑接口
+- **AND** 前端 MUST NOT 提供删除反馈快照的能力
+
+#### Scenario: 查看反馈历史
+- **WHEN** 用户打开发布记录的数据反馈区域
+- **THEN** 前端 MUST 调用 `docs/api/feedback.yaml` 定义的反馈历史查询接口
+- **AND** 前端 MUST 展示该发布记录下的全部反馈快照
+
+### Requirement: 工作区 Header 状态与整理入口
+前端 SHALL 将工作区运行状态信息整合到无限画布顶部 header 中。header MUST 同时承载种子标题、树同步或生长状态、生长进度提示和工作区视图操作入口；原独立悬浮在画布内的生长状态组件 MUST 不再作为画布内容遮挡节点。
+
+#### Scenario: Header 展示树运行状态
+- **WHEN** 用户进入种子工作区
+- **THEN** 前端 MUST 在工作区 header 中展示当前种子标题
+- **AND** 前端 MUST 在同一 header 中展示树同步、加载或枝化生长状态
+- **AND** 前端 MUST 在存在生长中节点时展示可感知的生长进度动效
+
+#### Scenario: Header 提供树形整理入口
+- **WHEN** 用户查看工作区 header
+- **THEN** 前端 MUST 提供整理树形或适应视图入口
+- **AND** 该入口 MUST 与返回种子库等工作区操作在视觉上保持同一组件体系
+
