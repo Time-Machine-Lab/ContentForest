@@ -333,6 +333,7 @@ export class GrowthService {
       const fruit = await this.fruitService.createFruitFromCandidate({
         markdown: candidate.markdown,
         parentNodeRef: task.sourceNodeRef,
+        generatorId: task.generatorId,
         summary: candidate.summary,
         geneTags: candidate.geneTags,
       });
@@ -711,6 +712,7 @@ export class GrowthService {
       detailParams: task.detailParams,
       target: {
         fruitCount: 1,
+        totalFruitCount: task.fruitCount,
       },
     };
   }

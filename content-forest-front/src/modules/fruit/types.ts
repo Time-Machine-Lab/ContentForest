@@ -11,6 +11,7 @@ export interface FruitSummary {
   selectionState: FruitSelectionState
   parentNodeRef: FruitParentNodeRef
   contentLocation: string
+  generatorId: string | null
   summary: string
   geneTags: string[]
   createdAt: string

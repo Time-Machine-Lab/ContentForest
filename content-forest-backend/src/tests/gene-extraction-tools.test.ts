@@ -15,6 +15,7 @@ import {
 import { PUBLICATION_PUBLISHER_TYPES } from "../modules/publication/domain/publication-types.js";
 import { SEED_ARCHIVE_STATES } from "../modules/seed/domain/seed-types.js";
 import { InMemoryFruitStorageAdapter } from "../storage/adapters/in-memory-fruit-storage-adapter.js";
+import { InMemoryFeedbackStorageAdapter } from "../storage/adapters/in-memory-feedback-storage-adapter.js";
 import { InMemoryGeneStorageAdapter } from "../storage/adapters/in-memory-gene-storage-adapter.js";
 import { InMemoryPublicationStorageAdapter } from "../storage/adapters/in-memory-publication-storage-adapter.js";
 import { InMemorySeedStorageAdapter } from "../storage/adapters/in-memory-seed-storage-adapter.js";
@@ -25,6 +26,7 @@ const now = "2026-01-01T00:00:00.000Z";
 async function createFixture() {
   const seedStorage = new InMemorySeedStorageAdapter();
   const fruitStorage = new InMemoryFruitStorageAdapter();
+  const feedbackStorage = new InMemoryFeedbackStorageAdapter();
   const geneStorage = new InMemoryGeneStorageAdapter();
   const publicationStorage = new InMemoryPublicationStorageAdapter();
   const seedContentAccess = new InMemorySeedMarkdownContentAccessAdapter();
@@ -65,6 +67,7 @@ async function createFixture() {
     selectionState: FRUIT_SELECTION_STATES.selected,
     parentNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
     contentLocation: selectedLocation,
+    generatorId: null,
     summary: "Selected expression",
     geneTags: ["emotion"],
     createdAt: now,
@@ -79,6 +82,7 @@ async function createFixture() {
     selectionState: FRUIT_SELECTION_STATES.eliminated,
     parentNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
     contentLocation: eliminatedLocation,
+    generatorId: null,
     summary: "Eliminated expression",
     geneTags: ["feature-only"],
     createdAt: now,
@@ -92,6 +96,23 @@ async function createFixture() {
     publicationEvidence: "https://example.com/post",
     publicationNote: "manual publish",
     publishedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await feedbackStorage.createMonitorAttachment({
+    id: "feedback-monitor_1",
+    publicationRecordId: "publication_1",
+    monitorType: "manual",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await feedbackStorage.createFeedbackSnapshot({
+    id: "feedback_1",
+    publicationRecordId: "publication_1",
+    monitorAttachmentId: "feedback-monitor_1",
+    performanceData: { views: 100, likes: 8 },
+    userObservation: "manual data pull",
+    capturedAt: now,
     createdAt: now,
     updatedAt: now,
   });
@@ -158,6 +179,7 @@ async function createFixture() {
   return {
     seedStorage,
     fruitStorage,
+    feedbackStorage,
     geneStorage,
     publicationStorage,
     seedContentAccess,
@@ -253,7 +275,7 @@ describe("gene extraction read tools", () => {
     });
   });
 
-  it("reads fruit, publication and unsupported feedback evidence", async () => {
+  it("reads fruit, publication and feedback evidence", async () => {
     const fixture = await createFixture();
     const tool = new ReadGeneEvidenceTool(fixture);
 
@@ -263,7 +285,7 @@ describe("gene extraction read tools", () => {
       unsupportedEvidence: Array<Record<string, unknown>>;
     };
 
-    expect(content.evidence).toHaveLength(3);
+    expect(content.evidence).toHaveLength(4);
     expect(content.evidence[0]).toMatchObject({
       evidenceType: GENE_EVIDENCE_SOURCE_TYPES.fruitSelected,
       evidenceDirection: "positive",
@@ -283,9 +305,20 @@ describe("gene extraction read tools", () => {
         publishedAt: now,
       },
     });
-    expect(content.unsupportedEvidence).toMatchObject([
-      { evidenceType: GENE_EVIDENCE_SOURCE_TYPES.feedback },
-    ]);
+    expect(content.evidence[3]).toMatchObject({
+      evidenceType: GENE_EVIDENCE_SOURCE_TYPES.feedback,
+      publication: {
+        publicationRecordId: "publication_1",
+        publicationTarget: "x",
+      },
+      feedback: {
+        snapshotId: "feedback_1",
+        monitorType: "manual",
+        performanceData: { views: 100, likes: 8 },
+        userObservation: "manual data pull",
+      },
+    });
+    expect(content.unsupportedEvidence).toEqual([]);
 
     await expect(
       tool.execute({ sourceIds: ["fruit_not_authorized"] }, context()),

@@ -20,6 +20,7 @@ import { SeedService } from "../modules/seed/application/seed-service.js";
 import { ApplicationError } from "../shared/errors/application-error.js";
 import type { IdGenerator } from "../shared/utils/id-generator.js";
 import { InMemoryFruitStorageAdapter } from "../storage/adapters/in-memory-fruit-storage-adapter.js";
+import { InMemoryFeedbackStorageAdapter } from "../storage/adapters/in-memory-feedback-storage-adapter.js";
 import { InMemoryGeneStorageAdapter } from "../storage/adapters/in-memory-gene-storage-adapter.js";
 import { InMemoryPublicationStorageAdapter } from "../storage/adapters/in-memory-publication-storage-adapter.js";
 import { InMemorySeedStorageAdapter } from "../storage/adapters/in-memory-seed-storage-adapter.js";
@@ -110,11 +111,13 @@ function createServices(agentPort: AgentPort = successAgent()): {
   geneStorage: InMemoryGeneStorageAdapter;
   geneContent: InMemoryGeneMarkdownContentAccessAdapter;
   publicationStorage: InMemoryPublicationStorageAdapter;
+  feedbackStorage: InMemoryFeedbackStorageAdapter;
 } {
   const seedStorage = new InMemorySeedStorageAdapter();
   const fruitStorage = new InMemoryFruitStorageAdapter();
   const geneStorage = new InMemoryGeneStorageAdapter();
   const publicationStorage = new InMemoryPublicationStorageAdapter();
+  const feedbackStorage = new InMemoryFeedbackStorageAdapter();
   const geneContent = new InMemoryGeneMarkdownContentAccessAdapter();
   const idGenerator = createIdGenerator();
   const now = createNow();
@@ -125,6 +128,7 @@ function createServices(agentPort: AgentPort = successAgent()): {
     seedStorage,
     fruitStorage,
     publicationStorage,
+    feedbackStorage,
     agentPort,
     idGenerator,
     now,
@@ -157,6 +161,7 @@ function createServices(agentPort: AgentPort = successAgent()): {
     geneStorage,
     geneContent,
     publicationStorage,
+    feedbackStorage,
   };
 }
 
@@ -175,6 +180,30 @@ function publicationRecord(
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
   };
+}
+
+async function feedbackSnapshot(
+  feedbackStorage: InMemoryFeedbackStorageAdapter,
+  snapshotId: string,
+  publicationRecordId: string,
+): Promise<void> {
+  await feedbackStorage.createMonitorAttachment({
+    id: `feedback-monitor_${snapshotId}`,
+    publicationRecordId,
+    monitorType: "manual",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  await feedbackStorage.createFeedbackSnapshot({
+    id: snapshotId,
+    publicationRecordId,
+    monitorAttachmentId: `feedback-monitor_${snapshotId}`,
+    performanceData: { views: 100, saves: 6 },
+    userObservation: "manual feedback",
+    capturedAt: "2026-01-01T00:00:00.000Z",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
 }
 
 describe("GeneService", () => {
@@ -395,11 +424,15 @@ describe("GeneService", () => {
     expect(capturedTasks).toHaveLength(0);
   });
 
-  it("rejects pure feedback evidence and allows mixed executable evidence", async () => {
+  it("authorizes feedback evidence through its publication record fruit seed", async () => {
     const capturedTasks: AgentTask[] = [];
-    const { fruitService, seedService, geneService } = createServices(
-      successAgent(capturedTasks),
-    );
+    const {
+      fruitService,
+      seedService,
+      geneService,
+      publicationStorage,
+      feedbackStorage,
+    } = createServices(successAgent(capturedTasks));
     const seed = await seedService.createSeed({
       title: "Seed A",
       markdown: "Seed A body",
@@ -408,18 +441,10 @@ describe("GeneService", () => {
       markdown: "Executable fruit",
       parentNodeRef: { nodeType: "seed", nodeId: seed.rootNodeId },
     });
-
-    await expect(
-      geneService.startExtractionTask(seed.id, {
-        evidenceSources: [
-          {
-            sourceType: GENE_EVIDENCE_SOURCE_TYPES.feedback,
-            sourceId: "feedback_1",
-            strength: "weak",
-          },
-        ],
-      }),
-    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await publicationStorage.createPublicationRecord(
+      publicationRecord("publication_3", fruit.id),
+    );
+    await feedbackSnapshot(feedbackStorage, "feedback_1", "publication_3");
 
     const result = await geneService.startExtractionTask(seed.id, {
       evidenceSources: [
@@ -427,11 +452,6 @@ describe("GeneService", () => {
           sourceType: GENE_EVIDENCE_SOURCE_TYPES.feedback,
           sourceId: "feedback_1",
           strength: "weak",
-        },
-        {
-          sourceType: GENE_EVIDENCE_SOURCE_TYPES.fruitSelected,
-          sourceId: fruit.id,
-          strength: "strong",
         },
       ],
     });
@@ -445,18 +465,57 @@ describe("GeneService", () => {
           sourceId: "feedback_1",
           strength: "weak",
         },
-        {
-          sourceType: GENE_EVIDENCE_SOURCE_TYPES.fruitSelected,
-          sourceId: fruit.id,
-          strength: "strong",
-        },
       ],
-      fruitEvidence: [
+      feedbackEvidence: [
         {
-          fruitId: fruit.id,
+          snapshotId: "feedback_1",
+          publicationRecordId: "publication_3",
+          monitorType: "manual",
+          performanceData: { views: 100, saves: 6 },
+          userObservation: "manual feedback",
         },
       ],
     });
+  });
+
+  it("rejects feedback evidence outside the requested seed", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const {
+      fruitService,
+      seedService,
+      geneService,
+      publicationStorage,
+      feedbackStorage,
+    } = createServices(successAgent(capturedTasks));
+    const seedA = await seedService.createSeed({
+      title: "Seed A",
+      markdown: "Seed A body",
+    });
+    const seedB = await seedService.createSeed({
+      title: "Seed B",
+      markdown: "Seed B body",
+    });
+    const foreignFruit = await fruitService.createFruitFromCandidate({
+      markdown: "Foreign feedback fruit",
+      parentNodeRef: { nodeType: "seed", nodeId: seedB.rootNodeId },
+    });
+    await publicationStorage.createPublicationRecord(
+      publicationRecord("publication_4", foreignFruit.id),
+    );
+    await feedbackSnapshot(feedbackStorage, "feedback_foreign", "publication_4");
+
+    await expect(
+      geneService.startExtractionTask(seedA.id, {
+        evidenceSources: [
+          {
+            sourceType: GENE_EVIDENCE_SOURCE_TYPES.feedback,
+            sourceId: "feedback_foreign",
+            strength: "medium",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(capturedTasks).toHaveLength(0);
   });
 
   it("marks the task failed when a successful Agent output has no usable suggestions", async () => {

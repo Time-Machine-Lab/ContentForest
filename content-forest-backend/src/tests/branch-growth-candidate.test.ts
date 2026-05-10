@@ -65,6 +65,40 @@ describe("BranchGrowthCandidate schema", () => {
     ).toThrow(/payload\.markdown/);
   });
 
+  it("requires summary to be a short fruit title", () => {
+    expect(() =>
+      validateBranchGrowthCandidateFruit({
+        ...validCandidate,
+        meta: { ...validCandidate.meta, summary: "短" },
+      }),
+    ).toThrow(/5 to 20 character/);
+
+    expect(() =>
+      validateBranchGrowthCandidateFruit({
+        ...validCandidate,
+        meta: {
+          ...validCandidate.meta,
+          summary: "这是一个明显过长不适合展示在果实节点上的标题",
+        },
+      }),
+    ).toThrow(/5 to 20 character/);
+  });
+
+  it("cleans thinking text from candidate markdown before adapting to Growth", () => {
+    expect(
+      candidateToGrowthFruitInput({
+        ...validCandidate,
+        payload: {
+          ...validCandidate.payload,
+          markdown: "<think>内部分析</think>\n我先分析一下\n\n## 标题\n清理后的标题",
+          rawGeneratorOutput: "<think>内部分析</think>\n## 标题\n清理后的标题",
+        },
+      }),
+    ).toMatchObject({
+      markdown: "## 标题\n清理后的标题",
+    });
+  });
+
   it("rejects unauthorized resource references", () => {
     expect(() =>
       validateBranchGrowthCandidateFruit(validCandidate, {

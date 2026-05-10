@@ -73,7 +73,7 @@ function successAgent(): AgentPort {
           content: {
             candidate: {
               markdown: "# SQLite 生长果实",
-              summary: "集成摘要",
+              summary: "SQLite集成果实",
               geneTags: ["集成"],
             },
           },

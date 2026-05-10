@@ -1,0 +1,221 @@
+openapi: 3.1.0
+info:
+  title: Content Forest Data Feedback API
+  version: 0.1.0
+  description: >
+    Feedback Controller contract for manual monitor attachment and feedback
+    snapshots on publication records. The first phase records user-entered
+    external performance facts only. It does not expose automatic monitors,
+    fixed metric enums, deletion, archive, success judgement, fitness
+    calculation, publication mutation, or fruit state mutation.
+tags:
+  - name: Feedback
+paths:
+  /api/publication-records/{publicationRecordId}/monitor:
+    post:
+      tags: [Feedback]
+      summary: Attach the built-in manual monitor to a publication record
+      parameters:
+        - $ref: '#/components/parameters/PublicationRecordId'
+      responses:
+        '201':
+          description: Manual monitor attached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackMonitorAttachment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/publication-records/{publicationRecordId}/feedback:
+    get:
+      tags: [Feedback]
+      summary: Get monitor attachment and feedback snapshot history
+      parameters:
+        - $ref: '#/components/parameters/PublicationRecordId'
+      responses:
+        '200':
+          description: Feedback history for the publication record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackHistory'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/publication-records/{publicationRecordId}/feedback-snapshots:
+    post:
+      tags: [Feedback]
+      summary: Create a feedback snapshot through the attached monitor
+      parameters:
+        - $ref: '#/components/parameters/PublicationRecordId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFeedbackSnapshotRequest'
+      responses:
+        '201':
+          description: Feedback snapshot created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackSnapshot'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/feedback-snapshots/{snapshotId}:
+    patch:
+      tags: [Feedback]
+      summary: Edit feedback snapshot data or observation
+      parameters:
+        - $ref: '#/components/parameters/SnapshotId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFeedbackSnapshotRequest'
+      responses:
+        '200':
+          description: Feedback snapshot edited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackSnapshot'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  parameters:
+    PublicationRecordId:
+      name: publicationRecordId
+      in: path
+      required: true
+      schema:
+        type: string
+    SnapshotId:
+      name: snapshotId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    CreateFeedbackSnapshotRequest:
+      type: object
+      required: [performanceData]
+      additionalProperties: false
+      properties:
+        performanceData:
+          type: object
+          description: Free structured external platform performance data.
+        userObservation:
+          type: string
+          default: ''
+        capturedAt:
+          type: string
+          format: date-time
+          description: Optional external observation time. Defaults to creation time.
+    UpdateFeedbackSnapshotRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        performanceData:
+          type: object
+        userObservation:
+          type: string
+        capturedAt:
+          type: string
+          format: date-time
+    FeedbackMonitorAttachment:
+      type: object
+      required:
+        - id
+        - publicationRecordId
+        - monitorType
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        publicationRecordId:
+          type: string
+        monitorType:
+          type: string
+          enum: [manual]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    FeedbackSnapshot:
+      type: object
+      required:
+        - id
+        - publicationRecordId
+        - monitorAttachmentId
+        - performanceData
+        - userObservation
+        - capturedAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        publicationRecordId:
+          type: string
+        monitorAttachmentId:
+          type: string
+        performanceData:
+          type: object
+        userObservation:
+          type: string
+        capturedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    FeedbackHistory:
+      type: object
+      required: [publicationRecordId, monitorAttachment, snapshots]
+      properties:
+        publicationRecordId:
+          type: string
+        monitorAttachment:
+          oneOf:
+            - $ref: '#/components/schemas/FeedbackMonitorAttachment'
+            - type: 'null'
+        snapshots:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedbackSnapshot'
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+  responses:
+    BadRequest:
+      description: Request violates data feedback rules.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Referenced publication record, monitor attachment, or snapshot does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

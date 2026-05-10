@@ -255,6 +255,52 @@ async function handleApiRequest(
     return true;
   }
 
+  const publicationMonitorMatch = pathname.match(
+    /^\/api\/publication-records\/([^/]+)\/monitor$/,
+  );
+  if (publicationMonitorMatch && method === "POST") {
+    const result = await app.feedbackController.attachManualMonitor(
+      decodeURIComponent(publicationMonitorMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const publicationFeedbackMatch = pathname.match(
+    /^\/api\/publication-records\/([^/]+)\/feedback$/,
+  );
+  if (publicationFeedbackMatch && method === "GET") {
+    const result = await app.feedbackController.getFeedbackHistory(
+      decodeURIComponent(publicationFeedbackMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const publicationFeedbackSnapshotsMatch = pathname.match(
+    /^\/api\/publication-records\/([^/]+)\/feedback-snapshots$/,
+  );
+  if (publicationFeedbackSnapshotsMatch && method === "POST") {
+    const result = await app.feedbackController.createFeedbackSnapshot(
+      decodeURIComponent(publicationFeedbackSnapshotsMatch[1] ?? ""),
+      toCreateFeedbackSnapshotInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const feedbackSnapshotMatch = pathname.match(
+    /^\/api\/feedback-snapshots\/([^/]+)$/,
+  );
+  if (feedbackSnapshotMatch && method === "PATCH") {
+    const result = await app.feedbackController.editFeedbackSnapshot(
+      decodeURIComponent(feedbackSnapshotMatch[1] ?? ""),
+      toUpdateFeedbackSnapshotInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
   const growthTaskMatch = pathname.match(/^\/api\/growth-tasks\/([^/]+)$/);
   if (growthTaskMatch && method === "GET") {
     const result = await app.growthController.getGrowthTask(
@@ -927,6 +973,95 @@ function toUpdatePublicationRecordInput(body: Record<string, unknown>): {
   return input;
 }
 
+function toCreateFeedbackSnapshotInput(body: Record<string, unknown>): {
+  performanceData: Record<string, unknown>;
+  userObservation?: string;
+  capturedAt?: string;
+} {
+  rejectUnexpectedFields(body, [
+    "performanceData",
+    "userObservation",
+    "capturedAt",
+  ]);
+  if (!isPlainRecord(body.performanceData)) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "Creating a feedback snapshot requires structured performanceData",
+      400,
+    );
+  }
+  if (
+    body.userObservation !== undefined &&
+    typeof body.userObservation !== "string"
+  ) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "User observation must be a string",
+      400,
+    );
+  }
+  if (body.capturedAt !== undefined && typeof body.capturedAt !== "string") {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "Captured time must be a string",
+      400,
+    );
+  }
+  return {
+    performanceData: body.performanceData,
+    userObservation: body.userObservation,
+    capturedAt: body.capturedAt,
+  };
+}
+
+function toUpdateFeedbackSnapshotInput(body: Record<string, unknown>): {
+  performanceData?: Record<string, unknown>;
+  userObservation?: string;
+  capturedAt?: string;
+} {
+  rejectUnexpectedFields(body, [
+    "performanceData",
+    "userObservation",
+    "capturedAt",
+  ]);
+  const input: {
+    performanceData?: Record<string, unknown>;
+    userObservation?: string;
+    capturedAt?: string;
+  } = {};
+  if (body.performanceData !== undefined) {
+    if (!isPlainRecord(body.performanceData)) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "Performance data must be a structured object",
+        400,
+      );
+    }
+    input.performanceData = body.performanceData;
+  }
+  if (body.userObservation !== undefined) {
+    if (typeof body.userObservation !== "string") {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "User observation must be a string",
+        400,
+      );
+    }
+    input.userObservation = body.userObservation;
+  }
+  if (body.capturedAt !== undefined) {
+    if (typeof body.capturedAt !== "string") {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "Captured time must be a string",
+        400,
+      );
+    }
+    input.capturedAt = body.capturedAt;
+  }
+  return input;
+}
+
 function toStartGrowthTaskInput(body: Record<string, unknown>): {
   seedId: string;
   sourceNodeRef: GrowthSourceNodeRef;
@@ -1211,6 +1346,10 @@ function rejectUnexpectedFields(
       400,
     );
   }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {

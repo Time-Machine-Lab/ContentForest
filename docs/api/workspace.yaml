@@ -110,6 +110,7 @@ components:
         - selectionState
         - parentNodeRef
         - contentLocation
+        - generatorId
         - summary
         - geneTags
         - createdAt
@@ -131,8 +132,14 @@ components:
           $ref: '#/components/schemas/WorkspaceNodeRef'
         contentLocation:
           type: string
+        generatorId:
+          type:
+            - string
+            - 'null'
         summary:
           type: string
+          minLength: 5
+          maxLength: 20
         geneTags:
           type: array
           items:

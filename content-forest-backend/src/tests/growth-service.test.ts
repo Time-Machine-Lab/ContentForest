@@ -75,7 +75,7 @@ function successAgent(capturedTasks: AgentTask[] = []): AgentPort {
           content: {
             candidate: {
               markdown: `# 果实 ${capturedTasks.length}`,
-              summary: "生长摘要",
+              summary: "情绪生长摘要",
               geneTags: ["情绪价值"],
             },
           },
@@ -344,6 +344,7 @@ describe("GrowthService", () => {
     const fruit = await fruitStorage.findFruitById(completed.successfulFruitIds[0] ?? "");
     expect(completed.status).toBe(GROWTH_TASK_STATUSES.completed);
     expect(fruit).toMatchObject({
+      generatorId: "generator_1",
       summary: "结构化候选摘要",
       geneTags: ["结构化"],
     });
@@ -506,6 +507,13 @@ describe("GrowthService", () => {
       3,
       4,
       5,
+    ]);
+    expect(capturedTasks.map((task) => task.input.target)).toEqual([
+      { fruitCount: 1, totalFruitCount: 5 },
+      { fruitCount: 1, totalFruitCount: 5 },
+      { fruitCount: 1, totalFruitCount: 5 },
+      { fruitCount: 1, totalFruitCount: 5 },
+      { fruitCount: 1, totalFruitCount: 5 },
     ]);
   });
 

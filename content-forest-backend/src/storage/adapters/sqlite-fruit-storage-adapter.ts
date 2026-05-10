@@ -15,6 +15,7 @@ interface FruitRow {
   parent_node_id: string;
   parent_node_type: ParentNodeType;
   content_location: string;
+  generator_id: string | null;
   summary: string;
   gene_tags_json: string;
   created_at: string;
@@ -38,11 +39,12 @@ export class SqliteFruitStorageAdapter implements FruitStoragePort {
           parent_node_id,
           parent_node_type,
           content_location,
+          generator_id,
           summary,
           gene_tags_json,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
@@ -50,6 +52,7 @@ export class SqliteFruitStorageAdapter implements FruitStoragePort {
         record.parentNodeRef.nodeId,
         record.parentNodeRef.nodeType,
         record.contentLocation,
+        record.generatorId,
         record.summary,
         JSON.stringify(record.geneTags),
         record.createdAt,
@@ -72,6 +75,7 @@ export class SqliteFruitStorageAdapter implements FruitStoragePort {
               parent_node_id = ?,
               parent_node_type = ?,
               content_location = ?,
+              generator_id = ?,
               summary = ?,
               gene_tags_json = ?,
               updated_at = ?
@@ -82,6 +86,7 @@ export class SqliteFruitStorageAdapter implements FruitStoragePort {
         record.parentNodeRef.nodeId,
         record.parentNodeRef.nodeType,
         record.contentLocation,
+        record.generatorId,
         record.summary,
         JSON.stringify(record.geneTags),
         record.updatedAt,
@@ -114,6 +119,7 @@ export class SqliteFruitStorageAdapter implements FruitStoragePort {
         parent_node_id TEXT NOT NULL,
         parent_node_type TEXT NOT NULL CHECK (parent_node_type IN ('seed', 'fruit')),
         content_location TEXT NOT NULL,
+        generator_id TEXT,
         summary TEXT NOT NULL DEFAULT '',
         gene_tags_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
@@ -126,6 +132,7 @@ export class SqliteFruitStorageAdapter implements FruitStoragePort {
       CREATE INDEX IF NOT EXISTS idx_fruits_selection_state_updated_at
         ON fruits (selection_state, updated_at);
     `);
+    this.ensureColumn("fruits", "generator_id", "TEXT");
   }
 
   private toRecord(row: FruitRow): FruitRecord {
@@ -137,6 +144,7 @@ export class SqliteFruitStorageAdapter implements FruitStoragePort {
         nodeType: row.parent_node_type,
       },
       contentLocation: row.content_location,
+      generatorId: row.generator_id,
       summary: row.summary,
       geneTags: this.parseGeneTags(row.gene_tags_json),
       createdAt: row.created_at,
@@ -152,6 +160,19 @@ export class SqliteFruitStorageAdapter implements FruitStoragePort {
         : [];
     } catch {
       return [];
+    }
+  }
+
+  private ensureColumn(
+    tableName: string,
+    columnName: string,
+    definition: string,
+  ): void {
+    const rows = this.database
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all() as Array<{ name: string }>;
+    if (!rows.some((row) => row.name === columnName)) {
+      this.database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
     }
   }
 }

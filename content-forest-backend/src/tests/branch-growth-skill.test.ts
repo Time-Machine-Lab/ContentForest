@@ -77,6 +77,9 @@ function context(detailParams: Record<string, unknown> = {}) {
     taskType: "growth" as const,
     input: {
       seedId: "seed_1",
+      growthTaskId: "growth-task_1",
+      attemptId: "growth-attempt_1",
+      attemptIndex: 1,
       sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
       userInput: "更适合年轻用户",
       generatorRef: { generatorId: "generator_1" },
@@ -88,7 +91,7 @@ function context(detailParams: Record<string, unknown> = {}) {
         geneRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
       },
       detailParams,
-      target: { fruitCount: 1 },
+      target: { fruitCount: 1, totalFruitCount: 3 },
     },
     metadata: {},
     startedAt: "2026-01-01T00:00:00.000Z",
@@ -134,6 +137,9 @@ describe("BranchGrowthSkill", () => {
       payload: { markdown: "# 候选果实" },
       meta: { geneTags: ["情绪价值"] },
     });
+    expect(llm.inputs[0]?.messages[1]?.content).toContain("## 本次生长策略");
+    expect(llm.inputs[0]?.messages[1]?.content).toContain("content-evolution-v1");
+    expect(llm.inputs[0]?.messages[1]?.content).toContain("evidenceCards");
     expect(llm.inputs[1]?.messages[0]?.content).toContain(
       "usedResourceRefs 必须是对象数组",
     );
@@ -142,6 +148,19 @@ describe("BranchGrowthSkill", () => {
     );
     expect(llm.inputs[1]?.messages[0]?.content).toContain(
       "生成器内部 references 文件都不是 gene 或 nutrient",
+    );
+    expect(trace.list()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "skill_progress",
+          metadata: expect.objectContaining({
+            stage: "strategy_prepared",
+            algorithmVersion: "content-evolution-v1",
+            explorationSlot: "pain-resonance",
+            evidenceCardCount: 2,
+          }),
+        }),
+      ]),
     );
     expect(tools.calls.map((call) => call.name)).toEqual([
       "read_growth_source_node",
@@ -214,6 +233,29 @@ describe("BranchGrowthSkill", () => {
       payload: { markdown: "# 脚本候选" },
     });
     expect(tools.calls.map((call) => call.name)).toContain("execute_generator_script");
+  });
+
+  it("cleans thinking and analysis from generator payload and candidate markdown", async () => {
+    const skill = new BranchGrowthSkill();
+    const llm = new SequenceLlm([
+      "<think>分析过程</think>\n我先分析标题\n\n## 标题\n清理后的标题\n\n## 内容\n清理后的正文",
+      candidateJson("<think>结构化思考</think>\n## 标题\n清理后的标题\n\n## 内容\n清理后的正文"),
+    ]);
+
+    const output = await skill.execute({
+      context: context(),
+      llm,
+      tools: new FakeTools(),
+      trace: new AgentTrace(),
+    });
+
+    expect(JSON.stringify(output.content)).not.toContain("<think>");
+    expect(output.content).toMatchObject({
+      payload: {
+        markdown: "## 标题\n清理后的标题\n\n## 内容\n清理后的正文",
+      },
+    });
+    expect(llm.inputs[1]?.messages[1]?.content).not.toContain("分析过程");
   });
 
   it("repairs invalid structured output once and fails after repeated invalid output", async () => {

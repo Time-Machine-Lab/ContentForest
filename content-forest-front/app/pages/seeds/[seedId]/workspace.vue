@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { createFruitApi, type FruitDetail, type FruitSelectionState } from '../../../../src/modules/fruit'
+import { createFeedbackApi, type FeedbackHistory, type FeedbackSnapshot } from '../../../../src/modules/feedback'
 import { createGeneApi, type GeneSuggestion } from '../../../../src/modules/gene'
 import { createGrowthApi, type GrowthFailedInput, type GrowthNodeType, type GrowthTaskDetail } from '../../../../src/modules/growth'
+import { createPublicationApi, type PublicationRecord } from '../../../../src/modules/publication'
 import { createSeedApi } from '../../../../src/modules/seed'
 import { createWorkspaceApi, type WorkspaceNode, type WorkspaceNodeRef, type WorkspaceSnapshot } from '../../../../src/modules/workspace'
 
@@ -21,6 +23,7 @@ interface TreeNode {
   selectionState?: FruitSelectionState
   parentNodeRef?: WorkspaceNodeRef
   contentLocation: string
+  generatorId?: string | null
   geneTags: string[]
   records: string[]
   createdAt: string
@@ -54,6 +57,11 @@ interface DragState {
   moved: boolean
 }
 
+interface FeedbackMetricDraft {
+  key: string
+  value: string
+}
+
 const route = useRoute()
 const runtimeConfig = useRuntimeConfig()
 const apiBase = String(runtimeConfig.public.apiBase || '')
@@ -70,6 +78,8 @@ const seedApi = createSeedApi(fetcher, apiBase)
 const fruitApi = createFruitApi(fetcher, apiBase)
 const growthApi = createGrowthApi(fetcher, apiBase)
 const geneApi = createGeneApi(fetcher, apiBase)
+const publicationApi = createPublicationApi(fetcher, apiBase)
+const feedbackApi = createFeedbackApi(fetcher, apiBase)
 
 const seedId = computed(() => String(route.params.seedId || ''))
 const snapshot = ref<WorkspaceSnapshot | null>(null)
@@ -78,8 +88,8 @@ const selectedNodeId = ref('')
 const transform = reactive({ x: -620, y: -360, scale: 1 })
 const treeSize = reactive({ width: 1180, height: 820 })
 const nodeSize = {
-  seed: { width: 238, height: 172 },
-  fruit: { width: 224, height: 156 },
+  seed: { width: 252, height: 184 },
+  fruit: { width: 232, height: 168 },
 }
 
 const workspaceLoading = ref(false)
@@ -114,6 +124,32 @@ const geneSuggestionDraft = reactive({
   lineage: '',
   niche: '',
 })
+const publicationRecords = ref<PublicationRecord[]>([])
+const publicationLoading = ref(false)
+const publicationSaving = ref(false)
+const publicationError = ref('')
+const publicationDialogOpen = ref(false)
+const editingPublicationRecord = ref<PublicationRecord | null>(null)
+const publicationDraft = reactive({
+  publicationTarget: '',
+  publicationEvidence: '',
+  publicationNote: '',
+})
+const feedbackHistories = reactive<Record<string, FeedbackHistory>>({})
+const feedbackLoading = ref('')
+const feedbackSaving = ref('')
+const feedbackError = ref('')
+const feedbackDialogOpen = ref(false)
+const activeFeedbackPublicationId = ref('')
+const editingFeedbackSnapshot = ref<FeedbackSnapshot | null>(null)
+const feedbackMetricNameInputOpen = ref(false)
+const feedbackMetricNameDraft = ref('')
+const feedbackMetricNameInputRef = ref<HTMLInputElement | null>(null)
+const feedbackDraft = reactive({
+  performanceData: [] as FeedbackMetricDraft[],
+  userObservation: '',
+  capturedAt: '',
+})
 
 const pollTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const growthTaskFruitCounts = new Map<string, number>()
@@ -136,6 +172,18 @@ const canShowGrowthComposer = computed(() => {
 const visibleComposer = computed(() => Boolean(canShowGrowthComposer.value && !isReadOnly.value && selectedNode.value?.status !== 'growing'))
 const selectedGenerator = computed(() => snapshot.value?.resources.generators.find((item) => item.id === selectedGeneratorId.value) ?? null)
 const generatorName = computed(() => selectedGenerator.value?.name ?? '未选择生成器')
+const canCreatePublicationRecord = computed(() => {
+  const node = selectedNode.value
+  return Boolean(node?.nodeType === 'fruit' && node.selectionState === 'selected' && !isReadOnly.value)
+})
+const publicationUnavailableReason = computed(() => {
+  const node = selectedNode.value
+  if (!node || node.nodeType !== 'fruit') return '发布验证仅适用于果实节点'
+  if (isReadOnly.value) return '只读工作区仅允许查看发布记录'
+  if (node.selectionState === 'eliminated') return '已淘汰果实不能创建发布记录'
+  if (node.selectionState !== 'selected') return '只有已选择果实才能进入发布验证'
+  return ''
+})
 const geneHub = computed(() => snapshot.value?.geneExtractionHub ?? null)
 const geneHubStats = computed(() => geneHub.value?.stats ?? {
   pendingReminderCount: 0,
@@ -194,18 +242,18 @@ const resourceOptions = computed<ResourceRef[]>(() => {
       .map((item) => ({
         id: item.id,
         kind: 'nutrient' as const,
-        label: `营养 · ${item.title}`,
-        scope: item.library.scope === 'public' ? '公共营养库' : item.library.name,
-        description: `${item.library.name} · ${item.contentLocation}`,
+        label: item.title,
+        scope: item.library.scope === 'public' ? `公共营养库 · ${item.library.name}` : `种子专属营养库 · ${item.library.name}`,
+        description: '可作为本次枝化生长参考的营养内容',
       })),
     ...resources.geneInsights
       .filter((item) => item.status === 'active')
       .map((item) => ({
         id: item.id,
         kind: 'gene' as const,
-        label: `基因 · ${item.title}`,
+        label: item.title,
         scope: item.niche || '种子基因库',
-        description: `${item.lineage || '经验'} · ${item.contentLocation}`,
+        description: '已沉淀的表达经验，可作为本次枝化生长参考',
       })),
   ]
 })
@@ -216,9 +264,23 @@ const filteredResourceOptions = computed(() => {
     return `${resource.label} ${resource.scope} ${resource.description}`.toLowerCase().includes(query)
   })
 })
+const filteredResourceGroups = computed(() => [
+  {
+    kind: 'nutrient' as const,
+    title: '营养',
+    subtitle: '创作素材与平台经验',
+    resources: filteredResourceOptions.value.filter((resource) => resource.kind === 'nutrient'),
+  },
+  {
+    kind: 'gene' as const,
+    title: '基因',
+    subtitle: '已沉淀的有效表达特征',
+    resources: filteredResourceOptions.value.filter((resource) => resource.kind === 'gene'),
+  },
+].filter((group) => group.resources.length > 0))
 const growthDetailResources = computed(() => referencedResources.value.map((resource) => ({
   ...resource,
-  kindLabel: resource.kind === 'gene' ? '基因库' : '营养库',
+  kindLabel: resource.kind === 'gene' ? '基因' : '营养',
 })))
 
 watch(seedId, () => {
@@ -355,6 +417,7 @@ function mapWorkspaceNode(node: WorkspaceNode, position: { x: number; y: number 
     selectionState: node.selectionState,
     parentNodeRef: node.parentNodeRef,
     contentLocation: node.contentLocation,
+    generatorId: node.generatorId,
     geneTags: node.geneTags,
     records: buildFruitRecords(node),
     createdAt: node.createdAt,
@@ -367,9 +430,15 @@ function mapWorkspaceNode(node: WorkspaceNode, position: { x: number; y: number 
 
 function buildFruitRecords(node: Extract<WorkspaceNode, { nodeType: 'fruit' }>) {
   const records = [`内容路径：${node.contentLocation}`, `更新于：${formatDateTime(node.updatedAt)}`]
+  if (node.generatorId) records.unshift(`生成器：${generatorLabel(node.generatorId)}`)
   if (node.failedInput.hasFailedInput) records.unshift(`最近失败：${node.failedInput.failureReason || '可恢复输入后重试'}`)
   if (node.growth.isGrowing) records.unshift('枝化生长：生成中')
   return records
+}
+
+function generatorLabel(generatorId: string) {
+  const generator = snapshot.value?.resources.generators.find((item) => item.id === generatorId)
+  return generator ? `${generator.name} (${generator.id})` : generatorId
 }
 
 function buildNodeChildren(treeNodes: TreeNode[]) {
@@ -534,6 +603,7 @@ async function loadSelectedNodeDetail() {
 
   try {
     if (node.nodeType === 'seed') {
+      resetPublicationPanel()
       const detail = await seedApi.getSeed(seedId.value)
       node.markdown = detail.markdown
       node.title = detail.title
@@ -542,6 +612,7 @@ async function loadSelectedNodeDetail() {
     } else if (node.fruitId) {
       const detail = await fruitApi.getFruit(node.fruitId)
       applyFruitDetail(node, detail)
+      await loadPublicationRecords(node.fruitId)
     }
   } catch (error) {
     detailError.value = errorMessage(error)
@@ -557,9 +628,222 @@ function applyFruitDetail(node: TreeNode, detail: FruitDetail) {
   node.selectionState = detail.selectionState
   node.parentNodeRef = detail.parentNodeRef
   node.contentLocation = detail.contentLocation
+  node.generatorId = detail.generatorId
   node.geneTags = detail.geneTags
   node.createdAt = detail.createdAt
   node.updatedAt = detail.updatedAt
+}
+
+function resetPublicationPanel() {
+  publicationRecords.value = []
+  publicationError.value = ''
+  publicationDialogOpen.value = false
+  editingPublicationRecord.value = null
+  feedbackError.value = ''
+  feedbackDialogOpen.value = false
+  activeFeedbackPublicationId.value = ''
+  editingFeedbackSnapshot.value = null
+}
+
+async function loadPublicationRecords(fruitId: string) {
+  publicationLoading.value = true
+  publicationError.value = ''
+
+  try {
+    publicationRecords.value = await publicationApi.listPublicationRecordsByFruit(fruitId)
+    await Promise.all(publicationRecords.value.map((record) => loadFeedbackHistory(record.id, { silent: true })))
+  } catch (error) {
+    publicationError.value = errorMessage(error)
+  } finally {
+    publicationLoading.value = false
+  }
+}
+
+function resetPublicationDraft(record: PublicationRecord | null = null) {
+  editingPublicationRecord.value = record
+  publicationDraft.publicationTarget = record?.publicationTarget ?? ''
+  publicationDraft.publicationEvidence = record?.publicationEvidence ?? ''
+  publicationDraft.publicationNote = record?.publicationNote ?? ''
+}
+
+function openPublicationDialog(record: PublicationRecord | null = null) {
+  if (!record && !canCreatePublicationRecord.value) return
+  resetPublicationDraft(record)
+  publicationDialogOpen.value = true
+  publicationError.value = ''
+}
+
+async function savePublicationRecord() {
+  const node = selectedNode.value
+  if (!node || node.nodeType !== 'fruit' || !node.fruitId || publicationSaving.value || isReadOnly.value) return
+
+  publicationSaving.value = true
+  publicationError.value = ''
+
+  try {
+    if (editingPublicationRecord.value) {
+      await publicationApi.updatePublicationRecord(editingPublicationRecord.value.id, {
+        publicationTarget: publicationDraft.publicationTarget,
+        publicationEvidence: publicationDraft.publicationEvidence,
+        publicationNote: publicationDraft.publicationNote,
+      })
+    } else {
+      await publicationApi.createPublicationRecord({
+        fruitId: node.fruitId,
+        publicationTarget: publicationDraft.publicationTarget,
+        publicationEvidence: publicationDraft.publicationEvidence,
+        publicationNote: publicationDraft.publicationNote,
+      })
+    }
+    publicationDialogOpen.value = false
+    resetPublicationDraft()
+    await loadPublicationRecords(node.fruitId)
+  } catch (error) {
+    publicationError.value = errorMessage(error)
+  } finally {
+    publicationSaving.value = false
+  }
+}
+
+async function loadFeedbackHistory(publicationRecordId: string, options: { silent?: boolean } = {}) {
+  feedbackLoading.value = publicationRecordId
+  if (!options.silent) feedbackError.value = ''
+
+  try {
+    feedbackHistories[publicationRecordId] = await feedbackApi.getFeedbackHistory(publicationRecordId)
+  } catch (error) {
+    if (!options.silent) feedbackError.value = errorMessage(error)
+  } finally {
+    if (feedbackLoading.value === publicationRecordId) feedbackLoading.value = ''
+  }
+}
+
+async function attachManualMonitor(publicationRecordId: string) {
+  if (isReadOnly.value || feedbackSaving.value) return
+  feedbackSaving.value = `monitor:${publicationRecordId}`
+  feedbackError.value = ''
+
+  try {
+    await feedbackApi.attachManualMonitor(publicationRecordId)
+    await loadFeedbackHistory(publicationRecordId)
+  } catch (error) {
+    feedbackError.value = errorMessage(error)
+  } finally {
+    feedbackSaving.value = ''
+  }
+}
+
+function resetFeedbackDraft(snapshot: FeedbackSnapshot | null = null) {
+  editingFeedbackSnapshot.value = snapshot
+  feedbackDraft.performanceData = snapshot
+    ? Object.entries(snapshot.performanceData).map(([key, value]) => ({
+        key,
+        value: stringifyFeedbackMetricValue(value),
+      }))
+    : []
+  feedbackDraft.userObservation = snapshot?.userObservation ?? ''
+  feedbackDraft.capturedAt = snapshot?.capturedAt ?? ''
+  feedbackMetricNameInputOpen.value = false
+  feedbackMetricNameDraft.value = ''
+}
+
+async function openFeedbackMetricNameInput() {
+  feedbackMetricNameInputOpen.value = true
+  feedbackMetricNameDraft.value = ''
+  await nextTick()
+  feedbackMetricNameInputRef.value?.focus()
+}
+
+function addFeedbackMetric() {
+  const key = feedbackMetricNameDraft.value.trim()
+  if (!key) return
+  if (feedbackDraft.performanceData.some((item) => item.key === key)) {
+    feedbackError.value = '该表现数据字段已经存在'
+    return
+  }
+  feedbackDraft.performanceData.push({ key, value: '' })
+  feedbackMetricNameDraft.value = ''
+  feedbackMetricNameInputOpen.value = false
+  feedbackError.value = ''
+}
+
+function closeFeedbackMetricNameInput() {
+  feedbackMetricNameInputOpen.value = false
+  feedbackMetricNameDraft.value = ''
+}
+
+function removeFeedbackMetric(index: number) {
+  feedbackDraft.performanceData.splice(index, 1)
+}
+
+function openFeedbackDialog(publicationRecordId: string, snapshot: FeedbackSnapshot | null = null) {
+  if (isReadOnly.value) return
+  activeFeedbackPublicationId.value = publicationRecordId
+  resetFeedbackDraft(snapshot)
+  feedbackDialogOpen.value = true
+  feedbackError.value = ''
+}
+
+async function saveFeedbackSnapshot() {
+  const publicationRecordId = activeFeedbackPublicationId.value
+  if (!publicationRecordId || isReadOnly.value || feedbackSaving.value) return
+
+  const performanceData = buildFeedbackPerformanceData()
+  if (Object.keys(performanceData).length === 0) {
+    feedbackError.value = '请至少添加一个表现数据字段'
+    return
+  }
+
+  feedbackSaving.value = editingFeedbackSnapshot.value ? `snapshot:${editingFeedbackSnapshot.value.id}` : `snapshot:${publicationRecordId}`
+  feedbackError.value = ''
+
+  try {
+    if (editingFeedbackSnapshot.value) {
+      await feedbackApi.updateFeedbackSnapshot(editingFeedbackSnapshot.value.id, {
+        performanceData,
+        userObservation: feedbackDraft.userObservation,
+        capturedAt: feedbackDraft.capturedAt || undefined,
+      })
+    } else {
+      await feedbackApi.createFeedbackSnapshot(publicationRecordId, {
+        performanceData,
+        userObservation: feedbackDraft.userObservation,
+        capturedAt: feedbackDraft.capturedAt || undefined,
+      })
+    }
+    feedbackDialogOpen.value = false
+    resetFeedbackDraft()
+    await loadFeedbackHistory(publicationRecordId)
+  } catch (error) {
+    feedbackError.value = errorMessage(error)
+  } finally {
+    feedbackSaving.value = ''
+  }
+}
+
+function buildFeedbackPerformanceData(): Record<string, unknown> {
+  return feedbackDraft.performanceData.reduce<Record<string, unknown>>((result, item) => {
+    const key = item.key.trim()
+    if (!key) return result
+    result[key] = parseFeedbackMetricValue(item.value)
+    return result
+  }, {})
+}
+
+function parseFeedbackMetricValue(value: string): unknown {
+  const normalized = value.trim()
+  if (normalized === '') return ''
+  if (normalized === 'true') return true
+  if (normalized === 'false') return false
+  if (normalized === 'null') return null
+  if (/^-?\d+(\.\d+)?$/.test(normalized)) return Number(normalized)
+  return value
+}
+
+function stringifyFeedbackMetricValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean' || value === null) return String(value)
+  return JSON.stringify(value)
 }
 
 function findNode(nodeId: string) {
@@ -986,6 +1270,7 @@ function addGrowthPlaceholders(source: TreeNode, count: number) {
     selectionState: 'candidate',
     parentNodeRef: { nodeType: source.nodeType, nodeId: source.id },
     contentLocation: '',
+    generatorId: selectedGeneratorId.value || null,
     geneTags: ['胚芽装配', '脉冲生成'],
     records: ['枝化生长任务已提交，等待后端返回真实果实'],
     createdAt: new Date().toISOString(),
@@ -1291,8 +1576,8 @@ function formatDateTime(value: string) {
           </span>
           <span class="cf-node-foot">
             <span class="cf-node-tags">
-              <span class="cf-node-tag">{{ nodeStateLabel(node) }}</span>
-              <span v-if="node.geneTags[0]" class="cf-node-tag">{{ node.geneTags[0] }}</span>
+              <span class="cf-node-tag"><span class="cf-node-tag-text">{{ nodeStateLabel(node) }}</span></span>
+              <span v-if="node.geneTags[0]" class="cf-node-tag"><span class="cf-node-tag-text">{{ node.geneTags[0] }}</span></span>
             </span>
             <span class="cf-node-score">{{ nodeSecondaryLabel(node) }}</span>
           </span>
@@ -1375,31 +1660,203 @@ function formatDateTime(value: string) {
         </section>
       </div>
 
-      <footer class="cf-node-detail-footer">
-        <button class="cf-secondary-action" type="button" disabled>发布器</button>
-        <button class="cf-secondary-action" type="button" disabled>监控器</button>
-        <button class="cf-secondary-action" type="button" disabled>发布记录</button>
-        <button class="cf-secondary-action" type="button" disabled>数据反馈</button>
+      <footer v-if="selectedNode.nodeType === 'fruit'" class="cf-node-detail-footer cf-publication-panel">
+        <div class="cf-publication-head">
+          <div>
+            <span>发布验证</span>
+            <strong>人工发布记录</strong>
+          </div>
+          <button
+            v-if="canCreatePublicationRecord"
+            class="cf-secondary-action"
+            type="button"
+            :disabled="publicationSaving"
+            @click="openPublicationDialog()"
+          >
+            新增发布
+          </button>
+          <em v-else>{{ publicationUnavailableReason }}</em>
+        </div>
+
+        <div v-if="publicationError" class="cf-inline-error cf-error-action">
+          <span>{{ publicationError }}</span>
+          <button v-if="selectedNode.fruitId" type="button" @click="loadPublicationRecords(selectedNode.fruitId)">重试</button>
+        </div>
+        <p v-if="feedbackError" class="cf-inline-error">{{ feedbackError }}</p>
+        <div v-if="publicationLoading" class="cf-publication-empty">正在同步发布记录...</div>
+        <div v-else-if="publicationRecords.length === 0" class="cf-publication-empty">
+          <strong>暂无发布记录</strong>
+          <span>{{ canCreatePublicationRecord ? '记录一次人工发布后，才能挂载监控器并回填数据。' : '需要先选择果实并创建发布记录，才可录入数据反馈。' }}</span>
+        </div>
+
+        <div v-else class="cf-publication-list">
+          <article v-for="record in publicationRecords" :key="record.id" class="cf-publication-card">
+            <div class="cf-publication-card-head">
+              <div>
+                <span>{{ record.publisherType === 'manual' ? '人工发布器' : record.publisherType }}</span>
+                <strong>{{ record.publicationTarget }}</strong>
+              </div>
+              <button class="cf-mini-action" type="button" :disabled="isReadOnly || publicationSaving" @click="openPublicationDialog(record)">编辑</button>
+            </div>
+            <div class="cf-publication-meta">
+              <span>凭证</span>
+              <strong>{{ record.publicationEvidence }}</strong>
+              <span>备注</span>
+              <strong>{{ record.publicationNote || '无' }}</strong>
+              <span>发布时间</span>
+              <strong>{{ formatDateTime(record.publishedAt) }}</strong>
+            </div>
+
+            <div class="cf-feedback-box">
+              <div class="cf-feedback-head">
+                <div>
+                  <span>数据回流</span>
+                  <strong>{{ feedbackHistories[record.id]?.monitorAttachment ? '已挂载人为监控器' : '未挂载监控器' }}</strong>
+                </div>
+                <button
+                  v-if="!feedbackHistories[record.id]?.monitorAttachment"
+                  class="cf-mini-action"
+                  type="button"
+                  :disabled="isReadOnly || feedbackSaving === `monitor:${record.id}`"
+                  @click="attachManualMonitor(record.id)"
+                >
+                  挂载
+                </button>
+                <button
+                  v-else
+                  class="cf-mini-action"
+                  type="button"
+                  :disabled="isReadOnly"
+                  @click="openFeedbackDialog(record.id)"
+                >
+                  追加快照
+                </button>
+              </div>
+              <button class="cf-text-action" type="button" :disabled="feedbackLoading === record.id" @click="loadFeedbackHistory(record.id)">
+                {{ feedbackLoading === record.id ? '读取中...' : '刷新反馈历史' }}
+              </button>
+              <div v-if="feedbackHistories[record.id]?.snapshots.length" class="cf-feedback-snapshots">
+                <div v-for="feedbackSnapshot in feedbackHistories[record.id]?.snapshots" :key="feedbackSnapshot.id" class="cf-feedback-snapshot">
+                  <div>
+                    <span>{{ formatDateTime(feedbackSnapshot.capturedAt) }}</span>
+                    <strong>{{ feedbackSnapshot.userObservation || '无观察备注' }}</strong>
+                    <code>{{ JSON.stringify(feedbackSnapshot.performanceData) }}</code>
+                  </div>
+                  <button class="cf-mini-action" type="button" :disabled="isReadOnly || feedbackSaving === `snapshot:${feedbackSnapshot.id}`" @click="openFeedbackDialog(record.id, feedbackSnapshot)">编辑</button>
+                </div>
+              </div>
+              <p v-else class="cf-feedback-empty">
+                {{ feedbackHistories[record.id]?.monitorAttachment ? '暂无反馈快照' : '挂载人为监控器后可录入反馈快照' }}
+              </p>
+            </div>
+          </article>
+        </div>
       </footer>
     </aside>
 
+    <div v-if="publicationDialogOpen" class="cf-modal-backdrop" @click.self="publicationDialogOpen = false">
+      <form class="cf-command-modal" @submit.prevent="savePublicationRecord">
+        <header>
+          <span>发布验证</span>
+          <strong>{{ editingPublicationRecord ? '编辑发布记录' : '新增人工发布' }}</strong>
+        </header>
+        <label>
+          <span>发布目标</span>
+          <input v-model="publicationDraft.publicationTarget" required placeholder="例如 X 帖子 / 小红书笔记">
+        </label>
+        <label>
+          <span>发布凭证</span>
+          <input v-model="publicationDraft.publicationEvidence" required placeholder="URL、截图说明或外部记录">
+        </label>
+        <label>
+          <span>发布备注</span>
+          <textarea v-model="publicationDraft.publicationNote" placeholder="可选" />
+        </label>
+        <footer>
+          <button class="cf-secondary-action" type="button" @click="publicationDialogOpen = false">取消</button>
+          <button class="cf-state-action is-primary" type="submit" :disabled="publicationSaving">{{ publicationSaving ? '保存中...' : '保存' }}</button>
+        </footer>
+      </form>
+    </div>
+
+    <div v-if="feedbackDialogOpen" class="cf-modal-backdrop" @click.self="feedbackDialogOpen = false">
+      <form class="cf-command-modal" @submit.prevent="saveFeedbackSnapshot">
+        <header>
+          <span>数据反馈</span>
+          <strong>{{ editingFeedbackSnapshot ? '编辑反馈快照' : '追加反馈快照' }}</strong>
+        </header>
+        <section class="cf-metric-builder" aria-label="表现数据集合">
+          <div class="cf-metric-builder-head">
+            <span>表现数据</span>
+            <button class="cf-metric-add" type="button" aria-label="新增表现数据字段" @click="openFeedbackMetricNameInput">+</button>
+          </div>
+          <div v-if="feedbackMetricNameInputOpen" class="cf-metric-name-row">
+            <input
+              ref="feedbackMetricNameInputRef"
+              v-model="feedbackMetricNameDraft"
+              autofocus
+              placeholder="输入字段名称，例如 点赞数"
+              @keydown.enter.prevent="addFeedbackMetric"
+              @keydown.esc.prevent="closeFeedbackMetricNameInput"
+            >
+            <button type="button" @click="addFeedbackMetric">添加</button>
+          </div>
+          <div v-if="feedbackDraft.performanceData.length" class="cf-metric-list">
+            <label v-for="(metric, index) in feedbackDraft.performanceData" :key="metric.key" class="cf-metric-row">
+              <span>{{ metric.key }}</span>
+              <div>
+                <input v-model="metric.value" :placeholder="`输入${metric.key}`">
+                <button type="button" :aria-label="`删除${metric.key}`" @click="removeFeedbackMetric(index)">×</button>
+              </div>
+            </label>
+          </div>
+          <p v-else class="cf-metric-empty">点击右上角 + 添加表现数据字段</p>
+        </section>
+        <label>
+          <span>用户观察</span>
+          <textarea v-model="feedbackDraft.userObservation" placeholder="这次发布有哪些表现、异常或启发" />
+        </label>
+        <label>
+          <span>采集时间</span>
+          <input v-model="feedbackDraft.capturedAt" placeholder="留空则由系统使用当前时间">
+        </label>
+        <footer>
+          <button class="cf-secondary-action" type="button" @click="feedbackDialogOpen = false">取消</button>
+          <button class="cf-state-action is-primary" type="submit" :disabled="Boolean(feedbackSaving)">{{ feedbackSaving ? '保存中...' : '保存' }}</button>
+        </footer>
+      </form>
+    </div>
+
     <section v-if="visibleComposer && selectedNode" class="cf-growth-composer" aria-label="枝化生长输入框">
       <div v-if="resourcePopoverOpen" class="cf-resource-popover" aria-label="@资源提示">
-        <button
-          v-for="resource in filteredResourceOptions"
-          :key="`${resource.kind}-${resource.id}`"
-          class="cf-resource-row"
-          type="button"
-          @click="addResource(resource)"
-        >
-          <span class="cf-resource-icon">{{ resource.kind === 'gene' ? '因' : '养' }}</span>
-          <span>
-            <strong>{{ resource.label }}</strong>
-            <em>{{ resource.description }}</em>
-          </span>
-          <kbd>@</kbd>
-        </button>
-        <p v-if="filteredResourceOptions.length === 0" class="cf-muted">暂无匹配资源</p>
+        <div v-if="filteredResourceGroups.length > 0" class="cf-resource-groups">
+          <section
+            v-for="group in filteredResourceGroups"
+            :key="group.kind"
+            class="cf-resource-group"
+            :class="`is-${group.kind}`"
+          >
+            <header class="cf-resource-group-head">
+              <span>{{ group.title }}</span>
+              <em>{{ group.subtitle }}</em>
+            </header>
+            <button
+              v-for="resource in group.resources"
+              :key="`${resource.kind}-${resource.id}`"
+              class="cf-resource-row"
+              type="button"
+              @click="addResource(resource)"
+            >
+              <span class="cf-resource-icon">{{ resource.kind === 'gene' ? '因' : '养' }}</span>
+              <span class="cf-resource-row-main">
+                <strong>{{ resource.label }}</strong>
+                <span class="cf-resource-meta">{{ resource.scope }}</span>
+              </span>
+              <kbd>@</kbd>
+            </button>
+          </section>
+        </div>
+        <p v-else class="cf-muted">暂无匹配资源</p>
       </div>
 
       <div class="cf-growth-top">
@@ -1515,7 +1972,7 @@ function formatDateTime(value: string) {
             class="cf-ref-chip"
             :class="`is-${resource.kind}`"
           >
-            {{ resource.kindLabel }} · {{ resource.label.replace(/^.* · /, '') }}
+            <span>{{ resource.kindLabel }} · {{ resource.label }}</span>
             <button
               class="cf-mention-remove"
               type="button"
@@ -1882,12 +2339,12 @@ button:disabled {
   position: absolute;
   z-index: 5;
   width: 232px;
-  min-height: 158px;
+  height: 168px;
   box-sizing: border-box;
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 11px;
-  padding: 13px;
+  grid-template-rows: 25px minmax(0, 1fr) 15px 24px;
+  gap: 8px;
+  padding: 13px 14px 12px;
   overflow: hidden;
   color: var(--node-ink);
   text-align: left;
@@ -1916,6 +2373,7 @@ button:disabled {
 }
 
 .cf-tree-node > * {
+  min-width: 0;
   position: relative;
   z-index: 2;
 }
@@ -1956,12 +2414,12 @@ button:disabled {
   --node-accent: #60d5c8;
   --node-rgb: 96, 213, 200;
   width: 252px;
-  min-height: 176px;
+  height: 184px;
 }
 
 .cf-tree-node.is-fruit {
   width: 232px;
-  min-height: 158px;
+  height: 168px;
 }
 
 .cf-tree-node.is-candidate {
@@ -2005,6 +2463,8 @@ button:disabled {
 }
 
 .cf-node-head {
+  grid-row: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2012,10 +2472,14 @@ button:disabled {
 }
 
 .cf-node-type {
+  min-width: 0;
+  overflow: hidden;
   color: var(--node-muted);
   font-size: 10px;
   font-weight: 760;
   letter-spacing: .08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cf-node-mark {
@@ -2093,6 +2557,10 @@ button:disabled {
 }
 
 .cf-node-title {
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  max-height: 60px;
   overflow: hidden;
   display: -webkit-box;
   align-self: center;
@@ -2100,14 +2568,18 @@ button:disabled {
   font-size: 14px;
   font-weight: 760;
   line-height: 1.42;
+  overflow-wrap: anywhere;
   text-shadow: none;
+  word-break: break-word;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
 
 .cf-node-foot {
+  grid-row: 4;
+  min-width: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 10px;
 }
@@ -2115,17 +2587,21 @@ button:disabled {
 .cf-node-tags,
 .cf-tree-node.is-growth-placeholder .cf-node-tags {
   min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
 }
 
 .cf-node-tag,
 .cf-tree-node.is-growth-placeholder .cf-node-tag {
   overflow: hidden;
+  min-width: 0;
   max-width: 100%;
   min-height: 22px;
   display: inline-flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: 5px;
   padding: 0 8px;
@@ -2139,9 +2615,27 @@ button:disabled {
   white-space: nowrap;
 }
 
+.cf-node-tag:first-child {
+  flex: 0 0 auto;
+  max-width: 72px;
+}
+
+.cf-node-tag:not(:first-child) {
+  flex: 1 1 auto;
+}
+
+.cf-node-tag-text {
+  min-width: 0;
+  overflow: hidden;
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cf-node-score {
   overflow: hidden;
   flex: 0 0 auto;
+  min-width: 0;
   max-width: 62px;
   color: rgba(151, 166, 174, .86);
   font-size: 11px;
@@ -2158,6 +2652,7 @@ button:disabled {
 
 .cf-growth-vessel {
   position: relative;
+  grid-row: 3;
   height: 15px;
   overflow: hidden;
   border: 1px solid rgba(131, 217, 255, .16);
@@ -2633,6 +3128,334 @@ button:disabled {
   border-top: 1px solid var(--cf-border-soft);
 }
 
+.cf-publication-panel {
+  grid-template-columns: 1fr;
+  max-height: 45vh;
+  overflow: auto;
+  scrollbar-color: rgba(122, 167, 255, .3) rgba(255, 255, 255, .04);
+}
+
+.cf-publication-head,
+.cf-publication-card-head,
+.cf-feedback-head,
+.cf-command-modal header,
+.cf-command-modal footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cf-publication-head span,
+.cf-publication-card-head span,
+.cf-feedback-head span,
+.cf-command-modal header span,
+.cf-command-modal label span,
+.cf-feedback-snapshot span {
+  color: var(--cf-muted);
+  font-size: 11px;
+}
+
+.cf-publication-head strong,
+.cf-publication-card-head strong,
+.cf-feedback-head strong,
+.cf-command-modal header strong {
+  display: block;
+  color: var(--cf-text);
+  font-size: 13px;
+}
+
+.cf-publication-head em {
+  max-width: 190px;
+  color: var(--cf-muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 18px;
+  text-align: right;
+}
+
+.cf-publication-empty,
+.cf-publication-card,
+.cf-feedback-box,
+.cf-feedback-snapshot {
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .035);
+}
+
+.cf-publication-empty {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  color: var(--cf-muted);
+  font-size: 12px;
+}
+
+.cf-publication-list {
+  display: grid;
+  gap: 10px;
+}
+
+.cf-publication-card {
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  background:
+    linear-gradient(135deg, rgba(122, 167, 255, .055), transparent 46%),
+    rgba(8, 10, 14, .42);
+}
+
+.cf-publication-meta {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 7px 10px;
+  font-size: 12px;
+}
+
+.cf-publication-meta span {
+  color: var(--cf-muted);
+}
+
+.cf-publication-meta strong {
+  overflow-wrap: anywhere;
+  color: #dbe4e8;
+  font-weight: 600;
+}
+
+.cf-mini-action,
+.cf-text-action {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .045);
+  color: var(--cf-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cf-mini-action:hover,
+.cf-text-action:hover {
+  border-color: rgba(94, 215, 197, .3);
+  background: rgba(94, 215, 197, .09);
+}
+
+.cf-feedback-box {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border-color: rgba(94, 215, 197, .14);
+}
+
+.cf-text-action {
+  justify-self: start;
+  color: #bffff3;
+}
+
+.cf-feedback-snapshots {
+  display: grid;
+  gap: 7px;
+}
+
+.cf-feedback-snapshot {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: start;
+  padding: 8px;
+}
+
+.cf-feedback-snapshot strong,
+.cf-feedback-snapshot code {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.cf-feedback-snapshot code {
+  color: #bffff3;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.cf-feedback-empty {
+  margin: 0;
+  color: var(--cf-muted);
+  font-size: 12px;
+}
+
+.cf-error-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cf-error-action button {
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .06);
+  color: var(--cf-text);
+  cursor: pointer;
+}
+
+.cf-modal-backdrop {
+  position: absolute;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, .42);
+  backdrop-filter: blur(10px);
+}
+
+.cf-command-modal {
+  width: min(440px, calc(100vw - 32px));
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 8px;
+  background: rgba(16, 19, 23, .98);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .48);
+}
+
+.cf-command-modal label {
+  display: grid;
+  gap: 6px;
+}
+
+.cf-command-modal input,
+.cf-command-modal textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--cf-border-soft);
+  border-radius: 7px;
+  outline: 0;
+  background: rgba(8, 10, 14, .68);
+  color: var(--cf-text);
+}
+
+.cf-command-modal input {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.cf-command-modal textarea {
+  min-height: 82px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.cf-metric-builder {
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid rgba(94, 215, 197, .13);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(94, 215, 197, .055), transparent 44%),
+    rgba(8, 10, 14, .48);
+}
+
+.cf-metric-builder-head,
+.cf-metric-name-row,
+.cf-metric-row div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cf-metric-builder-head {
+  justify-content: space-between;
+}
+
+.cf-metric-builder-head span {
+  color: var(--cf-muted);
+  font-size: 11px;
+}
+
+.cf-metric-add {
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(94, 215, 197, .28);
+  border-radius: 7px;
+  background: rgba(94, 215, 197, .11);
+  color: #bffff3;
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform .16s ease, border-color .16s ease, background .16s ease;
+}
+
+.cf-metric-add:hover {
+  border-color: rgba(94, 215, 197, .48);
+  background: rgba(94, 215, 197, .17);
+  transform: translateY(-1px);
+}
+
+.cf-metric-name-row input {
+  flex: 1;
+}
+
+.cf-metric-name-row button,
+.cf-metric-row button {
+  min-height: 32px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .045);
+  color: var(--cf-text);
+  cursor: pointer;
+}
+
+.cf-metric-name-row button {
+  padding: 0 10px;
+}
+
+.cf-metric-list {
+  display: grid;
+  gap: 9px;
+}
+
+.cf-metric-row {
+  display: grid;
+  gap: 6px;
+}
+
+.cf-metric-row > span {
+  color: #c0fff4;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cf-metric-row div {
+  align-items: stretch;
+}
+
+.cf-metric-row input {
+  flex: 1;
+}
+
+.cf-metric-row button {
+  width: 34px;
+  color: #ffd6d6;
+}
+
+.cf-metric-row:focus-within > span {
+  color: var(--cf-text);
+}
+
+.cf-metric-empty {
+  margin: 0;
+  padding: 10px;
+  border: 1px dashed rgba(255, 255, 255, .13);
+  border-radius: 7px;
+  color: var(--cf-muted);
+  font-size: 12px;
+}
+
 .cf-growth-composer {
   position: absolute;
   z-index: 25;
@@ -2935,10 +3758,10 @@ button:disabled {
 .cf-resource-popover {
   left: 12px;
   bottom: calc(100% + 10px);
-  width: min(420px, calc(100% - 24px));
+  width: min(470px, calc(100% - 24px));
   max-height: 268px;
   display: grid;
-  gap: 5px;
+  gap: 8px;
   overflow: auto;
   padding: 8px;
   border-radius: 8px;
@@ -2947,13 +3770,50 @@ button:disabled {
   animation: cf-menu-in .16s ease both;
 }
 
+.cf-resource-groups,
+.cf-resource-group {
+  display: grid;
+  gap: 7px;
+}
+
+.cf-resource-group {
+  padding: 4px;
+}
+
+.cf-resource-group + .cf-resource-group {
+  border-top: 1px solid rgba(255, 255, 255, .08);
+  padding-top: 8px;
+}
+
+.cf-resource-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.cf-resource-group-head span {
+  color: var(--cf-text);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.cf-resource-group-head em {
+  overflow: hidden;
+  color: var(--cf-muted);
+  font-size: 11px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cf-resource-row {
   display: grid;
   grid-template-columns: 38px 1fr auto;
   gap: 10px;
   align-items: center;
-  min-height: 46px;
-  padding: 7px;
+  min-height: 50px;
+  padding: 8px;
   border-radius: 7px;
   background: transparent;
   color: var(--cf-muted);
@@ -2987,20 +3847,37 @@ button:disabled {
   font-weight: 800;
 }
 
+.cf-resource-group.is-gene .cf-resource-icon {
+  border-color: rgba(122, 167, 255, .24);
+  background: rgba(122, 167, 255, .08);
+  color: #b9ccff;
+}
+
 .cf-resource-row strong,
-.cf-resource-row em {
+.cf-resource-meta {
   display: block;
 }
 
-.cf-resource-row strong {
-  font-size: 12px;
+.cf-resource-row-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
 }
 
-.cf-resource-row em {
-  margin-top: 3px;
-  color: var(--cf-muted);
+.cf-resource-row strong {
+  overflow: hidden;
+  color: var(--cf-text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-resource-meta {
+  overflow: hidden;
+  color: rgba(220, 229, 225, .7);
   font-size: 11px;
-  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cf-resource-row kbd {

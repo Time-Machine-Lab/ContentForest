@@ -19,6 +19,7 @@ import {
 export interface FruitCandidateInput {
   markdown: string;
   parentNodeRef: ParentNodeRef;
+  generatorId?: string | null;
   summary?: string;
   geneTags?: string[];
 }
@@ -80,6 +81,7 @@ export class FruitService {
       selectionState: FRUIT_SELECTION_STATES.candidate,
       parentNodeRef,
       contentLocation,
+      generatorId: this.normalizeOptionalGeneratorId(input.generatorId),
       summary: this.normalizeOptionalText(input.summary),
       geneTags: this.normalizeGeneTags(input.geneTags),
       createdAt: timestamp,
@@ -278,6 +280,11 @@ export class FruitService {
     return value?.trim() ?? "";
   }
 
+  private normalizeOptionalGeneratorId(value: string | null | undefined): string | null {
+    const normalized = value?.trim() ?? "";
+    return normalized.length === 0 ? null : normalized;
+  }
+
   private normalizeGeneTags(value: string[] | undefined): string[] {
     return [
       ...new Set(
@@ -298,6 +305,7 @@ export class FruitService {
       selectionState: record.selectionState,
       parentNodeRef: { ...record.parentNodeRef },
       contentLocation: record.contentLocation,
+      generatorId: record.generatorId,
       summary: record.summary,
       geneTags: [...record.geneTags],
       createdAt: record.createdAt,

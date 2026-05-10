@@ -114,9 +114,11 @@ function validOutput(overrides: Record<string, unknown> = {}): string {
     suggestions: [
       {
         title: "Keep emotional opening",
-        bodyMarkdown: "Open with a user emotion before product details.",
+        bodyMarkdown:
+          "Expression trait: open with a user emotion before product details.\nApplicable niche: product introduction opening.\nNext round usage: inherit and strengthen this emotional opening, then mutate the example scenario for each platform.",
         polarity: "positive",
-        evidenceInterpretation: "The selected fruit used emotional framing.",
+        evidenceInterpretation:
+          "The selected fruit used emotional framing. This is weak human-selection evidence, so next branch growth should test it again before treating it as a strong platform signal.",
         lineage: "emotion",
         niche: "opening",
         similarityRelation: "reinforces",
@@ -198,6 +200,7 @@ async function createRuntimeFixture(llm: LlmAdapter) {
     selectionState: FRUIT_SELECTION_STATES.selected,
     parentNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
     contentLocation: fruitLocation,
+    generatorId: null,
     summary: "Mood expression",
     geneTags: ["emotion"],
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -277,6 +280,7 @@ describe("GeneExtractionSkill", () => {
       ],
     });
     expect(JSON.stringify(output.content)).toContain("正向基因");
+    expect(JSON.stringify(output.content)).toContain("下一轮使用建议");
     expect(tools.calls.map((call) => call.name)).toEqual([
       "read_gene_seed_context",
       "read_gene_evidence",
@@ -304,6 +308,25 @@ describe("GeneExtractionSkill", () => {
         maxRepairAttempts: 1,
       }),
     ).rejects.toMatchObject({ code: "AGENT_SKILL_ERROR" });
+  });
+
+  it("rejects generic suggestions without next-round usage advice", async () => {
+    await expect(
+      buildStructuredGeneExtractionSuggestions({
+        llm: new SequenceLlm([
+          validOutput({
+            bodyMarkdown: "Open with emotion.",
+            evidenceInterpretation: "The selected fruit used emotional framing.",
+          }),
+          validOutput(),
+        ]),
+        trace: new AgentTrace(),
+        promptContext: "authorized context",
+        maxRepairAttempts: 1,
+      }),
+    ).resolves.toMatchObject({
+      suggestions: [{ title: "Keep emotional opening" }],
+    });
   });
 
   it("lets GeneService persist pending suggestions through the real AgentRuntime", async () => {

@@ -143,6 +143,7 @@ export class WorkspaceService {
       selectionState: fruit.selectionState,
       parentNodeRef: { ...fruit.parentNodeRef },
       contentLocation: fruit.contentLocation,
+      generatorId: fruit.generatorId,
       summary: fruit.summary,
       geneTags: [...fruit.geneTags],
       createdAt: fruit.createdAt,

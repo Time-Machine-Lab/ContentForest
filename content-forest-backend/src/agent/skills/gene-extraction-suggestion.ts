@@ -65,6 +65,9 @@ export function validateGeneExtractionSuggestions(
     if (suggestion.evidenceInterpretation.trim().length === 0) {
       errors.push(`${prefix}.evidenceInterpretation is required`);
     }
+    if (!hasNextRoundAdvice(`${suggestion.bodyMarkdown}\n${suggestion.evidenceInterpretation}`)) {
+      errors.push(`${prefix}.nextRoundUsageAdvice is required`);
+    }
   }
 
   if (errors.length > 0) {
@@ -184,6 +187,9 @@ function formatSuggestionMarkdown(
     "",
     "## 证据解释",
     suggestion.evidenceInterpretation.trim(),
+    "",
+    "## 下一轮使用建议",
+    extractNextRoundAdvice(suggestion),
   ]
     .filter((item): item is string => item !== null)
     .join("\n");
@@ -229,4 +235,25 @@ function uniqueStrings(values: string[]): string[] {
 
 function containsRealPath(value: string): boolean {
   return /[a-zA-Z]:\\|\/Users\/|\/home\/|\/var\/|\/tmp\//.test(value);
+}
+
+function hasNextRoundAdvice(value: string): boolean {
+  return /下一轮|后续|继承|强化|变异|组合|规避|避免|inherit|strengthen|mutate|combine|avoid|next/i
+    .test(value);
+}
+
+function extractNextRoundAdvice(
+  suggestion: StructuredGeneExtractionSuggestion,
+): string {
+  const text = `${suggestion.bodyMarkdown}\n${suggestion.evidenceInterpretation}`;
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => hasNextRoundAdvice(line));
+  if (lines.length > 0) {
+    return lines.join("\n");
+  }
+  return suggestion.polarity === "positive"
+    ? "下一轮枝化生长可继承或强化该表达特征，并在不同探索槽位中做轻微变异。"
+    : "下一轮枝化生长应规避该表达特征，或只在明确适用边界内谨慎使用。";
 }

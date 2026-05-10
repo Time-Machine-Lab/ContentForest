@@ -37,6 +37,10 @@ export function validateBranchGrowthCandidateFruit(
   if (candidate.meta.summary.trim().length === 0) {
     errors.push("meta.summary is required");
   }
+  const summaryLength = countVisibleCharacters(candidate.meta.summary);
+  if (summaryLength < 5 || summaryLength > 20) {
+    errors.push("meta.summary must be a 5 to 20 character fruit title");
+  }
   for (const tag of candidate.meta.geneTags) {
     if (tag.trim().length === 0) {
       errors.push("meta.geneTags cannot contain blank values");
@@ -73,8 +77,11 @@ export function validateBranchGrowthCandidateFruit(
   return {
     type: "candidate_fruit",
     payload: {
-      markdown: candidate.payload.markdown.trim(),
-      rawGeneratorOutput: candidate.payload.rawGeneratorOutput,
+      markdown: cleanVisibleMarkdown(candidate.payload.markdown),
+      rawGeneratorOutput:
+        candidate.payload.rawGeneratorOutput === undefined
+          ? undefined
+          : cleanVisibleMarkdown(candidate.payload.rawGeneratorOutput),
       attachments: [...candidate.payload.attachments],
     },
     meta: {
@@ -284,4 +291,19 @@ function summarizeMarkdown(markdown: string): string {
 
 function containsRealPath(value: string): boolean {
   return /[a-zA-Z]:\\|\/Users\/|\/home\/|\/var\/|\/tmp\//.test(value);
+}
+
+function countVisibleCharacters(value: string): number {
+  return Array.from(value.replace(/\s/g, "")).length;
+}
+
+function cleanVisibleMarkdown(value: string): string {
+  const withoutThink = value.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  const starts = ["## 标题", "# 标题", "标题：", "## Title", "# Title"]
+    .map((marker) => withoutThink.indexOf(marker))
+    .filter((index) => index >= 0);
+  const start = starts.length > 0 ? Math.min(...starts) : -1;
+  return (start > 0 ? withoutThink.slice(start) : withoutThink)
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

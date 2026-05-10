@@ -7,6 +7,7 @@ import {
   type GeneEvidenceSource,
 } from "../../modules/gene/domain/gene-types.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
+import type { FeedbackStoragePort } from "../../storage/ports/feedback-storage-port.js";
 import type { FruitStoragePort } from "../../storage/ports/fruit-storage-port.js";
 import type { GeneStoragePort } from "../../storage/ports/gene-storage-port.js";
 import type { PublicationStoragePort } from "../../storage/ports/publication-storage-port.js";
@@ -70,6 +71,7 @@ export class ReadGeneEvidenceTool implements ToolContract {
       fruitStorage: FruitStoragePort;
       fruitContentAccess: FruitMarkdownContentAccessPort;
       publicationStorage?: PublicationStoragePort;
+      feedbackStorage?: FeedbackStoragePort;
     },
   ) {}
 
@@ -148,6 +150,69 @@ export class ReadGeneEvidenceTool implements ToolContract {
             publishedAt: publication.publishedAt,
           },
           interpretationBoundary: "发布记录只证明内容已进入外部验证，不代表表现好坏。",
+        });
+        continue;
+      }
+
+      if (source.sourceType === GENE_EVIDENCE_SOURCE_TYPES.feedback) {
+        if (this.dependencies.feedbackStorage === undefined) {
+          unsupported.push({
+            evidenceType: source.sourceType,
+            sourceId: source.sourceId,
+            reason: "数据回流模块尚未装配",
+          });
+          continue;
+        }
+        if (this.dependencies.publicationStorage === undefined) {
+          unsupported.push({
+            evidenceType: source.sourceType,
+            sourceId: source.sourceId,
+            reason: "发布验证模块尚未装配",
+          });
+          continue;
+        }
+        const snapshot =
+          await this.dependencies.feedbackStorage.findFeedbackSnapshotById(
+            source.sourceId,
+          );
+        if (snapshot === null) {
+          throw new ApplicationError("NOT_FOUND", "反馈证据不存在", 404);
+        }
+        const publication =
+          await this.dependencies.publicationStorage.findPublicationRecordById(
+            snapshot.publicationRecordId,
+          );
+        if (publication === null) {
+          throw new ApplicationError("NOT_FOUND", "反馈证据关联的发布记录不存在", 404);
+        }
+        const monitorAttachment =
+          await this.dependencies.feedbackStorage.findMonitorAttachmentById(
+            snapshot.monitorAttachmentId,
+          );
+        evidence.push({
+          evidenceType: source.sourceType,
+          evidenceDirection: "neutral",
+          strength: source.strength,
+          publication: {
+            publicationRecordId: publication.id,
+            fruitId: publication.fruitId,
+            publisherType: publication.publisherType,
+            publicationTarget: publication.publicationTarget,
+            publicationEvidence: publication.publicationEvidence,
+            publicationNote: publication.publicationNote,
+            publishedAt: publication.publishedAt,
+          },
+          feedback: {
+            snapshotId: snapshot.id,
+            publicationRecordId: snapshot.publicationRecordId,
+            monitorAttachmentId: snapshot.monitorAttachmentId,
+            monitorType: monitorAttachment?.monitorType ?? null,
+            performanceData: structuredClone(snapshot.performanceData),
+            userObservation: snapshot.userObservation,
+            capturedAt: snapshot.capturedAt,
+          },
+          interpretationBoundary:
+            "反馈快照只记录外部表现事实和用户观察，不代表系统已经判断成败或计算适应度。",
         });
         continue;
       }

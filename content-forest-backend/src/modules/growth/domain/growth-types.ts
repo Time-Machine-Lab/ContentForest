@@ -105,6 +105,7 @@ export interface BranchGrowthAgentInput {
   detailParams: Record<string, unknown>;
   target: {
     fruitCount: 1;
+    totalFruitCount?: number;
   };
 }
 

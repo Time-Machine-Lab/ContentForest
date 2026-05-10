@@ -14,6 +14,11 @@ import {
 import type { SkillContract, SkillExecutionInput } from "./skill-contract.js";
 import type { BranchGrowthResourceRef } from "./branch-growth-candidate.js";
 import { buildStructuredBranchGrowthCandidate } from "./branch-growth-structured-output.js";
+import {
+  buildContentEvolutionStrategy,
+  cleanGeneratorPayload,
+  type ContentEvolutionStrategy,
+} from "./content-evolution-strategy.js";
 
 export class BranchGrowthSkill implements SkillContract {
   public readonly name = "branch_growth";
@@ -40,15 +45,30 @@ export class BranchGrowthSkill implements SkillContract {
       entryCount: Array.isArray(generator.entries) ? generator.entries.length : 0,
     });
 
+    const strategy = buildContentEvolutionStrategy({
+      taskInput: input.context.input,
+      source,
+      resources,
+    });
+    input.trace.record("skill_progress", "Content evolution strategy prepared", {
+      stage: "strategy_prepared",
+      algorithmVersion: strategy.algorithmVersion,
+      explorationSlot: strategy.explorationSlot.key,
+      evidenceCardCount: strategy.evidenceCards.length,
+    });
+
     const payload = await this.createGeneratorPayload({
       execution: input,
       generator,
       source,
       resources,
       generatorId,
+      strategy,
     });
     input.trace.record("skill_progress", "Generator payload created", {
       stage: "generator_payload_created",
+      algorithmVersion: strategy.algorithmVersion,
+      explorationSlot: strategy.explorationSlot.key,
       payloadLength: payload.length,
     });
 
@@ -61,6 +81,7 @@ export class BranchGrowthSkill implements SkillContract {
         source,
         generator,
         resources,
+        strategy,
         userInput: readOptionalString(input.context.input.userInput),
       }),
       validationOptions: {
@@ -74,6 +95,8 @@ export class BranchGrowthSkill implements SkillContract {
       content: candidate,
       metadata: {
         skillName: this.name,
+        algorithmVersion: strategy.algorithmVersion,
+        explorationSlot: strategy.explorationSlot,
       },
     };
   }
@@ -84,6 +107,7 @@ export class BranchGrowthSkill implements SkillContract {
     source: Record<string, unknown>;
     resources: Record<string, unknown>;
     generatorId: string;
+    strategy: ContentEvolutionStrategy;
   }): Promise<string> {
     const scriptPath = readScriptPath(input.execution.context.input);
     if (scriptPath !== null) {
@@ -102,13 +126,16 @@ export class BranchGrowthSkill implements SkillContract {
               skillMarkdown: input.generator.skillMarkdown,
             },
             resources: input.resources,
+            strategy: input.strategy,
             userInput: readOptionalString(input.execution.context.input.userInput),
             detailParams: input.execution.context.input.detailParams ?? {},
           },
         },
       );
       const content = result.payload;
-      return typeof content === "string" ? content : JSON.stringify(content);
+      return cleanGeneratorPayload(
+        typeof content === "string" ? content : JSON.stringify(content),
+      );
     }
 
     const completion = await input.execution.llm.complete({
@@ -119,7 +146,9 @@ export class BranchGrowthSkill implements SkillContract {
           content: [
             "你是外部生成器 Skill 的执行者。",
             "请严格依据生成器方法论输出内容 payload。",
+            "你必须服从本次生长策略、探索方向和证据卡片，生成与同批次其他 attempt 有区分度的内容。",
             "只输出 Markdown payload，不要输出果实 meta，不要声明已保存或已完成任务。",
+            "不要输出思考过程、候选分析、策略解释或中间推理，只输出用户最终可见的发布内容。",
           ].join("\n"),
         },
         {
@@ -128,12 +157,13 @@ export class BranchGrowthSkill implements SkillContract {
             source: input.source,
             generator: input.generator,
             resources: input.resources,
+            strategy: input.strategy,
             userInput: readOptionalString(input.execution.context.input.userInput),
           }),
         },
       ],
     });
-    const payload = completion.content.trim();
+    const payload = cleanGeneratorPayload(completion.content);
     if (payload.length === 0) {
       throw new ApplicationError("AGENT_SKILL_ERROR", "生成器 payload 为空", 502);
     }
@@ -161,9 +191,14 @@ function buildPromptContext(input: {
   source: Record<string, unknown>;
   generator: Record<string, unknown>;
   resources: Record<string, unknown>;
+  strategy: ContentEvolutionStrategy;
   userInput: string;
 }): string {
   return [
+    "## 内容进化算法版本",
+    input.strategy.algorithmVersion,
+    "## 本次生长策略",
+    JSON.stringify(input.strategy, null, 2),
     "## 生成器方法论",
     readOptionalString(input.generator.skillMarkdown),
     "## 来源节点",

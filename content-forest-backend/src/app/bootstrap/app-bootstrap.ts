@@ -4,6 +4,7 @@ import type { FruitController } from "../../interface/http/fruit-controller.js";
 import type { GeneController } from "../../interface/http/gene-controller.js";
 import type { GrowthController } from "../../interface/http/growth-controller.js";
 import type { PublicationController } from "../../interface/http/publication-controller.js";
+import type { FeedbackController } from "../../interface/http/feedback-controller.js";
 import type { NutrientController } from "../../interface/http/nutrient-controller.js";
 import type { WorkspaceController } from "../../interface/http/workspace-controller.js";
 import { GeneratorController as HttpGeneratorController } from "../../interface/http/generator-controller.js";
@@ -11,6 +12,7 @@ import { FruitController as HttpFruitController } from "../../interface/http/fru
 import { GeneController as HttpGeneController } from "../../interface/http/gene-controller.js";
 import { GrowthController as HttpGrowthController } from "../../interface/http/growth-controller.js";
 import { PublicationController as HttpPublicationController } from "../../interface/http/publication-controller.js";
+import { FeedbackController as HttpFeedbackController } from "../../interface/http/feedback-controller.js";
 import { NutrientController as HttpNutrientController } from "../../interface/http/nutrient-controller.js";
 import { SeedController as HttpSeedController } from "../../interface/http/seed-controller.js";
 import { WorkspaceController as HttpWorkspaceController } from "../../interface/http/workspace-controller.js";
@@ -40,6 +42,7 @@ import { LocalGeneratorSkillContentAccessAdapter } from "../../content-access/ad
 import { LocalNutrientMarkdownContentAccessAdapter } from "../../content-access/adapters/local-nutrient-markdown-content-access-adapter.js";
 import { LocalSeedMarkdownContentAccessAdapter } from "../../content-access/adapters/local-seed-markdown-content-access-adapter.js";
 import { FruitService } from "../../modules/fruit/application/fruit-service.js";
+import { FeedbackService } from "../../modules/feedback/application/feedback-service.js";
 import { GeneService } from "../../modules/gene/application/gene-service.js";
 import { GeneratorService } from "../../modules/generator/application/generator-service.js";
 import { GrowthService } from "../../modules/growth/application/growth-service.js";
@@ -48,6 +51,7 @@ import { PublicationService } from "../../modules/publication/application/public
 import { SeedService } from "../../modules/seed/application/seed-service.js";
 import { WorkspaceService } from "../../modules/workspace/application/workspace-service.js";
 import { SqliteFruitStorageAdapter } from "../../storage/adapters/sqlite-fruit-storage-adapter.js";
+import { SqliteFeedbackStorageAdapter } from "../../storage/adapters/sqlite-feedback-storage-adapter.js";
 import { SqliteGeneStorageAdapter } from "../../storage/adapters/sqlite-gene-storage-adapter.js";
 import { SqliteGeneratorStorageAdapter } from "../../storage/adapters/sqlite-generator-storage-adapter.js";
 import { SqliteGrowthStorageAdapter } from "../../storage/adapters/sqlite-growth-storage-adapter.js";
@@ -69,6 +73,7 @@ export interface AppRuntime {
   geneController: GeneController;
   growthController: GrowthController;
   publicationController: PublicationController;
+  feedbackController: FeedbackController;
   nutrientController: NutrientController;
   workspaceController: WorkspaceController;
   close(): void;
@@ -93,6 +98,7 @@ export async function bootstrapApp(
   const publicationStorage = new SqlitePublicationStorageAdapter(
     config.databasePath,
   );
+  const feedbackStorage = new SqliteFeedbackStorageAdapter(config.databasePath);
   const seedContentAccess = new LocalSeedMarkdownContentAccessAdapter(
     config.contentRootDir,
   );
@@ -151,6 +157,7 @@ export async function bootstrapApp(
       fruitStorage,
       fruitContentAccess,
       publicationStorage,
+      feedbackStorage,
     }),
   );
   toolRegistry.register(
@@ -172,6 +179,7 @@ export async function bootstrapApp(
     seedStorage,
     fruitStorage,
     publicationStorage,
+    feedbackStorage,
     agentPort: agentRuntime,
   });
   const seedService = new SeedService({
@@ -233,6 +241,10 @@ export async function bootstrapApp(
     storage: publicationStorage,
     publishableFruitPort: fruitService,
   });
+  const feedbackService = new FeedbackService({
+    storage: feedbackStorage,
+    publicationRecordPort: publicationService,
+  });
   const workspaceService = new WorkspaceService({
     seedService,
     fruitService,
@@ -247,6 +259,7 @@ export async function bootstrapApp(
   const geneController = new HttpGeneController(geneService);
   const growthController = new HttpGrowthController(growthService);
   const publicationController = new HttpPublicationController(publicationService);
+  const feedbackController = new HttpFeedbackController(feedbackService);
   const nutrientController = new HttpNutrientController(nutrientService);
   const workspaceController = new HttpWorkspaceController(workspaceService);
 
@@ -258,6 +271,7 @@ export async function bootstrapApp(
     geneController,
     growthController,
     publicationController,
+    feedbackController,
     nutrientController,
     workspaceController,
     close(): void {
@@ -268,6 +282,7 @@ export async function bootstrapApp(
       growthStorage.close();
       nutrientStorage.close();
       publicationStorage.close();
+      feedbackStorage.close();
     },
   };
 }

@@ -4,6 +4,7 @@ import type { GeneMarkdownContentAccessPort } from "../../../content-access/port
 import { ApplicationError } from "../../../shared/errors/application-error.js";
 import type { IdGenerator } from "../../../shared/utils/id-generator.js";
 import { RandomIdGenerator } from "../../../shared/utils/id-generator.js";
+import type { FeedbackStoragePort } from "../../../storage/ports/feedback-storage-port.js";
 import type { FruitRecord, FruitStoragePort } from "../../../storage/ports/fruit-storage-port.js";
 import type { GeneStoragePort } from "../../../storage/ports/gene-storage-port.js";
 import type { PublicationStoragePort } from "../../../storage/ports/publication-storage-port.js";
@@ -60,6 +61,7 @@ const EXECUTABLE_EVIDENCE_SOURCE_TYPES = new Set<GeneEvidenceSource["sourceType"
   GENE_EVIDENCE_SOURCE_TYPES.fruitSelected,
   GENE_EVIDENCE_SOURCE_TYPES.fruitEliminated,
   GENE_EVIDENCE_SOURCE_TYPES.publication,
+  GENE_EVIDENCE_SOURCE_TYPES.feedback,
 ]);
 
 export interface GeneServiceDependencies {
@@ -68,6 +70,7 @@ export interface GeneServiceDependencies {
   seedStorage: SeedStoragePort;
   fruitStorage?: FruitStoragePort;
   publicationStorage?: PublicationStoragePort;
+  feedbackStorage?: FeedbackStoragePort;
   agentPort?: AgentPort;
   idGenerator?: IdGenerator;
   now?: () => Date;
@@ -79,6 +82,7 @@ export class GeneService {
   private readonly seedStorage: SeedStoragePort;
   private readonly fruitStorage: FruitStoragePort | undefined;
   private readonly publicationStorage: PublicationStoragePort | undefined;
+  private readonly feedbackStorage: FeedbackStoragePort | undefined;
   private readonly agentPort: AgentPort | undefined;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
@@ -89,6 +93,7 @@ export class GeneService {
     this.seedStorage = dependencies.seedStorage;
     this.fruitStorage = dependencies.fruitStorage;
     this.publicationStorage = dependencies.publicationStorage;
+    this.feedbackStorage = dependencies.feedbackStorage;
     this.agentPort = dependencies.agentPort;
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
@@ -423,6 +428,7 @@ export class GeneService {
     evidenceSources: GeneEvidenceSource[],
   ): Promise<GeneExtractionAgentInput> {
     const fruitEvidence = await this.buildFruitEvidence(evidenceSources);
+    const feedbackEvidence = await this.buildFeedbackEvidence(evidenceSources);
     const referableGeneInsights = (await this.storage.listReferableInsightsBySeed(seedId))
       .map((insight) => ({
         insightId: insight.id,
@@ -438,8 +444,47 @@ export class GeneService {
       taskId,
       evidenceSources,
       fruitEvidence,
+      feedbackEvidence,
       referableGeneInsights,
     };
+  }
+
+  private async buildFeedbackEvidence(
+    evidenceSources: GeneEvidenceSource[],
+  ): Promise<GeneExtractionAgentInput["feedbackEvidence"]> {
+    if (this.feedbackStorage === undefined) {
+      return [];
+    }
+    const snapshotIds = [
+      ...new Set(
+        evidenceSources
+          .filter((source) => source.sourceType === GENE_EVIDENCE_SOURCE_TYPES.feedback)
+          .map((source) => source.sourceId),
+      ),
+    ];
+    const evidence: GeneExtractionAgentInput["feedbackEvidence"] = [];
+    for (const snapshotId of snapshotIds) {
+      const snapshot = await this.feedbackStorage.findFeedbackSnapshotById(
+        snapshotId,
+      );
+      if (snapshot === null) {
+        continue;
+      }
+      const monitorAttachment =
+        await this.feedbackStorage.findMonitorAttachmentById(
+          snapshot.monitorAttachmentId,
+        );
+      evidence.push({
+        snapshotId: snapshot.id,
+        publicationRecordId: snapshot.publicationRecordId,
+        monitorAttachmentId: snapshot.monitorAttachmentId,
+        monitorType: monitorAttachment?.monitorType ?? null,
+        performanceData: structuredClone(snapshot.performanceData),
+        userObservation: snapshot.userObservation,
+        capturedAt: snapshot.capturedAt,
+      });
+    }
+    return evidence;
   }
 
   private async buildFruitEvidence(
@@ -644,6 +689,11 @@ export class GeneService {
 
       if (source.sourceType === GENE_EVIDENCE_SOURCE_TYPES.publication) {
         await this.requirePublicationEvidenceBelongsToSeed(seedId, source.sourceId);
+        continue;
+      }
+
+      if (source.sourceType === GENE_EVIDENCE_SOURCE_TYPES.feedback) {
+        await this.requireFeedbackEvidenceBelongsToSeed(seedId, source.sourceId);
       }
     }
   }
@@ -690,6 +740,31 @@ export class GeneService {
         400,
       );
     }
+  }
+
+  private async requireFeedbackEvidenceBelongsToSeed(
+    seedId: string,
+    snapshotId: string,
+  ): Promise<void> {
+    if (this.feedbackStorage === undefined) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "反馈证据存储尚未装配",
+        400,
+      );
+    }
+    const snapshot = await this.feedbackStorage.findFeedbackSnapshotById(snapshotId);
+    if (snapshot === null) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "反馈证据无法解析",
+        400,
+      );
+    }
+    await this.requirePublicationEvidenceBelongsToSeed(
+      seedId,
+      snapshot.publicationRecordId,
+    );
   }
 
   private async resolveFruitRootSeedId(fruitId: string): Promise<string> {

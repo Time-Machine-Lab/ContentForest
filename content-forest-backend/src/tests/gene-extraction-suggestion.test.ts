@@ -7,9 +7,11 @@ import {
 function validSuggestion(overrides: Record<string, unknown> = {}) {
   return {
     title: "Keep emotional opening",
-    bodyMarkdown: "Open with a concrete user emotion before listing product features.",
+    bodyMarkdown:
+      "Expression trait: open with a concrete user emotion before listing product features.\nApplicable niche: wallpaper promotion opening.\nNext round usage: inherit and strengthen this trait, then mutate the user scene for each platform.",
     polarity: "positive",
-    evidenceInterpretation: "Selected fruit used this trait and was preferred.",
+    evidenceInterpretation:
+      "Selected fruit used this trait and was preferred. This is weak human-selection evidence, so next branch growth should test it again.",
     lineage: "emotional-value",
     niche: "wallpaper promotion",
     similarityRelation: "new",

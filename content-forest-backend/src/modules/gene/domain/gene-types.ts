@@ -138,6 +138,15 @@ export interface GeneExtractionAgentInput {
     summary: string;
     geneTags: string[];
   }>;
+  feedbackEvidence: Array<{
+    snapshotId: string;
+    publicationRecordId: string;
+    monitorAttachmentId: string;
+    monitorType: string | null;
+    performanceData: Record<string, unknown>;
+    userObservation: string;
+    capturedAt: string;
+  }>;
   referableGeneInsights: Array<{
     insightId: string;
     title: string;

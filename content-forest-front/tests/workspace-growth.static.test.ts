@@ -59,7 +59,6 @@ test('workspace keeps gene extraction out of fruit detail and publication action
   assert.equal(workspacePage.includes('await fruitApi.selectFruit(node.fruitId)'), true)
   assert.equal(workspacePage.includes('await fruitApi.eliminateFruit(node.fruitId)'), true)
   assert.equal(workspacePage.includes('createReminderFromFruitEvidence'), false)
-  assert.equal(workspacePage.includes('createPublication'), false)
   assert.equal(workspacePage.includes('autoPublish'), false)
   assert.equal(workspacePage.includes('发布器'), true)
 })

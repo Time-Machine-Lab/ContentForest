@@ -12,6 +12,7 @@ import {
   type StructuredGeneExtractionSuggestions,
 } from "./gene-extraction-suggestion.js";
 import type { SkillContract, SkillExecutionInput } from "./skill-contract.js";
+import { CONTENT_EVOLUTION_ALGORITHM_VERSION } from "./content-evolution-strategy.js";
 
 export class GeneExtractionSkill implements SkillContract {
   public readonly name = "gene_extraction";
@@ -22,6 +23,7 @@ export class GeneExtractionSkill implements SkillContract {
   public async execute(input: SkillExecutionInput): Promise<AgentTaskOutput> {
     input.trace.record("skill_progress", "Gene extraction started", {
       stage: "gene_extraction_started",
+      algorithmVersion: CONTENT_EVOLUTION_ALGORITHM_VERSION,
       seedId: readOptionalString(input.context.input.seedId),
     });
 
@@ -32,6 +34,7 @@ export class GeneExtractionSkill implements SkillContract {
     ]);
     input.trace.record("skill_progress", "Gene extraction context loaded", {
       stage: "gene_context_loaded",
+      algorithmVersion: CONTENT_EVOLUTION_ALGORITHM_VERSION,
       evidenceCount: countArray(evidence.evidence),
       unsupportedEvidenceCount: countArray(evidence.unsupportedEvidence),
       insightCount: countArray(insights.insights),
@@ -54,6 +57,7 @@ export class GeneExtractionSkill implements SkillContract {
       content: withConsumableMarkdown(structured),
       metadata: {
         skillName: this.name,
+        algorithmVersion: CONTENT_EVOLUTION_ALGORITHM_VERSION,
       },
     };
   }
@@ -105,9 +109,14 @@ function buildPromptContext(input: {
   taskInput: Record<string, unknown>;
 }): string {
   return [
+    "## Content Evolution Algorithm Version",
+    CONTENT_EVOLUTION_ALGORITHM_VERSION,
+    "",
     "## Task Boundary",
     "You may only use the seed, evidence, and referable gene insights provided below.",
-    "You are producing pending suggestions for the user to review. Do not save or confirm anything.",
+    "You are producing pending gene hypothesis suggestions for the user to review. Do not save or confirm anything.",
+    "A gene is a testable content expression hypothesis, not a generic tag.",
+    "Each suggestion should help the next branch growth decide whether to inherit, strengthen, mutate, combine, or avoid a trait.",
     "",
     "## Seed Context",
     JSON.stringify(sanitizeForPrompt(input.seed), null, 2),

@@ -119,7 +119,7 @@ components:
           enum: [seed, fruit]
     FruitSummary:
       type: object
-      required: [id, selectionState, parentNodeRef, contentLocation, summary, geneTags, createdAt, updatedAt]
+      required: [id, selectionState, parentNodeRef, contentLocation, generatorId, summary, geneTags, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -130,8 +130,14 @@ components:
           $ref: '#/components/schemas/ParentNodeRef'
         contentLocation:
           type: string
+        generatorId:
+          type:
+            - string
+            - 'null'
         summary:
           type: string
+          minLength: 5
+          maxLength: 20
         geneTags:
           type: array
           items:

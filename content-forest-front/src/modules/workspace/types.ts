@@ -51,6 +51,7 @@ export interface WorkspaceFruitNode {
   selectionState: WorkspaceSelectionState
   parentNodeRef: WorkspaceNodeRef
   contentLocation: string
+  generatorId: string | null
   summary: string
   geneTags: string[]
   createdAt: string

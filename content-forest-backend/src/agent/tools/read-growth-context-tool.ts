@@ -64,6 +64,7 @@ export class ReadGrowthSourceNodeTool implements ToolContract {
       content: {
         nodeType: "fruit",
         nodeId: source.nodeId,
+        generatorId: fruit.generatorId,
         summary: fruit.summary,
         geneTags: [...fruit.geneTags],
         markdown: await this.dependencies.fruitContentAccess.readFruitMarkdown(
