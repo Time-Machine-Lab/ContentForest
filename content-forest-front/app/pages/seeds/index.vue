@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ExceptionNotice from '../../components/base/ExceptionNotice.vue'
+
 const {
   view,
   query,
@@ -25,13 +27,34 @@ const {
 
 const modalOpen = ref(false)
 
-onMounted(() => {
-  void loadSeeds('active')
+function plainTextSummary(markdown: string) {
+  return markdown
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/[*_`>#-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 92)
+}
+
+function seedSummary(seedId: string) {
+  if (selectedSeed.value?.id !== seedId) return ''
+  return plainTextSummary(selectedSeed.value.markdown)
+}
+
+onMounted(async () => {
+  await loadSeeds('active')
+  if (!selectedSeedId.value && filteredSeeds.value[0]) {
+    await selectSeed(filteredSeeds.value[0].id)
+  }
 })
 
 async function changeView(nextView: 'active' | 'archived') {
   if (view.value === nextView) return
   await loadSeeds(nextView)
+  if (!selectedSeedId.value && filteredSeeds.value[0]) {
+    await selectSeed(filteredSeeds.value[0].id)
+  }
 }
 
 async function handleCreate(payload: { title: string; markdown: string }) {
@@ -45,22 +68,22 @@ async function handleCreate(payload: { title: string; markdown: string }) {
     <header class="cf-page-topbar">
       <div class="cf-page-title">
         <h1>种子库</h1>
-        <p>把灵感收纳成可生长的内容根节点</p>
+        <p>阅读、维护和进入种子工作区</p>
       </div>
-      <button class="cf-command-button" type="button" @click="modalOpen = true">
-        <span aria-hidden="true">⌕</span>
-        <span>新建种子，或继续当前灵感</span>
-        <span class="cf-kbd">N</span>
-      </button>
-      <button class="cf-primary-action" type="button" @click="modalOpen = true">＋ 新建种子</button>
+      <div class="cf-seed-top-actions">
+        <button class="cf-secondary-action" type="button" @click="changeView(view === 'active' ? 'archived' : 'active')">
+          {{ view === 'active' ? '已归档' : '未归档' }}
+        </button>
+        <button class="cf-primary-action" type="button" @click="modalOpen = true">新建种子</button>
+      </div>
     </header>
 
-    <div class="cf-seed-layout">
-      <section class="cf-seed-gallery" aria-label="种子库">
+    <div class="cf-seed-layout cf-seed-worktable">
+      <section class="cf-seed-gallery cf-seed-index-panel" aria-label="种子索引">
         <div class="cf-seed-toolbar">
           <label class="cf-seed-search">
             <span aria-hidden="true">⌕</span>
-            <input v-model="query" type="search" placeholder="筛选当前视图中的种子">
+            <input v-model="query" type="search" placeholder="搜索种子">
           </label>
 
           <div class="cf-view-tabs" aria-label="种子视图">
@@ -94,7 +117,7 @@ async function handleCreate(payload: { title: string; markdown: string }) {
         <div v-if="listLoading" class="cf-grid-state">读取种子中</div>
         <div v-else-if="filteredSeeds.length === 0" class="cf-grid-state">
           <strong>{{ view === 'active' ? '还没有未归档种子' : '还没有已归档种子' }}</strong>
-          <span>{{ view === 'active' ? '创建第一颗种子，开始长出内容树。' : '归档后的种子会出现在这里。' }}</span>
+          <span>{{ query ? '调整搜索或切换视图。' : (view === 'active' ? '创建第一颗种子。' : '归档后的种子会出现在这里。') }}</span>
           <button v-if="view === 'active'" class="cf-primary-action" type="button" @click="modalOpen = true">新建种子</button>
         </div>
         <div v-else class="cf-seed-grid">
@@ -102,6 +125,7 @@ async function handleCreate(payload: { title: string; markdown: string }) {
             v-for="seed in filteredSeeds"
             :key="seed.id"
             :seed="seed"
+            :summary="seedSummary(seed.id)"
             :selected="selectedSeedId === seed.id"
             @select="selectSeed"
           />

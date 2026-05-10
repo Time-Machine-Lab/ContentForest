@@ -4,6 +4,7 @@ import type { SeedSummary } from '../../../src/modules/seed'
 const props = defineProps<{
   seed: SeedSummary
   selected: boolean
+  summary?: string
 }>()
 
 defineEmits<{
@@ -32,7 +33,7 @@ const updatedAtLabel = computed(() => {
     <span class="cf-seed-glyph" aria-hidden="true" />
     <span class="cf-seed-card-body">
       <strong>{{ seed.title }}</strong>
-      <span>{{ seed.archiveState === 'archived' ? '已归档种子' : '未归档种子' }}</span>
+      <span>{{ summary || 'Markdown 种子文档' }}</span>
     </span>
     <span class="cf-seed-meta">
       <span>{{ updatedAtLabel }}</span>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ExceptionNotice from '../base/ExceptionNotice.vue'
+
 const emit = defineEmits<{
   close: []
   create: [payload: { title: string; markdown: string }]

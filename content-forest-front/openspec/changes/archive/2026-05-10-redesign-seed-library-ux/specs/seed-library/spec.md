@@ -1,8 +1,35 @@
-# seed-library Specification
+## ADDED Requirements
 
-## Purpose
-TBD - created by archiving change add-content-forest-workbench. Update Purpose after archive.
-## Requirements
+### Requirement: 种子库阅读工作台结构
+前端 SHALL 将 `/seeds` 页面组织为面向种子阅读与管理的工作台结构，至少包含种子索引区、种子阅读器和辅助信息区。该结构 MUST 保留 `docs/design/previews/seed-library-redesign-preview.html` 的主要视觉和交互方向，并符合 `docs/spec/DESIGN.md` 的 Quiet Command Workspace 风格。
+
+#### Scenario: 打开种子阅读工作台
+- **WHEN** 用户打开 `/seeds`
+- **THEN** 前端 MUST 展示种子索引区、种子阅读器和辅助信息区
+- **AND** 前端 MUST 保持深色、紧凑、低噪声的工作台视觉
+- **AND** 前端 MUST NOT 在页面上堆叠解释产品概念或设计意图的说明型文案
+
+#### Scenario: 窄屏阅读工作台降级
+- **WHEN** 页面宽度不足以稳定展示三栏
+- **THEN** 前端 MUST 将辅助信息区隐藏或下移
+- **AND** 前端 MUST 保持种子索引、种子阅读器和核心操作可用
+
+### Requirement: 种子文档目录与系统事实分离
+前端 SHALL 在种子阅读器之外展示文档目录和系统事实。文档目录可以由前端基于 `SeedDetail.markdown` 中的标题结构派生，系统事实 MUST 使用 `SeedDetail` 已有字段展示。
+
+#### Scenario: 展示文档目录
+- **WHEN** `GET /api/seeds/{seedId}` 返回的 `SeedDetail.markdown` 包含可识别标题
+- **THEN** 前端 MUST 在辅助信息区展示文档目录
+- **AND** 前端 MUST 允许用户通过目录理解或跳转到正文结构
+- **AND** 前端 MUST NOT 要求后端返回目录字段
+
+#### Scenario: 展示系统事实
+- **WHEN** 种子详情加载成功
+- **THEN** 前端 MUST 在辅助信息区展示 `SeedDetail.contentLocation`、`SeedDetail.rootNodeId` 和 `SeedDetail.updatedAt`
+- **AND** 前端 MUST NOT 将系统事实混入 Markdown 正文阅读流
+
+## MODIFIED Requirements
+
 ### Requirement: 查看未归档种子库
 前端 SHALL 在种子库默认视图中展示未归档种子索引。该视图 MUST 调用 `docs/api/seed.yaml` 中定义的 `GET /api/seeds`，并只使用 `SeedSummary` 契约中存在的信息进行种子索引展示。
 
@@ -43,25 +70,6 @@ TBD - created by archiving change add-content-forest-workbench. Update Purpose a
 - **WHEN** `GET /api/seeds/{seedId}` 返回错误
 - **THEN** 前端 MUST 在阅读器或详情区域展示可理解的失败反馈
 - **AND** 前端 MUST 保持种子库索引可用
-
-### Requirement: 创建种子
-前端 SHALL 通过居中 Command Modal 创建种子。创建请求 MUST 调用 `docs/api/seed.yaml` 中定义的 `POST /api/seeds`，并提交非空标题和非空 Markdown 正文。
-
-#### Scenario: 成功创建种子
-- **WHEN** 用户在 Command Modal 中提交非空标题和非空 Markdown 正文
-- **THEN** 前端 MUST 调用 `POST /api/seeds`
-- **AND** 前端 MUST 在创建成功后关闭 Command Modal
-- **AND** 前端 MUST 刷新当前种子视图或将新种子插入当前视图
-
-#### Scenario: 阻止空标题或空正文创建
-- **WHEN** 用户提交空标题或空 Markdown 正文
-- **THEN** 前端 MUST 阻止提交 `POST /api/seeds`
-- **AND** 前端 MUST 在 Command Modal 中展示字段错误
-
-#### Scenario: 创建请求失败
-- **WHEN** `POST /api/seeds` 返回错误
-- **THEN** 前端 MUST 保留用户已输入的标题和 Markdown 正文
-- **AND** 前端 MUST 展示创建失败反馈
 
 ### Requirement: 编辑种子
 前端 SHALL 支持在种子阅读器中切换到编辑态编辑种子标题和 Markdown 正文。编辑请求 MUST 调用 `docs/api/seed.yaml` 中定义的 `PATCH /api/seeds/{seedId}`。
@@ -114,49 +122,3 @@ TBD - created by archiving change add-content-forest-workbench. Update Purpose a
 - **WHEN** 用户点击当前已归档种子的打开工作区主操作
 - **THEN** 前端 MUST 调用 `GET /api/seeds/{seedId}/root-node`
 - **AND** 前端 MUST 根据返回的 `workspaceReadOnly` 展示只读工作区语义
-
-### Requirement: 种子 API 错误与加载反馈
-前端 SHALL 为所有种子 API 调用提供加载、成功和失败反馈。失败反馈 MUST 不清空用户输入，且 MUST 不让前端将失败操作伪装为系统事实。
-
-#### Scenario: 列表加载中
-- **WHEN** 前端正在请求种子列表
-- **THEN** 前端 MUST 展示列表加载状态
-
-#### Scenario: 写操作进行中
-- **WHEN** 前端正在创建、编辑、归档或回档种子
-- **THEN** 前端 MUST 禁用对应提交入口或展示进行中状态
-- **AND** 前端 MUST 保持其他不冲突的页面浏览能力
-
-#### Scenario: 写操作失败
-- **WHEN** 创建、编辑、归档或回档请求失败
-- **THEN** 前端 MUST 展示失败反馈
-- **AND** 前端 MUST 不基于失败请求更新种子系统状态
-
-### Requirement: 种子库阅读工作台结构
-前端 SHALL 将 `/seeds` 页面组织为面向种子阅读与管理的工作台结构，至少包含种子索引区、种子阅读器和辅助信息区。该结构 MUST 保留 `docs/design/previews/seed-library-redesign-preview.html` 的主要视觉和交互方向，并符合 `docs/spec/DESIGN.md` 的 Quiet Command Workspace 风格。
-
-#### Scenario: 打开种子阅读工作台
-- **WHEN** 用户打开 `/seeds`
-- **THEN** 前端 MUST 展示种子索引区、种子阅读器和辅助信息区
-- **AND** 前端 MUST 保持深色、紧凑、低噪声的工作台视觉
-- **AND** 前端 MUST NOT 在页面上堆叠解释产品概念或设计意图的说明型文案
-
-#### Scenario: 窄屏阅读工作台降级
-- **WHEN** 页面宽度不足以稳定展示三栏
-- **THEN** 前端 MUST 将辅助信息区隐藏或下移
-- **AND** 前端 MUST 保持种子索引、种子阅读器和核心操作可用
-
-### Requirement: 种子文档目录与系统事实分离
-前端 SHALL 在种子阅读器之外展示文档目录和系统事实。文档目录可以由前端基于 `SeedDetail.markdown` 中的标题结构派生，系统事实 MUST 使用 `SeedDetail` 已有字段展示。
-
-#### Scenario: 展示文档目录
-- **WHEN** `GET /api/seeds/{seedId}` 返回的 `SeedDetail.markdown` 包含可识别标题
-- **THEN** 前端 MUST 在辅助信息区展示文档目录
-- **AND** 前端 MUST 允许用户通过目录理解或跳转到正文结构
-- **AND** 前端 MUST NOT 要求后端返回目录字段
-
-#### Scenario: 展示系统事实
-- **WHEN** 种子详情加载成功
-- **THEN** 前端 MUST 在辅助信息区展示 `SeedDetail.contentLocation`、`SeedDetail.rootNodeId` 和 `SeedDetail.updatedAt`
-- **AND** 前端 MUST NOT 将系统事实混入 Markdown 正文阅读流
-

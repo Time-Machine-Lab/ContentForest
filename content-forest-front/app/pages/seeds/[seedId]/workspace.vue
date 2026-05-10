@@ -103,6 +103,7 @@ const mutationRate = ref(18)
 const fruitCountOptions = [1, 2, 3, 4, 5, 6]
 
 const pollTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const growthTaskFruitCounts = new Map<string, number>()
 
 const isReadOnly = computed(() => Boolean(snapshot.value?.workspaceReadOnly || route.query.readonly === '1'))
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) ?? nodes.value[0] ?? null)
@@ -781,6 +782,7 @@ async function startGrowth() {
     const result = await growthApi.startGrowthTask(payload)
     source.status = 'growing'
     source.taskId = result.task.id
+    growthTaskFruitCounts.set(result.task.id, result.task.successfulFruitIds.length)
     pollGrowthTask(result.task)
   } catch (error) {
     removeGrowthPlaceholders(source.id)
@@ -828,8 +830,10 @@ function removeGrowthPlaceholders(sourceNodeId: string) {
 
 function pollGrowthTask(task: GrowthTaskDetail) {
   stopGrowthPolling(task.id)
+  growthTaskFruitCounts.set(task.id, task.successfulFruitIds.length)
 
   if (task.status !== 'running') {
+    growthTaskFruitCounts.delete(task.id)
     removeGrowthPlaceholders(task.sourceNodeRef.nodeId)
     void loadWorkspace(task.sourceNodeRef.nodeId)
     return
@@ -840,10 +844,12 @@ function pollGrowthTask(task: GrowthTaskDetail) {
     try {
       const nextTask = await growthApi.getGrowthTask(task.id)
       if (nextTask.status === 'running') {
+        await syncGrowthTaskProgress(nextTask)
         pollGrowthTask(nextTask)
         return
       }
 
+      growthTaskFruitCounts.delete(nextTask.id)
       if (nextTask.status === 'failed') growthError.value = nextTask.failureReason || '枝化生长失败，可恢复输入后重试'
       removeGrowthPlaceholders(nextTask.sourceNodeRef.nodeId)
       await loadWorkspace(nextTask.sourceNodeRef.nodeId)
@@ -854,10 +860,29 @@ function pollGrowthTask(task: GrowthTaskDetail) {
   pollTimers.set(task.id, timer)
 }
 
+async function syncGrowthTaskProgress(task: GrowthTaskDetail) {
+  const previousCount = growthTaskFruitCounts.get(task.id) ?? 0
+  const currentCount = task.successfulFruitIds.length
+  if (currentCount <= previousCount) return
+
+  growthTaskFruitCounts.set(task.id, currentCount)
+  removeGrowthPlaceholders(task.sourceNodeRef.nodeId)
+  await loadWorkspace(task.sourceNodeRef.nodeId)
+
+  const source = findNode(task.sourceNodeRef.nodeId)
+  const remainingCount = Math.max(task.fruitCount - currentCount, 0)
+  if (source && remainingCount > 0) {
+    source.status = 'growing'
+    source.taskId = task.id
+    addGrowthPlaceholders(source, remainingCount)
+  }
+}
+
 function stopGrowthPolling(taskId: string) {
   const timer = pollTimers.get(taskId)
   if (timer) clearTimeout(timer)
   pollTimers.delete(taskId)
+  growthTaskFruitCounts.delete(taskId)
 }
 
 function stopAllPolling() {
@@ -903,6 +928,7 @@ async function retryGrowth() {
     node.status = 'growing'
     node.taskId = result.task.id
     addGrowthPlaceholders(node, result.task.fruitCount || fruitCount.value)
+    growthTaskFruitCounts.set(result.task.id, result.task.successfulFruitIds.length)
     pollGrowthTask(result.task)
   } catch (error) {
     growthError.value = errorMessage(error)

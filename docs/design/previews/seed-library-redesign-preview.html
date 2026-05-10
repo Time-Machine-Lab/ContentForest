@@ -1,0 +1,1013 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>内容森林 - 种子库重构 Preview</title>
+  <style>
+    :root {
+      --bg: #07090d;
+      --panel: #0c1017;
+      --panel-2: #101621;
+      --panel-3: #131a26;
+      --line: rgba(255, 255, 255, .08);
+      --line-strong: rgba(139, 156, 255, .38);
+      --text: #edf2fb;
+      --muted: #8d98aa;
+      --faint: #596476;
+      --accent: #8b9cff;
+      --growth: #5ed7c5;
+      --danger: #ff7b8a;
+      --warning: #f0c36b;
+      --shadow: 0 22px 60px rgba(0, 0, 0, .34);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background:
+        linear-gradient(rgba(255, 255, 255, .018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .018) 1px, transparent 1px),
+        radial-gradient(circle at 28% 10%, rgba(139, 156, 255, .09), transparent 34rem),
+        var(--bg);
+      background-size: 34px 34px, 34px 34px, auto, auto;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+      background: rgba(8, 10, 15, .84);
+      padding: 18px 14px;
+    }
+
+    .brand {
+      display: grid;
+      gap: 4px;
+      margin-bottom: 28px;
+      padding: 0 6px;
+    }
+
+    .brand strong {
+      font-size: 14px;
+    }
+
+    .brand span,
+    .nav-label,
+    .stage {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 6px;
+    }
+
+    .nav-label {
+      margin: 14px 6px 6px;
+      text-transform: uppercase;
+    }
+
+    .nav-item {
+      height: 38px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      color: #c9d1df;
+      background: transparent;
+    }
+
+    .nav-item.is-active {
+      border-color: rgba(139, 156, 255, .22);
+      background: rgba(139, 156, 255, .08);
+      color: #f7f9ff;
+    }
+
+    .stage {
+      margin-top: 28px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .025);
+      line-height: 18px;
+    }
+
+    .main {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: 58px minmax(0, 1fr);
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(8, 10, 15, .7);
+      backdrop-filter: blur(18px);
+    }
+
+    .title {
+      min-width: 0;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 17px;
+      line-height: 22px;
+    }
+
+    .title p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .button {
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .035);
+      color: #d8deeb;
+      transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(139, 156, 255, .36);
+      background: rgba(139, 156, 255, .09);
+    }
+
+    .button.primary {
+      border-color: rgba(139, 156, 255, .5);
+      background: linear-gradient(180deg, rgba(139, 156, 255, .28), rgba(139, 156, 255, .16));
+      color: #fff;
+      box-shadow: 0 10px 24px rgba(139, 156, 255, .14);
+    }
+
+    .button.danger {
+      color: #ffd3d8;
+      border-color: rgba(255, 123, 138, .32);
+      background: rgba(255, 123, 138, .06);
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 340px minmax(520px, 1fr) 300px;
+    }
+
+    .library,
+    .reader,
+    .inspector {
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .library {
+      padding: 16px;
+      border-right: 1px solid var(--line);
+      background: rgba(10, 13, 19, .56);
+    }
+
+    .library-tools {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .search {
+      height: 38px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(13, 16, 23, .8);
+      color: var(--muted);
+    }
+
+    .search input {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .025);
+    }
+
+    .tab {
+      height: 30px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .tab.is-active {
+      background: rgba(139, 156, 255, .13);
+      color: #f5f7ff;
+      box-shadow: inset 0 0 0 1px rgba(139, 156, 255, .28);
+    }
+
+    .seed-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .seed-card {
+      width: 100%;
+      min-height: 112px;
+      display: grid;
+      grid-template-columns: 40px minmax(0, 1fr);
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, .045), rgba(255, 255, 255, .014)),
+        rgba(13, 16, 23, .72);
+      color: inherit;
+      text-align: left;
+      transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    }
+
+    .seed-card:hover,
+    .seed-card.is-selected {
+      transform: translateY(-1px);
+      border-color: rgba(139, 156, 255, .48);
+      background:
+        radial-gradient(circle at 24px 18px, rgba(139, 156, 255, .14), transparent 8rem),
+        rgba(16, 20, 29, .9);
+    }
+
+    .seed-card.is-archived {
+      opacity: .7;
+    }
+
+    .seed-orb {
+      position: relative;
+      width: 38px;
+      height: 38px;
+      border: 1px solid rgba(139, 156, 255, .28);
+      border-radius: 8px;
+      background: rgba(139, 156, 255, .07);
+    }
+
+    .seed-orb::before,
+    .seed-orb::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+    }
+
+    .seed-orb::before {
+      top: 10px;
+      left: 12px;
+      width: 9px;
+      height: 9px;
+      background: var(--accent);
+      box-shadow: 10px 10px 0 var(--growth);
+    }
+
+    .seed-orb::after {
+      top: 12px;
+      left: 18px;
+      width: 1px;
+      height: 19px;
+      transform: rotate(-24deg);
+      background: rgba(139, 156, 255, .56);
+    }
+
+    .seed-copy {
+      min-width: 0;
+      display: grid;
+      gap: 7px;
+    }
+
+    .seed-copy strong {
+      overflow: hidden;
+      color: #f6f8ff;
+      font-size: 14px;
+      line-height: 20px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .seed-copy p {
+      display: -webkit-box;
+      overflow: hidden;
+      min-height: 34px;
+      margin: 0;
+      color: #9ba6b8;
+      font-size: 12px;
+      line-height: 17px;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    .seed-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .reader {
+      padding: 0 28px 40px;
+    }
+
+    .reader-shell {
+      width: min(880px, 100%);
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+
+    .reader-head {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: start;
+      margin: 0 -12px 20px;
+      padding: 16px 12px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, .055);
+      background: linear-gradient(180deg, rgba(7, 9, 13, .98), rgba(7, 9, 13, .88));
+      backdrop-filter: blur(16px);
+    }
+
+    .status-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--growth);
+    }
+
+    .dot.archived {
+      background: var(--warning);
+    }
+
+    .reader-head h2 {
+      margin: 0;
+      color: #f7f9ff;
+      font-size: 28px;
+      line-height: 36px;
+      letter-spacing: 0;
+    }
+
+    .reader-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-button {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .035);
+      color: #ccd5e4;
+      transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    }
+
+    .icon-button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(139, 156, 255, .36);
+      background: rgba(139, 156, 255, .08);
+    }
+
+    .more-wrap {
+      position: relative;
+    }
+
+    .menu {
+      position: absolute;
+      top: 42px;
+      right: 0;
+      width: 180px;
+      display: none;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(13, 16, 23, .98);
+      box-shadow: var(--shadow);
+    }
+
+    .menu.is-open {
+      display: grid;
+      gap: 4px;
+    }
+
+    .menu button {
+      height: 32px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #d3dbea;
+      text-align: left;
+      padding: 0 9px;
+    }
+
+    .menu button:hover {
+      background: rgba(255, 255, 255, .06);
+    }
+
+    .menu button.danger-text {
+      color: #ffb8c0;
+    }
+
+    .doc-card {
+      border: 1px solid rgba(255, 255, 255, .07);
+      border-radius: 8px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, .04), rgba(255, 255, 255, .014)),
+        rgba(10, 13, 19, .68);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+    }
+
+    .doc-body {
+      padding: 34px 42px 44px;
+      color: #d8dfec;
+      font-size: 15px;
+      line-height: 28px;
+    }
+
+    .doc-body h1,
+    .doc-body h2,
+    .doc-body h3 {
+      color: #f4f7ff;
+      letter-spacing: 0;
+    }
+
+    .doc-body h1 {
+      margin: 0 0 20px;
+      font-size: 25px;
+      line-height: 34px;
+    }
+
+    .doc-body h2 {
+      margin: 32px 0 12px;
+      font-size: 19px;
+      line-height: 28px;
+    }
+
+    .doc-body h3 {
+      margin: 26px 0 10px;
+      font-size: 16px;
+    }
+
+    .doc-body p {
+      margin: 0 0 14px;
+    }
+
+    .doc-body code {
+      padding: 2px 5px;
+      border: 1px solid rgba(255, 255, 255, .07);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, .04);
+      color: #f1d994;
+      font-size: .92em;
+    }
+
+    .edit-card {
+      display: none;
+      gap: 12px;
+      padding: 20px;
+      border: 1px solid rgba(139, 156, 255, .22);
+      border-radius: 8px;
+      background: rgba(13, 16, 23, .82);
+    }
+
+    .edit-card.is-open {
+      display: grid;
+    }
+
+    .edit-card label {
+      display: grid;
+      gap: 7px;
+      color: #cfd7e6;
+      font-size: 12px;
+    }
+
+    .edit-card input,
+    .edit-card textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      outline: 0;
+      background: #090c12;
+      color: var(--text);
+    }
+
+    .edit-card input {
+      height: 38px;
+      padding: 0 11px;
+    }
+
+    .edit-card textarea {
+      min-height: 440px;
+      padding: 14px;
+      line-height: 22px;
+      resize: vertical;
+    }
+
+    .edit-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .inspector {
+      padding: 16px;
+      border-left: 1px solid var(--line);
+      background: rgba(10, 12, 18, .76);
+    }
+
+    .inspector-card {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 14px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .025);
+    }
+
+    .inspector-card h3 {
+      margin: 0;
+      color: #cbd4e4;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .fact {
+      display: grid;
+      gap: 3px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, .055);
+    }
+
+    .fact span {
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .fact strong {
+      overflow-wrap: anywhere;
+      color: #d9e0ee;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .toc {
+      display: grid;
+      gap: 6px;
+    }
+
+    .toc a {
+      display: block;
+      padding: 7px 8px;
+      border-radius: 6px;
+      color: #9da8ba;
+      font-size: 12px;
+      text-decoration: none;
+    }
+
+    .toc a:hover,
+    .toc a.is-active {
+      background: rgba(139, 156, 255, .08);
+      color: #edf2ff;
+    }
+
+    @media (max-width: 1180px) {
+      .workspace {
+        grid-template-columns: 310px minmax(0, 1fr);
+      }
+
+      .inspector {
+        display: none;
+      }
+    }
+
+    @media (max-width: 820px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .library {
+        max-height: 360px;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .reader {
+        padding: 0 14px 32px;
+      }
+
+      .reader-head {
+        grid-template-columns: 1fr;
+      }
+
+      .doc-body {
+        padding: 24px 20px 32px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <strong>Content Forest</strong>
+        <span>Quiet Growth Workspace</span>
+      </div>
+      <div class="nav-label">Workspace</div>
+      <nav class="nav">
+        <button class="nav-item is-active" type="button">◇ 种子库</button>
+        <button class="nav-item" type="button">⌘ 生成器</button>
+        <button class="nav-item" type="button">◎ 营养库</button>
+      </nav>
+      <div class="stage">
+        Phase One<br>
+        种子、生成器与营养库建设中
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="title">
+          <h1>种子库</h1>
+          <p>灵感种子的阅读、编辑与工作区入口</p>
+        </div>
+        <div class="top-actions">
+          <button class="button" type="button">已归档</button>
+          <button class="button primary" type="button">新建种子</button>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <aside class="library">
+          <div class="library-tools">
+            <label class="search">
+              <span>⌕</span>
+              <input id="search" type="search" placeholder="搜索种子">
+            </label>
+            <div class="tabs">
+              <button class="tab is-active" data-view="active" type="button">未归档</button>
+              <button class="tab" data-view="archived" type="button">已归档</button>
+            </div>
+          </div>
+          <div id="seedList" class="seed-list"></div>
+        </aside>
+
+        <section class="reader">
+          <div class="reader-shell">
+            <header class="reader-head">
+              <div>
+                <div class="status-line">
+                  <span id="statusDot" class="dot"></span>
+                  <span id="seedStatus">未归档种子</span>
+                  <span>·</span>
+                  <span id="seedUpdated">05/09 03:58</span>
+                </div>
+                <h2 id="readerTitle">内容森林</h2>
+              </div>
+              <div class="reader-actions">
+                <button id="workspaceBtn" class="button primary" type="button">打开工作区</button>
+                <button id="editBtn" class="icon-button" type="button" aria-label="编辑">✎</button>
+                <div class="more-wrap">
+                  <button id="moreBtn" class="icon-button" type="button" aria-label="更多">⋯</button>
+                  <div id="moreMenu" class="menu">
+                    <button type="button">复制内容位置</button>
+                    <button id="archiveBtn" class="danger-text" type="button">归档种子</button>
+                  </div>
+                </div>
+              </div>
+            </header>
+
+            <article id="docCard" class="doc-card">
+              <div id="docBody" class="doc-body"></div>
+            </article>
+
+            <section id="editCard" class="edit-card">
+              <label>
+                标题
+                <input id="titleInput" type="text">
+              </label>
+              <label>
+                Markdown 正文
+                <textarea id="markdownInput"></textarea>
+              </label>
+              <div class="edit-actions">
+                <button id="cancelEditBtn" class="button" type="button">取消</button>
+                <button id="saveEditBtn" class="button primary" type="button">保存编辑</button>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <aside class="inspector">
+          <section class="inspector-card">
+            <h3>文档目录</h3>
+            <nav id="toc" class="toc"></nav>
+          </section>
+          <section class="inspector-card">
+            <h3>系统事实</h3>
+            <div class="fact">
+              <span>内容位置</span>
+              <strong id="factLocation">seeds/seed_content_forest.md</strong>
+            </div>
+            <div class="fact">
+              <span>根节点</span>
+              <strong id="factRoot">seed_root_content_forest</strong>
+            </div>
+            <div class="fact">
+              <span>更新时间</span>
+              <strong id="factUpdated">2026/05/09 03:58</strong>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const seeds = [
+      {
+        id: 'content-forest',
+        title: '内容森林',
+        archiveState: 'active',
+        updatedAt: '05/09 03:58',
+        fullUpdatedAt: '2026/05/09 03:58',
+        location: 'seeds/content_forest.md',
+        root: 'seed_root_content_forest',
+        summary: '围绕灵感种子、枝化生长、物竞天择和数据反馈构建的内容进化工作台。',
+        markdown: `
+          <h1>内容森林项目概念文档</h1>
+          <p>内容森林是一套以“灵感种子”为起点的内容创作工作台。用户写下一颗种子，系统围绕这颗种子进行枝化生长，生成多个可被选择、验证和迭代的内容果实。</p>
+          <h2>1. 核心闭环</h2>
+          <p>第一期不是全自动发布机器，而是完成一条可被用户理解和控制的闭环：灵感种子、AI 枝化生长、物竞天择、发布验证、数据回流、迭代进化。</p>
+          <p>其中，用户可以人工决定哪些果实被选择，哪些果实被淘汰。后续版本中，AI、规则或外部数据也可以成为物竞天择的主导对象。</p>
+          <h2>2. 阅读重点</h2>
+          <p>种子文档本身应该像一份可长期阅读和维护的创作 Brief，而不是挤在侧栏里的系统字段。标题、正文、目录、动作和系统事实需要分层。</p>
+          <h2>3. 工作区关系</h2>
+          <p>打开工作区是种子最高频动作，因此需要稳定放在阅读器顶部。编辑和归档属于管理动作，应弱于打开工作区，避免抢占主路径。</p>
+          <h2>4. 后续演进</h2>
+          <p>随着果实、营养库、基因库和数据反馈逐渐成熟，种子库会从“卡片入口”演进成内容项目的索引中心。</p>
+        `
+      },
+      {
+        id: 'canvas',
+        title: '无限画布',
+        archiveState: 'active',
+        updatedAt: '05/09 02:10',
+        fullUpdatedAt: '2026/05/09 02:10',
+        location: 'seeds/infinite_canvas.md',
+        root: 'seed_root_infinite_canvas',
+        summary: '把长文档、节点树和生成过程放在同一个空间里，减少创作上下文切换。',
+        markdown: `
+          <h1>无限画布概念文档</h1>
+          <p>无限画布用于承载种子与果实的空间关系。用户进入工作区后，可以拖拽浏览内容树，查看每个节点的详情，并基于节点继续枝化生长。</p>
+          <h2>1. 使用场景</h2>
+          <p>当一个想法不断分叉，普通列表很快会失去方向感。画布提供了空间记忆，让用户知道每一次生成从哪里来，又朝哪里去。</p>
+          <h2>2. 交互原则</h2>
+          <p>节点不承载完整正文，只承载标题、状态和少量标签。完整 Markdown 内容应该进入详情或阅读器。</p>
+          <h2>3. 状态表达</h2>
+          <p>候选、已选择、已淘汰和生长中状态需要足够明确，但不能让画布变成嘈杂的仪表盘。</p>
+        `
+      },
+      {
+        id: 'wallpaper',
+        title: '壁纸产品推广',
+        archiveState: 'archived',
+        updatedAt: '05/07 21:34',
+        fullUpdatedAt: '2026/05/07 21:34',
+        location: 'seeds/wallpaper_promo.md',
+        root: 'seed_root_wallpaper',
+        summary: '用于探索壁纸产品在小红书、抖音、推特等平台上的传播表达。',
+        markdown: `
+          <h1>壁纸产品推广种子</h1>
+          <p>这个种子用于测试不同内容角度对壁纸产品推广效果的影响，包括情绪价值、小众审美、桌面效率和账号人格化表达。</p>
+          <h2>1. 方向 A：情绪价值</h2>
+          <p>强调“每天打开手机时的心情切换”，通过短句、氛围和收藏价值提升传播概率。</p>
+          <h2>2. 方向 B：小众精品</h2>
+          <p>强调审美稀缺、主题系列和高质量筛选，适合小红书和推特传播。</p>
+        `
+      }
+    ];
+
+    let selectedId = 'content-forest';
+    let view = 'active';
+    let editing = false;
+
+    const seedList = document.querySelector('#seedList');
+    const search = document.querySelector('#search');
+    const readerTitle = document.querySelector('#readerTitle');
+    const docBody = document.querySelector('#docBody');
+    const docCard = document.querySelector('#docCard');
+    const editCard = document.querySelector('#editCard');
+    const titleInput = document.querySelector('#titleInput');
+    const markdownInput = document.querySelector('#markdownInput');
+    const statusDot = document.querySelector('#statusDot');
+    const seedStatus = document.querySelector('#seedStatus');
+    const seedUpdated = document.querySelector('#seedUpdated');
+    const factLocation = document.querySelector('#factLocation');
+    const factRoot = document.querySelector('#factRoot');
+    const factUpdated = document.querySelector('#factUpdated');
+    const toc = document.querySelector('#toc');
+    const moreBtn = document.querySelector('#moreBtn');
+    const moreMenu = document.querySelector('#moreMenu');
+    const editBtn = document.querySelector('#editBtn');
+    const cancelEditBtn = document.querySelector('#cancelEditBtn');
+    const saveEditBtn = document.querySelector('#saveEditBtn');
+    const archiveBtn = document.querySelector('#archiveBtn');
+
+    function currentSeed() {
+      return seeds.find(seed => seed.id === selectedId) || seeds[0];
+    }
+
+    function textFromHtml(html) {
+      const div = document.createElement('div');
+      div.innerHTML = html;
+      return div.textContent.trim().replace(/\s+/g, ' ');
+    }
+
+    function renderList() {
+      const keyword = search.value.trim().toLowerCase();
+      const visible = seeds.filter(seed => {
+        const matchesView = view === 'archived' ? seed.archiveState === 'archived' : seed.archiveState === 'active';
+        const haystack = `${seed.title} ${seed.summary}`.toLowerCase();
+        return matchesView && haystack.includes(keyword);
+      });
+
+      seedList.innerHTML = visible.map(seed => `
+        <button class="seed-card ${seed.id === selectedId ? 'is-selected' : ''} ${seed.archiveState === 'archived' ? 'is-archived' : ''}" data-id="${seed.id}" type="button">
+          <span class="seed-orb"></span>
+          <span class="seed-copy">
+            <strong>${seed.title}</strong>
+            <p>${seed.summary}</p>
+            <span class="seed-meta">
+              <span>${seed.updatedAt}</span>
+              <span>${seed.archiveState === 'archived' ? 'archived' : 'active'}</span>
+            </span>
+          </span>
+        </button>
+      `).join('');
+
+      document.querySelectorAll('.seed-card').forEach(card => {
+        card.addEventListener('click', () => {
+          selectedId = card.dataset.id;
+          editing = false;
+          render();
+        });
+      });
+    }
+
+    function renderReader() {
+      const seed = currentSeed();
+      readerTitle.textContent = seed.title;
+      docBody.innerHTML = seed.markdown;
+      titleInput.value = seed.title;
+      markdownInput.value = textFromHtml(seed.markdown);
+      seedStatus.textContent = seed.archiveState === 'archived' ? '已归档种子' : '未归档种子';
+      seedUpdated.textContent = seed.updatedAt;
+      statusDot.classList.toggle('archived', seed.archiveState === 'archived');
+      factLocation.textContent = seed.location;
+      factRoot.textContent = seed.root;
+      factUpdated.textContent = seed.fullUpdatedAt;
+      archiveBtn.textContent = seed.archiveState === 'archived' ? '回档种子' : '归档种子';
+      archiveBtn.classList.toggle('danger-text', seed.archiveState === 'active');
+
+      docCard.style.display = editing ? 'none' : 'block';
+      editCard.classList.toggle('is-open', editing);
+
+      const headings = [...docBody.querySelectorAll('h2')];
+      toc.innerHTML = headings.map((heading, index) => {
+        heading.id = `section-${index}`;
+        return `<a href="#section-${index}" class="${index === 0 ? 'is-active' : ''}">${heading.textContent}</a>`;
+      }).join('');
+    }
+
+    function renderTabs() {
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.toggle('is-active', tab.dataset.view === view);
+      });
+    }
+
+    function render() {
+      renderTabs();
+      renderList();
+      renderReader();
+      moreMenu.classList.remove('is-open');
+    }
+
+    search.addEventListener('input', renderList);
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        view = tab.dataset.view;
+        const first = seeds.find(seed => view === 'archived' ? seed.archiveState === 'archived' : seed.archiveState === 'active');
+        if (first) selectedId = first.id;
+        editing = false;
+        render();
+      });
+    });
+    moreBtn.addEventListener('click', () => moreMenu.classList.toggle('is-open'));
+    editBtn.addEventListener('click', () => {
+      editing = true;
+      renderReader();
+    });
+    cancelEditBtn.addEventListener('click', () => {
+      editing = false;
+      renderReader();
+    });
+    saveEditBtn.addEventListener('click', () => {
+      const seed = currentSeed();
+      seed.title = titleInput.value.trim() || seed.title;
+      seed.summary = markdownInput.value.trim().slice(0, 76) || seed.summary;
+      seed.markdown = `<h1>${seed.title}</h1><p>${markdownInput.value.trim().replace(/\n+/g, '</p><p>')}</p>`;
+      editing = false;
+      render();
+    });
+    archiveBtn.addEventListener('click', () => {
+      const seed = currentSeed();
+      seed.archiveState = seed.archiveState === 'archived' ? 'active' : 'archived';
+      view = seed.archiveState === 'archived' ? 'archived' : 'active';
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const props = defineProps<{
   markdown: string
+  headingIdPrefix?: string
 }>()
 
 type MarkdownBlock =
@@ -72,9 +73,24 @@ const blocks = computed<MarkdownBlock[]>(() => {
   <article class="cf-markdown-viewer">
     <p v-if="!markdown.trim()" class="cf-markdown-empty">暂无正文</p>
     <template v-for="(block, index) in blocks" :key="`${block.kind}-${index}`">
-      <h2 v-if="block.kind === 'heading' && block.level === 1">{{ block.text }}</h2>
-      <h3 v-else-if="block.kind === 'heading' && block.level === 2">{{ block.text }}</h3>
-      <h4 v-else-if="block.kind === 'heading' && block.level === 3">{{ block.text }}</h4>
+      <h2
+        v-if="block.kind === 'heading' && block.level === 1"
+        :id="props.headingIdPrefix ? `${props.headingIdPrefix}-${index}` : undefined"
+      >
+        {{ block.text }}
+      </h2>
+      <h3
+        v-else-if="block.kind === 'heading' && block.level === 2"
+        :id="props.headingIdPrefix ? `${props.headingIdPrefix}-${index}` : undefined"
+      >
+        {{ block.text }}
+      </h3>
+      <h4
+        v-else-if="block.kind === 'heading' && block.level === 3"
+        :id="props.headingIdPrefix ? `${props.headingIdPrefix}-${index}` : undefined"
+      >
+        {{ block.text }}
+      </h4>
       <ul v-else-if="block.kind === 'list-item'">
         <li>{{ block.text }}</li>
       </ul>
