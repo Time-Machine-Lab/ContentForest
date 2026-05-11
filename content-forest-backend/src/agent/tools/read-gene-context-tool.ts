@@ -275,6 +275,20 @@ export class ReadReferableGeneInsightsTool implements ToolContract {
         title: insight.title,
         lineage: insight.lineage,
         niche: insight.niche,
+        performance:
+          (await this.dependencies.geneStorage.findPerformanceSummaryByInsightId(
+            insight.id,
+          )) ?? {
+            insightId: insight.id,
+            seedId: insight.seedId,
+            usageCount: 0,
+            positiveCount: 0,
+            neutralCount: 0,
+            negativeCount: 0,
+            score: 0,
+            lastUsedAt: null,
+            updatedAt: "",
+          },
         markdown: await this.dependencies.geneContentAccess.readGeneInsightMarkdown(
           insight.contentLocation,
         ),

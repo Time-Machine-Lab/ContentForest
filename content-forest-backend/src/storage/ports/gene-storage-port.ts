@@ -4,8 +4,10 @@ import type {
   GeneExtractionTask,
   GeneInsightSummary,
   GeneLibrary,
+  GenePerformanceSummary,
   GeneReminderStatus,
   GeneSuggestion,
+  GeneUsageRecord,
 } from "../../modules/gene/domain/gene-types.js";
 
 export type GeneLibraryRecord = GeneLibrary;
@@ -13,6 +15,8 @@ export type GeneExtractionReminderRecord = GeneExtractionReminder;
 export type GeneExtractionTaskRecord = GeneExtractionTask;
 export type GeneSuggestionRecord = GeneSuggestion;
 export type GeneInsightRecord = GeneInsightSummary;
+export type GeneUsageRecordRecord = GeneUsageRecord;
+export type GenePerformanceSummaryRecord = GenePerformanceSummary;
 
 export interface GeneStoragePort {
   upsertGeneLibrary(record: GeneLibraryRecord): Promise<void>;
@@ -44,6 +48,15 @@ export interface GeneStoragePort {
   saveInsight(record: GeneInsightRecord): Promise<void>;
   listInsightsBySeed(seedId: string): Promise<GeneInsightRecord[]>;
   listReferableInsightsBySeed(seedId: string): Promise<GeneInsightRecord[]>;
+
+  createUsageRecord(record: GeneUsageRecordRecord): Promise<void>;
+  findPerformanceSummaryByInsightId(
+    insightId: string,
+  ): Promise<GenePerformanceSummaryRecord | null>;
+  upsertPerformanceSummary(record: GenePerformanceSummaryRecord): Promise<void>;
+  listPerformanceSummariesBySeed(
+    seedId: string,
+  ): Promise<GenePerformanceSummaryRecord[]>;
 }
 
 export function cloneEvidenceSources(
@@ -51,4 +64,3 @@ export function cloneEvidenceSources(
 ): GeneEvidenceSource[] {
   return evidenceSources.map((source) => ({ ...source }));
 }
-

@@ -24,20 +24,22 @@ const updatedAtLabel = computed(() => {
 </script>
 
 <template>
-  <button
+  <article
     class="cf-seed-card"
     :class="{ 'is-selected': selected, 'is-archived': seed.archiveState === 'archived' }"
-    type="button"
-    @click="$emit('select', seed.id)"
   >
     <span class="cf-seed-glyph" aria-hidden="true" />
-    <span class="cf-seed-card-body">
-      <strong>{{ seed.title }}</strong>
-      <span>{{ summary || 'Markdown 种子文档' }}</span>
-    </span>
-    <span class="cf-seed-meta">
+
+    <button class="cf-seed-card-main" type="button" @click="$emit('select', seed.id)">
+      <span class="cf-seed-card-body">
+        <strong>{{ seed.title }}</strong>
+        <span>{{ summary || 'Markdown 种子文档。' }}</span>
+      </span>
+    </button>
+
+    <div class="cf-seed-meta">
       <span>{{ updatedAtLabel }}</span>
       <span class="cf-seed-status">{{ seed.archiveState === 'archived' ? 'archived' : 'active' }}</span>
-    </span>
-  </button>
+    </div>
+  </article>
 </template>

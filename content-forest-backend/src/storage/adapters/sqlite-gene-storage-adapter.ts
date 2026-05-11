@@ -5,15 +5,22 @@ import {
   type GeneExtractionTaskStatus,
   type GeneInsightStatus,
   type GeneReminderStatus,
+  type GeneExtractionReasonContext,
+  type GenePerformanceSummary,
   type GeneSuggestionStatus,
+  type GeneSuggestionSemantics,
+  type GeneUsageOutcome,
+  type GeneUsageSourceType,
 } from "../../modules/gene/domain/gene-types.js";
 import type {
   GeneExtractionReminderRecord,
   GeneExtractionTaskRecord,
   GeneInsightRecord,
   GeneLibraryRecord,
+  GenePerformanceSummaryRecord,
   GeneStoragePort,
   GeneSuggestionRecord,
+  GeneUsageRecordRecord,
 } from "../ports/gene-storage-port.js";
 
 interface GeneLibraryRow {
@@ -53,6 +60,7 @@ interface GeneSuggestionRow {
   lineage: string;
   niche: string;
   evidence_sources_json: string;
+  semantics_json: string;
   created_at: string;
   updated_at: string;
 }
@@ -70,6 +78,29 @@ interface GeneInsightRow {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+}
+
+interface GeneUsageRecordRow {
+  id: string;
+  seed_id: string;
+  insight_id: string;
+  source_type: GeneUsageSourceType;
+  source_id: string;
+  outcome: GeneUsageOutcome;
+  note: string;
+  created_at: string;
+}
+
+interface GenePerformanceSummaryRow {
+  insight_id: string;
+  seed_id: string;
+  usage_count: number;
+  positive_count: number;
+  neutral_count: number;
+  negative_count: number;
+  score: number;
+  last_used_at: string | null;
+  updated_at: string;
 }
 
 export class SqliteGeneStorageAdapter implements GeneStoragePort {
@@ -244,9 +275,10 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
           lineage,
           niche,
           evidence_sources_json,
+          semantics_json,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
@@ -258,6 +290,7 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
         record.lineage,
         record.niche,
         JSON.stringify(record.evidenceSources),
+        JSON.stringify(record.semantics ?? {}),
         record.createdAt,
         record.updatedAt,
       );
@@ -282,6 +315,7 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
               lineage = ?,
               niche = ?,
               evidence_sources_json = ?,
+              semantics_json = ?,
               updated_at = ?
           WHERE id = ?`,
       )
@@ -292,6 +326,7 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
         record.lineage,
         record.niche,
         JSON.stringify(record.evidenceSources),
+        JSON.stringify(record.semantics ?? {}),
         record.updatedAt,
         record.id,
       );
@@ -414,6 +449,93 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
     return rows.map((row) => this.toInsightRecord(row));
   }
 
+  public async createUsageRecord(record: GeneUsageRecordRecord): Promise<void> {
+    this.database
+      .prepare(
+        `INSERT INTO gene_usage_records (
+          id,
+          seed_id,
+          insight_id,
+          source_type,
+          source_id,
+          outcome,
+          note,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        record.id,
+        record.seedId,
+        record.insightId,
+        record.sourceType,
+        record.sourceId,
+        record.outcome,
+        record.note,
+        record.createdAt,
+      );
+  }
+
+  public async findPerformanceSummaryByInsightId(
+    insightId: string,
+  ): Promise<GenePerformanceSummaryRecord | null> {
+    const row = this.database
+      .prepare("SELECT * FROM gene_performance_summaries WHERE insight_id = ?")
+      .get(insightId) as GenePerformanceSummaryRow | undefined;
+    return row === undefined ? null : this.toPerformanceSummaryRecord(row);
+  }
+
+  public async upsertPerformanceSummary(
+    record: GenePerformanceSummaryRecord,
+  ): Promise<void> {
+    this.database
+      .prepare(
+        `INSERT INTO gene_performance_summaries (
+          insight_id,
+          seed_id,
+          usage_count,
+          positive_count,
+          neutral_count,
+          negative_count,
+          score,
+          last_used_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(insight_id) DO UPDATE SET
+          seed_id = excluded.seed_id,
+          usage_count = excluded.usage_count,
+          positive_count = excluded.positive_count,
+          neutral_count = excluded.neutral_count,
+          negative_count = excluded.negative_count,
+          score = excluded.score,
+          last_used_at = excluded.last_used_at,
+          updated_at = excluded.updated_at`,
+      )
+      .run(
+        record.insightId,
+        record.seedId,
+        record.usageCount,
+        record.positiveCount,
+        record.neutralCount,
+        record.negativeCount,
+        record.score,
+        record.lastUsedAt,
+        record.updatedAt,
+      );
+  }
+
+  public async listPerformanceSummariesBySeed(
+    seedId: string,
+  ): Promise<GenePerformanceSummaryRecord[]> {
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM gene_performance_summaries
+          WHERE seed_id = ?
+          ORDER BY score DESC, updated_at DESC`,
+      )
+      .all(seedId) as unknown as GenePerformanceSummaryRow[];
+    return rows.map((row) => this.toPerformanceSummaryRecord(row));
+  }
+
   public close(): void {
     this.database.close();
   }
@@ -493,7 +615,47 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
 
       CREATE INDEX IF NOT EXISTS idx_gene_insights_suggestion_id
         ON gene_insights (suggestion_id);
+
+      CREATE TABLE IF NOT EXISTS gene_usage_records (
+        id TEXT PRIMARY KEY,
+        seed_id TEXT NOT NULL,
+        insight_id TEXT NOT NULL,
+        source_type TEXT NOT NULL CHECK (source_type IN ('growth_task', 'manual', 'publication', 'feedback')),
+        source_id TEXT NOT NULL,
+        outcome TEXT NOT NULL CHECK (outcome IN ('positive', 'neutral', 'negative')),
+        note TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_gene_usage_records_seed_created_at
+        ON gene_usage_records (seed_id, created_at);
+
+      CREATE INDEX IF NOT EXISTS idx_gene_usage_records_insight_created_at
+        ON gene_usage_records (insight_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS gene_performance_summaries (
+        insight_id TEXT PRIMARY KEY,
+        seed_id TEXT NOT NULL,
+        usage_count INTEGER NOT NULL DEFAULT 0,
+        positive_count INTEGER NOT NULL DEFAULT 0,
+        neutral_count INTEGER NOT NULL DEFAULT 0,
+        negative_count INTEGER NOT NULL DEFAULT 0,
+        score REAL NOT NULL DEFAULT 0,
+        last_used_at TEXT,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_gene_performance_summaries_seed_score
+        ON gene_performance_summaries (seed_id, score);
     `);
+    try {
+      this.database.exec(`
+        ALTER TABLE gene_suggestions
+          ADD COLUMN semantics_json TEXT NOT NULL DEFAULT '{}';
+      `);
+    } catch {
+      // Older databases may already have the column.
+    }
   }
 
   private toLibraryRecord(row: GeneLibraryRow): GeneLibraryRecord {
@@ -517,13 +679,15 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
   }
 
   private toTaskRecord(row: GeneTaskRow): GeneExtractionTaskRecord {
+    const agentInput = this.parseRecord(row.agent_input_json);
     return {
       id: row.id,
       seedId: row.seed_id,
       status: row.status,
       failureReason: row.failure_reason,
       evidenceSources: this.parseEvidenceSources(row.evidence_sources_json),
-      agentInput: this.parseRecord(row.agent_input_json),
+      reasonContext: this.parseReasonContext(agentInput),
+      agentInput,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -540,6 +704,7 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
       lineage: row.lineage,
       niche: row.niche,
       evidenceSources: this.parseEvidenceSources(row.evidence_sources_json),
+      semantics: this.parseSuggestionSemantics(row.semantics_json),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -559,6 +724,22 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       archivedAt: row.archived_at,
+    };
+  }
+
+  private toPerformanceSummaryRecord(
+    row: GenePerformanceSummaryRow,
+  ): GenePerformanceSummary {
+    return {
+      insightId: row.insight_id,
+      seedId: row.seed_id,
+      usageCount: row.usage_count,
+      positiveCount: row.positive_count,
+      neutralCount: row.neutral_count,
+      negativeCount: row.negative_count,
+      score: row.score,
+      lastUsedAt: row.last_used_at,
+      updatedAt: row.updated_at,
     };
   }
 
@@ -590,5 +771,67 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
     } catch {
       return {};
     }
+  }
+
+  private parseReasonContext(
+    agentInput: Record<string, unknown>,
+  ): GeneExtractionReasonContext | undefined {
+    const value = agentInput.reasonContext;
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value)
+    ) {
+      return undefined;
+    }
+    const record = value as Record<string, unknown>;
+    if (
+      typeof record.contextVersion !== "string" ||
+      typeof record.userReason !== "string"
+    ) {
+      return undefined;
+    }
+    return {
+      contextVersion: record.contextVersion as GeneExtractionReasonContext["contextVersion"],
+      userReason: record.userReason,
+    };
+  }
+
+  private parseSuggestionSemantics(
+    value: string,
+  ): GeneSuggestionSemantics | undefined {
+    const record = this.parseRecord(value);
+    if (Object.keys(record).length === 0) {
+      return undefined;
+    }
+    const polarity =
+      record.polarity === "positive" || record.polarity === "negative"
+        ? record.polarity
+        : undefined;
+    if (polarity === undefined) {
+      return undefined;
+    }
+    const similarityRelation =
+      record.similarityRelation === "reinforces" ||
+      record.similarityRelation === "branches" ||
+      record.similarityRelation === "conflicts"
+        ? record.similarityRelation
+        : "new";
+    return {
+      polarity,
+      evidenceInterpretation:
+        typeof record.evidenceInterpretation === "string"
+          ? record.evidenceInterpretation
+          : "",
+      nextRoundUsage:
+        typeof record.nextRoundUsage === "string" ? record.nextRoundUsage : "",
+      similarityRelation,
+      relatedInsightIds: Array.isArray(record.relatedInsightIds)
+        ? record.relatedInsightIds.filter((item): item is string => typeof item === "string")
+        : [],
+      warnings: Array.isArray(record.warnings)
+        ? record.warnings.filter((item): item is string => typeof item === "string")
+        : [],
+    };
   }
 }

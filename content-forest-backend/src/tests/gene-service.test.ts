@@ -13,6 +13,8 @@ import {
   GENE_INSIGHT_STATUSES,
   GENE_REMINDER_STATUSES,
   GENE_SUGGESTION_STATUSES,
+  GENE_USAGE_OUTCOMES,
+  GENE_USAGE_SOURCE_TYPES,
 } from "../modules/gene/domain/gene-types.js";
 import type { PublicationRecord } from "../modules/publication/domain/publication-types.js";
 import { PublicationService } from "../modules/publication/application/publication-service.js";
@@ -55,10 +57,18 @@ function successAgent(capturedTasks: AgentTask[] = []): AgentPort {
           content: {
             suggestions: [
               {
-                title: "保留情绪价值表达",
-                bodyMarkdown: "将用户情绪收益放在标题和开头。",
-                lineage: "情绪价值",
-                niche: "壁纸宣传",
+                title: "Keep emotional value",
+                bodyMarkdown: "Put emotional benefit in the title and opening.",
+                lineage: "emotion",
+                niche: "wallpaper promotion",
+                polarity: "positive",
+                evidenceInterpretation:
+                  "The selected fruit shows this trait; keep it as weak evidence until later feedback confirms it.",
+                nextRoundUsage:
+                  "Next round usage: inherit and strengthen this trait, then mutate the opening scene for comparison.",
+                similarityRelation: "new",
+                relatedInsightIds: [],
+                warnings: [],
               },
             ],
           },
@@ -258,28 +268,35 @@ describe("GeneService", () => {
       successAgent(capturedTasks),
     );
     const seed = await seedService.createSeed({
-      title: "壁纸项目",
-      markdown: "推广高清壁纸",
+      title: "Wallpaper project",
+      markdown: "Promote HD wallpapers",
     });
     const fruit = await fruitService.createFruitFromCandidate({
-      markdown: "用户想要被理解",
+      markdown: "Users want to feel understood",
       parentNodeRef: { nodeType: "seed", nodeId: seed.rootNodeId },
-      summary: "情绪角度",
-      geneTags: ["情绪价值"],
+      summary: "emotion angle",
+      geneTags: ["emotion"],
     });
     await fruitService.selectFruit(fruit.id);
     const [reminder] = await geneService.listPendingReminders(seed.id);
 
     const result = await geneService.startExtractionTask(seed.id, {
       reminderId: reminder.id,
+      reason: "I selected it because the emotional opening feels stronger.",
       evidenceSources: reminder.evidenceSources,
     });
 
     expect(result.task.status).toBe(GENE_EXTRACTION_TASK_STATUSES.completed);
+    expect(result.task.reasonContext).toMatchObject({
+      userReason: "I selected it because the emotional opening feels stronger.",
+    });
     expect(result.suggestions).toHaveLength(1);
     expect(result.suggestions[0]).toMatchObject({
       status: GENE_SUGGESTION_STATUSES.pending,
-      title: "保留情绪价值表达",
+      semantics: {
+        polarity: "positive",
+        similarityRelation: "new",
+      },
     });
     expect(
       "polarity" in (result.suggestions[0] as unknown as Record<string, unknown>),
@@ -292,13 +309,17 @@ describe("GeneService", () => {
       contractVersion: GENE_EXTRACTION_AGENT_INPUT_CONTRACT_VERSION,
       seedId: seed.id,
       taskId: result.task.id,
+      reasonContext: {
+        contextVersion: "gene-extraction-reason/v1",
+        userReason: "I selected it because the emotional opening feels stronger.",
+      },
       evidenceSources: reminder.evidenceSources,
       fruitEvidence: [
         {
           fruitId: fruit.id,
           contentLocation: fruit.contentLocation,
-          summary: "情绪角度",
-          geneTags: ["情绪价值"],
+          summary: "emotion angle",
+          geneTags: ["emotion"],
         },
       ],
     });
@@ -555,11 +576,11 @@ describe("GeneService", () => {
   it("allows editing, dismissing, and confirming only pending suggestions", async () => {
     const { fruitService, seedService, geneService } = createServices();
     const seed = await seedService.createSeed({
-      title: "壁纸项目",
-      markdown: "推广高清壁纸",
+      title: "Wallpaper project",
+      markdown: "Promote HD wallpapers",
     });
     const fruit = await fruitService.createFruitFromCandidate({
-      markdown: "候选",
+      markdown: "candidate",
       parentNodeRef: { nodeType: "seed", nodeId: seed.rootNodeId },
     });
     const reminder = await geneService.createReminderFromFruitEvidence(seed.id, {
@@ -573,19 +594,19 @@ describe("GeneService", () => {
     const suggestion = result.suggestions[0];
 
     const edited = await geneService.editSuggestion(suggestion.id, {
-      title: "强化情绪价值",
-      bodyMarkdown: "把情绪收益写得更具体。",
-      lineage: "情绪",
-      niche: "标题",
+      title: "Strengthen emotion",
+      bodyMarkdown: "Make the emotional benefit more concrete.",
+      lineage: "emotion",
+      niche: "title",
     });
     const insight = await geneService.confirmSuggestion(edited.id);
 
     expect(insight).toMatchObject({
       status: GENE_INSIGHT_STATUSES.active,
-      title: "强化情绪价值",
-      bodyMarkdown: "把情绪收益写得更具体。",
-      lineage: "情绪",
-      niche: "标题",
+      title: "Strengthen emotion",
+      bodyMarkdown: "Make the emotional benefit more concrete.",
+      lineage: "emotion",
+      niche: "title",
     });
     await expect(
       geneService.editSuggestion(edited.id, {
@@ -598,11 +619,11 @@ describe("GeneService", () => {
   it("archives insights and excludes archived insights from referable queries", async () => {
     const { fruitService, seedService, geneService } = createServices();
     const seed = await seedService.createSeed({
-      title: "壁纸项目",
-      markdown: "推广高清壁纸",
+      title: "Wallpaper project",
+      markdown: "Promote HD wallpapers",
     });
     const fruit = await fruitService.createFruitFromCandidate({
-      markdown: "候选",
+      markdown: "candidate",
       parentNodeRef: { nodeType: "seed", nodeId: seed.rootNodeId },
     });
     const reminder = await geneService.createReminderFromFruitEvidence(seed.id, {
@@ -619,16 +640,69 @@ describe("GeneService", () => {
     await expect(geneService.listReferableInsights(seed.id)).resolves.toHaveLength(0);
   });
 
+  it("records gene usage and returns evolution summaries", async () => {
+    const { fruitService, seedService, geneService } = createServices();
+    const seed = await seedService.createSeed({
+      title: "Wallpaper project",
+      markdown: "Promote HD wallpapers",
+    });
+    const fruit = await fruitService.createFruitFromCandidate({
+      markdown: "candidate",
+      parentNodeRef: { nodeType: "seed", nodeId: seed.rootNodeId },
+    });
+    const reminder = await geneService.createReminderFromFruitEvidence(seed.id, {
+      fruitId: fruit.id,
+      action: "selected",
+    });
+    const result = await geneService.startExtractionTask(seed.id, {
+      evidenceSources: reminder.evidenceSources,
+    });
+    const insight = await geneService.confirmSuggestion(result.suggestions[0].id);
+
+    const usageResult = await geneService.recordGeneUsage(seed.id, {
+      insightId: insight.id,
+      sourceType: GENE_USAGE_SOURCE_TYPES.growthTask,
+      sourceId: "growth-task_1",
+      outcome: GENE_USAGE_OUTCOMES.positive,
+      note: "worked well",
+    });
+    const summary = await geneService.getGeneLibraryEvolutionSummary(seed.id);
+    const referable = await geneService.listReferableInsights(seed.id);
+
+    expect(usageResult.performance).toMatchObject({
+      usageCount: 1,
+      positiveCount: 1,
+      score: 1,
+    });
+    expect(summary.insights[0]).toMatchObject({
+      id: insight.id,
+      performance: {
+        usageCount: 1,
+        positiveCount: 1,
+      },
+    });
+    expect(summary.lineages[0]).toMatchObject({
+      lineage: "emotion",
+      usageCount: 1,
+      positiveCount: 1,
+      score: 1,
+    });
+    expect(referable[0]?.performance).toMatchObject({
+      usageCount: 1,
+      positiveCount: 1,
+    });
+  });
+
   it("marks extraction tasks as failed when Agent fails", async () => {
     const { fruitService, seedService, geneService, geneStorage } = createServices(
       failureAgent(),
     );
     const seed = await seedService.createSeed({
-      title: "壁纸项目",
-      markdown: "推广高清壁纸",
+      title: "Wallpaper project",
+      markdown: "Promote HD wallpapers",
     });
     const fruit = await fruitService.createFruitFromCandidate({
-      markdown: "候选",
+      markdown: "candidate",
       parentNodeRef: { nodeType: "seed", nodeId: seed.rootNodeId },
     });
     const reminder = await geneService.createReminderFromFruitEvidence(seed.id, {

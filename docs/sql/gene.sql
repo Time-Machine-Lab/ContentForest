@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS gene_suggestions (
   lineage TEXT NOT NULL DEFAULT '',
   niche TEXT NOT NULL DEFAULT '',
   evidence_sources_json TEXT NOT NULL DEFAULT '[]',
+  semantics_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -83,3 +84,35 @@ CREATE INDEX IF NOT EXISTS idx_gene_insights_seed_status_updated_at
 
 CREATE INDEX IF NOT EXISTS idx_gene_insights_suggestion_id
   ON gene_insights (suggestion_id);
+
+CREATE TABLE IF NOT EXISTS gene_usage_records (
+  id TEXT PRIMARY KEY,
+  seed_id TEXT NOT NULL,
+  insight_id TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('growth_task', 'manual', 'publication', 'feedback')),
+  source_id TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK (outcome IN ('positive', 'neutral', 'negative')),
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_gene_usage_records_seed_created_at
+  ON gene_usage_records (seed_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_gene_usage_records_insight_created_at
+  ON gene_usage_records (insight_id, created_at);
+
+CREATE TABLE IF NOT EXISTS gene_performance_summaries (
+  insight_id TEXT PRIMARY KEY,
+  seed_id TEXT NOT NULL,
+  usage_count INTEGER NOT NULL DEFAULT 0,
+  positive_count INTEGER NOT NULL DEFAULT 0,
+  neutral_count INTEGER NOT NULL DEFAULT 0,
+  negative_count INTEGER NOT NULL DEFAULT 0,
+  score REAL NOT NULL DEFAULT 0,
+  last_used_at TEXT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_gene_performance_summaries_seed_score
+  ON gene_performance_summaries (seed_id, score);

@@ -35,6 +35,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GeneLibrary'
+  /api/seeds/{seedId}/gene-library/evolution:
+    get:
+      tags: [Gene]
+      summary: 查看种子级基因库演化摘要
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      responses:
+        '200':
+          description: 种子级基因库演化摘要
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneLibraryEvolutionSummary'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/seeds/{seedId}/gene-usages:
+    post:
+      tags: [Gene]
+      summary: 记录基因使用结果
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordGeneUsageRequest'
+      responses:
+        '201':
+          description: 基因使用结果已记录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneUsageRecordResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
   /api/seeds/{seedId}/gene-reminders:
     get:
       tags: [Gene]
@@ -379,12 +415,36 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/EvidenceSource'
+        semantics:
+          $ref: '#/components/schemas/GeneSuggestionSemantics'
         createdAt:
           type: string
           format: date-time
         updatedAt:
           type: string
           format: date-time
+    GeneSuggestionSemantics:
+      type: object
+      description: 候选建议的证据解释与后续使用语义；正式沉淀仍以用户确认为准。
+      properties:
+        polarity:
+          type: string
+          enum: [positive, negative]
+        evidenceInterpretation:
+          type: string
+        nextRoundUsage:
+          type: string
+        similarityRelation:
+          type: string
+          enum: [new, reinforces, branches, conflicts]
+        relatedInsightIds:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
     GeneInsightSummary:
       type: object
       required: [id, seedId, status, title, lineage, niche, contentLocation, evidenceSources, createdAt, updatedAt]
@@ -418,6 +478,8 @@ components:
           type: string
           format: date-time
           nullable: true
+        performance:
+          $ref: '#/components/schemas/GenePerformanceSummary'
     GeneInsightDetail:
       allOf:
         - $ref: '#/components/schemas/GeneInsightSummary'
@@ -441,6 +503,9 @@ components:
       properties:
         reminderId:
           type: string
+        reason:
+          type: string
+          description: 用户对本次选择、淘汰或反馈事件的原因说明，可为空。
         evidenceSources:
           type: array
           minItems: 1
@@ -485,6 +550,119 @@ components:
       properties:
         bodyMarkdown:
           type: string
+    GeneUsageRecord:
+      type: object
+      required: [id, seedId, insightId, sourceType, sourceId, outcome, note, createdAt]
+      properties:
+        id:
+          type: string
+        seedId:
+          type: string
+        insightId:
+          type: string
+        sourceType:
+          type: string
+          enum: [growth_task, manual, publication, feedback]
+        sourceId:
+          type: string
+        outcome:
+          type: string
+          enum: [positive, neutral, negative]
+        note:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    GenePerformanceSummary:
+      type: object
+      required: [insightId, seedId, usageCount, positiveCount, neutralCount, negativeCount, score, lastUsedAt, updatedAt]
+      properties:
+        insightId:
+          type: string
+        seedId:
+          type: string
+        usageCount:
+          type: integer
+          minimum: 0
+        positiveCount:
+          type: integer
+          minimum: 0
+        neutralCount:
+          type: integer
+          minimum: 0
+        negativeCount:
+          type: integer
+          minimum: 0
+        score:
+          type: number
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+    GeneLineageEvolutionSummary:
+      type: object
+      required: [lineage, insightCount, usageCount, positiveCount, neutralCount, negativeCount, score]
+      properties:
+        lineage:
+          type: string
+        insightCount:
+          type: integer
+          minimum: 0
+        usageCount:
+          type: integer
+          minimum: 0
+        positiveCount:
+          type: integer
+          minimum: 0
+        neutralCount:
+          type: integer
+          minimum: 0
+        negativeCount:
+          type: integer
+          minimum: 0
+        score:
+          type: number
+    GeneLibraryEvolutionSummary:
+      type: object
+      required: [seedId, insights, lineages]
+      properties:
+        seedId:
+          type: string
+        insights:
+          type: array
+          items:
+            $ref: '#/components/schemas/GeneInsightSummary'
+        lineages:
+          type: array
+          items:
+            $ref: '#/components/schemas/GeneLineageEvolutionSummary'
+    RecordGeneUsageRequest:
+      type: object
+      required: [insightId, sourceType, sourceId, outcome]
+      properties:
+        insightId:
+          type: string
+        sourceType:
+          type: string
+          enum: [growth_task, manual, publication, feedback]
+        sourceId:
+          type: string
+        outcome:
+          type: string
+          enum: [positive, neutral, negative]
+        note:
+          type: string
+    GeneUsageRecordResult:
+      type: object
+      required: [usage, performance]
+      properties:
+        usage:
+          $ref: '#/components/schemas/GeneUsageRecord'
+        performance:
+          $ref: '#/components/schemas/GenePerformanceSummary'
     ErrorResponse:
       type: object
       required: [code, message]

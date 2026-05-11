@@ -218,6 +218,7 @@ export async function bootstrapApp(
     generatorStorage,
     fruitService,
     agentPort: agentRuntime,
+    geneUsageTracking: geneService,
     referenceAuthorization: {
       async authorize(scope) {
         await nutrientService.assertNutrientRefsReferable(

@@ -44,9 +44,17 @@ function agent(): AgentPort {
             suggestions: [
               {
                 title: "保留具体收益",
-                bodyMarkdown: "标题和开头都应出现具体收益。",
-                lineage: "收益表达",
-                niche: "开头结构",
+                bodyMarkdown: "Title and opening should show concrete benefit.",
+                lineage: "benefit-expression",
+                niche: "opening structure",
+                polarity: "positive",
+                evidenceInterpretation:
+                  "The selected fruit had concrete benefit framing, so keep it as weak evidence for future validation.",
+                nextRoundUsage:
+                  "Next round usage: inherit and strengthen concrete benefit framing, then mutate the example proof point.",
+                similarityRelation: "new",
+                relatedInsightIds: [],
+                warnings: [],
               },
             ],
           },
@@ -137,7 +145,7 @@ describe("Gene module integration", () => {
         status: GENE_INSIGHT_STATUSES.active,
         contentLocation:
           "genes/seed-scoped/seed_integration/gene-insight_integration.md",
-        bodyMarkdown: "标题和开头都应出现具体收益。",
+        bodyMarkdown: "Title and opening should show concrete benefit.",
       });
       await expect(controller.listReferableInsights(seed.id)).resolves.toMatchObject({
         body: [

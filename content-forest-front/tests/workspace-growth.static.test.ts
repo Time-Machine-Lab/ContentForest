@@ -30,10 +30,12 @@ test('workspace referenced resources can be removed before growth payload mappin
   assert.equal(workspacePage.includes(".filter((resource) => resource.kind === 'gene')"), true)
 })
 
-test('workspace has one backend-driven gene extraction hub', () => {
+test('workspace has one backend-driven gene extraction dialog launched from a bubble', () => {
   const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
 
-  assert.equal(workspacePage.includes('class="cf-gene-hub"'), true)
+  assert.equal(workspacePage.includes('class="cf-gene-bubble"'), true)
+  assert.equal(workspacePage.includes('class="cf-gene-dialog"'), true)
+  assert.equal(workspacePage.includes('geneHubDialogOpen'), true)
   assert.equal(workspacePage.includes('geneHub = computed(() => snapshot.value?.geneExtractionHub'), true)
   assert.equal(workspacePage.includes('startGeneExtraction(reminder.id)'), true)
   assert.equal(workspacePage.includes('ignoreGeneReminder(reminder.id)'), true)
@@ -41,13 +43,14 @@ test('workspace has one backend-driven gene extraction hub', () => {
   assert.equal(workspacePage.includes('confirmGeneSuggestion'), true)
 })
 
-test('workspace gene hub is a focused extraction suggestion queue', () => {
+test('workspace gene extraction dialog is a focused suggestion queue', () => {
   const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
 
-  assert.equal(workspacePage.includes('aria-label="基因汲取建议"'), true)
-  assert.equal(workspacePage.includes('cf-gene-hub-summary'), true)
-  assert.equal(workspacePage.includes('cf-gene-hub-badge'), true)
-  assert.equal(workspacePage.includes('沉淀到基因库'), true)
+  assert.equal(workspacePage.includes('cf-gene-dialog-metrics'), true)
+  assert.equal(workspacePage.includes('cf-gene-task-badge'), true)
+  assert.equal(workspacePage.includes('cf-gene-dialog-empty'), true)
+  assert.equal(workspacePage.includes('evidenceSourceSummary(reminder.evidenceSources)'), true)
+  assert.equal(workspacePage.includes('${source.sourceId}'), false)
   assert.equal(workspacePage.includes('cf-gene-library-card'), false)
   assert.equal(workspacePage.includes('geneLibraryExpanded'), false)
 })
@@ -60,5 +63,5 @@ test('workspace keeps gene extraction out of fruit detail and publication action
   assert.equal(workspacePage.includes('await fruitApi.eliminateFruit(node.fruitId)'), true)
   assert.equal(workspacePage.includes('createReminderFromFruitEvidence'), false)
   assert.equal(workspacePage.includes('autoPublish'), false)
-  assert.equal(workspacePage.includes('发布器'), true)
+  assert.equal(workspacePage.includes('cf-publication'), true)
 })

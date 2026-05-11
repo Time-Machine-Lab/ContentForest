@@ -15,10 +15,10 @@ test('seed-scoped gene library page follows preview structure without sidebar en
   const page = readProjectFile('app/pages/seeds/[seedId]/genes.vue')
   const styles = readProjectFile('app/assets/styles/workbench.css')
 
-  assert.equal(shell.includes("{ label: '基因库'"), false)
+  assert.equal(shell.includes("label: 'gene-library'"), false)
   assert.equal(page.includes('cf-gene-library-layout'), true)
   assert.equal(page.includes('cf-gene-lineage-board'), true)
-  assert.equal(page.includes('cf-gene-insight-list'), true)
+  assert.equal(page.includes('cf-gene-insight-browser'), true)
   assert.equal(page.includes('cf-gene-insight-detail'), true)
   assert.equal(page.includes('geneApi.listInsights'), true)
   assert.equal(styles.includes('.cf-gene-library-layout'), true)
@@ -29,6 +29,17 @@ test('gene library page is for confirmed experience browsing, not extraction ope
 
   assert.equal(page.includes('startExtractionTask'), false)
   assert.equal(page.includes('ignoreReminder'), false)
-  assert.equal(page.includes('沉淀到基因库'), false)
-  assert.equal(page.includes('打开工作区'), true)
+  assert.equal(page.includes('cf-gene-library-page'), true)
+  assert.equal(page.includes('openWorkspace'), true)
+})
+
+test('gene library page does not surface system paths or raw source identifiers', () => {
+  const page = readProjectFile('app/pages/seeds/[seedId]/genes.vue')
+
+  assert.equal(page.includes('library?.contentLocation'), false)
+  assert.equal(page.includes('insight.contentLocation'), false)
+  assert.equal(page.includes('<strong>{{ source.sourceId }}</strong>'), false)
+  assert.equal(page.includes('证据 {{ index + 1 }}'), true)
+  assert.equal(page.includes('cleanSystemText'), true)
+  assert.equal(page.includes('displayGeneContext'), true)
 })

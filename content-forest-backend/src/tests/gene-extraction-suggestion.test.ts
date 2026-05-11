@@ -12,6 +12,8 @@ function validSuggestion(overrides: Record<string, unknown> = {}) {
     polarity: "positive",
     evidenceInterpretation:
       "Selected fruit used this trait and was preferred. This is weak human-selection evidence, so next branch growth should test it again.",
+    nextRoundUsage:
+      "Next round usage: inherit and strengthen this trait, then mutate the user scene for each platform.",
     lineage: "emotional-value",
     niche: "wallpaper promotion",
     similarityRelation: "new",
@@ -37,7 +39,7 @@ describe("gene extraction suggestion validation", () => {
 
     expect(output.suggestions).toHaveLength(2);
     expect(geneSuggestionsToAgentSuggestions(output)[0]?.bodyMarkdown).toContain(
-      "## 结构化判断",
+      "## Structured Judgment",
     );
   });
 

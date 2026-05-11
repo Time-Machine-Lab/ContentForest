@@ -4,6 +4,11 @@ import { candidateToGrowthFruitInput } from "../../../agent/skills/branch-growth
 import type { FruitService } from "../../fruit/application/fruit-service.js";
 import type { ParentNodeRef } from "../../fruit/domain/fruit-types.js";
 import { GENERATOR_ENABLE_STATES } from "../../generator/domain/generator-types.js";
+import {
+  GENE_USAGE_OUTCOMES,
+  GENE_USAGE_SOURCE_TYPES,
+  type GeneUsageOutcome,
+} from "../../gene/domain/gene-types.js";
 import { SEED_ARCHIVE_STATES } from "../../seed/domain/seed-types.js";
 import { ApplicationError } from "../../../shared/errors/application-error.js";
 import type { IdGenerator } from "../../../shared/utils/id-generator.js";
@@ -51,6 +56,19 @@ export type GrowthTaskExecutionScheduler = (
   execute: () => Promise<void>,
 ) => void;
 
+export interface GeneUsageTrackingPort {
+  recordGeneUsage(
+    seedId: string,
+    input: {
+      insightId: string;
+      sourceType: "growth_task";
+      sourceId: string;
+      outcome: GeneUsageOutcome;
+      note?: string;
+    },
+  ): Promise<unknown>;
+}
+
 export interface GrowthServiceDependencies {
   storage: GrowthStoragePort;
   seedStorage: SeedStoragePort;
@@ -59,6 +77,7 @@ export interface GrowthServiceDependencies {
   fruitService: FruitService;
   agentPort?: AgentPort;
   referenceAuthorization?: GrowthReferenceAuthorizationPort;
+  geneUsageTracking?: GeneUsageTrackingPort;
   idGenerator?: IdGenerator;
   now?: () => Date;
   scheduleTaskExecution?: GrowthTaskExecutionScheduler;
@@ -75,6 +94,7 @@ export class GrowthService {
   private readonly fruitService: FruitService;
   private readonly agentPort: AgentPort | undefined;
   private readonly referenceAuthorization: GrowthReferenceAuthorizationPort;
+  private readonly geneUsageTracking: GeneUsageTrackingPort | undefined;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
   private readonly scheduleTaskExecution: GrowthTaskExecutionScheduler;
@@ -90,6 +110,7 @@ export class GrowthService {
     this.agentPort = dependencies.agentPort;
     this.referenceAuthorization =
       dependencies.referenceAuthorization ?? new PassThroughGrowthReferenceAuthorization();
+    this.geneUsageTracking = dependencies.geneUsageTracking;
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
     this.scheduleTaskExecution =
@@ -456,6 +477,7 @@ export class GrowthService {
       finishedAt: timestamp,
     };
     await this.storage.saveTask(finishedTask);
+    await this.recordGeneUsagesForTask(finishedTask);
 
     if (completed) {
       await this.storage.clearFailedInput(task.sourceNodeRef);
@@ -465,6 +487,37 @@ export class GrowthService {
       );
     }
     return finishedTask;
+  }
+
+  private async recordGeneUsagesForTask(task: GrowthTaskRecord): Promise<void> {
+    if (
+      this.geneUsageTracking === undefined ||
+      task.authorizationScope.geneRefs.length === 0
+    ) {
+      return;
+    }
+    const outcome =
+      task.status === GROWTH_TASK_STATUSES.completed
+        ? GENE_USAGE_OUTCOMES.positive
+        : GENE_USAGE_OUTCOMES.negative;
+    await Promise.all(
+      task.authorizationScope.geneRefs.map(async (ref) => {
+        try {
+          await this.geneUsageTracking?.recordGeneUsage(task.seedId, {
+            insightId: ref.resourceId,
+            sourceType: GENE_USAGE_SOURCE_TYPES.growthTask,
+            sourceId: task.id,
+            outcome,
+            note:
+              outcome === GENE_USAGE_OUTCOMES.positive
+                ? "枝化生长引用该基因并至少生成一个果实"
+                : "枝化生长引用该基因但没有生成果实",
+          });
+        } catch {
+          // Gene tracking is evolutionary telemetry; it must not break growth settlement.
+        }
+      }),
+    );
   }
 
   private async normalizeStartInput(

@@ -73,11 +73,19 @@ function withConsumableMarkdown(
       ...suggestion,
       title: agentSuggestions[index]?.title ?? suggestion.title,
       bodyMarkdown: agentSuggestions[index]?.bodyMarkdown ?? suggestion.bodyMarkdown,
+      polarity: agentSuggestions[index]?.polarity ?? suggestion.polarity,
       lineage: agentSuggestions[index]?.lineage ?? suggestion.lineage,
       niche: agentSuggestions[index]?.niche ?? suggestion.niche,
       evidenceInterpretation:
         agentSuggestions[index]?.evidenceInterpretation ??
         suggestion.evidenceInterpretation,
+      nextRoundUsage:
+        agentSuggestions[index]?.nextRoundUsage ?? suggestion.nextRoundUsage,
+      similarityRelation:
+        agentSuggestions[index]?.similarityRelation ?? suggestion.similarityRelation,
+      relatedInsightIds:
+        agentSuggestions[index]?.relatedInsightIds ?? suggestion.relatedInsightIds,
+      warnings: agentSuggestions[index]?.warnings ?? suggestion.warnings,
     })),
   };
 }
@@ -130,6 +138,7 @@ function buildPromptContext(input: {
     "## Extraction Input Meta",
     JSON.stringify(
       sanitizeForPrompt({
+        reasonContext: input.taskInput.reasonContext,
         evidenceSources: input.taskInput.evidenceSources,
         referableGeneInsights: input.taskInput.referableGeneInsights,
       }),

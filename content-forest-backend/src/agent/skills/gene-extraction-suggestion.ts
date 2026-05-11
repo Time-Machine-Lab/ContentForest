@@ -24,6 +24,7 @@ export interface StructuredGeneExtractionSuggestion {
   bodyMarkdown: string;
   polarity: GeneSuggestionPolarity;
   evidenceInterpretation: string;
+  nextRoundUsage: string;
   lineage: string;
   niche: string;
   similarityRelation: GeneSimilarityRelation;
@@ -65,7 +66,10 @@ export function validateGeneExtractionSuggestions(
     if (suggestion.evidenceInterpretation.trim().length === 0) {
       errors.push(`${prefix}.evidenceInterpretation is required`);
     }
-    if (!hasNextRoundAdvice(`${suggestion.bodyMarkdown}\n${suggestion.evidenceInterpretation}`)) {
+    if (suggestion.nextRoundUsage.trim().length === 0) {
+      errors.push(`${prefix}.nextRoundUsage is required`);
+    }
+    if (!hasNextRoundAdvice(suggestion.nextRoundUsage)) {
       errors.push(`${prefix}.nextRoundUsageAdvice is required`);
     }
   }
@@ -81,6 +85,7 @@ export function validateGeneExtractionSuggestions(
       bodyMarkdown: suggestion.bodyMarkdown.trim(),
       polarity: suggestion.polarity,
       evidenceInterpretation: suggestion.evidenceInterpretation.trim(),
+      nextRoundUsage: suggestion.nextRoundUsage.trim(),
       lineage: suggestion.lineage.trim(),
       niche: suggestion.niche.trim(),
       similarityRelation: suggestion.similarityRelation,
@@ -120,9 +125,14 @@ export function geneSuggestionsToAgentSuggestions(
   return output.suggestions.map((suggestion) => ({
     title: suggestion.title,
     bodyMarkdown: formatSuggestionMarkdown(suggestion),
+    polarity: suggestion.polarity,
     lineage: suggestion.lineage,
     niche: suggestion.niche,
     evidenceInterpretation: suggestion.evidenceInterpretation,
+    nextRoundUsage: suggestion.nextRoundUsage,
+    similarityRelation: suggestion.similarityRelation,
+    relatedInsightIds: [...suggestion.relatedInsightIds],
+    warnings: [...suggestion.warnings],
   }));
 }
 
@@ -137,6 +147,9 @@ function normalizeSuggestion(value: unknown): StructuredGeneExtractionSuggestion
     polarity: normalizePolarity(record.polarity),
     evidenceInterpretation: typeof record.evidenceInterpretation === "string"
       ? record.evidenceInterpretation
+      : "",
+    nextRoundUsage: typeof record.nextRoundUsage === "string"
+      ? record.nextRoundUsage
       : "",
     lineage: typeof record.lineage === "string" ? record.lineage : "",
     niche: typeof record.niche === "string" ? record.niche : "",
@@ -178,18 +191,18 @@ function formatSuggestionMarkdown(
   return [
     suggestion.bodyMarkdown.trim(),
     "",
-    "## 结构化判断",
-    `- 基因方向：${suggestion.polarity === "positive" ? "正向基因" : "反向基因"}`,
-    `- 相似关系：${formatSimilarityRelation(suggestion.similarityRelation)}`,
+    "## Structured Judgment",
+    `- Polarity: ${suggestion.polarity === "positive" ? "positive gene" : "negative gene"}`,
+    `- Similarity relation: ${formatSimilarityRelation(suggestion.similarityRelation)}`,
     suggestion.relatedInsightIds.length > 0
-      ? `- 相关既有基因：${suggestion.relatedInsightIds.join(", ")}`
+      ? `- Related insights: ${suggestion.relatedInsightIds.join(", ")}`
       : null,
     "",
-    "## 证据解释",
+    "## Evidence Interpretation",
     suggestion.evidenceInterpretation.trim(),
     "",
-    "## 下一轮使用建议",
-    extractNextRoundAdvice(suggestion),
+    "## Next Round Usage",
+    suggestion.nextRoundUsage.trim(),
   ]
     .filter((item): item is string => item !== null)
     .join("\n");
@@ -197,15 +210,15 @@ function formatSuggestionMarkdown(
 
 function formatSimilarityRelation(relation: GeneSimilarityRelation): string {
   if (relation === "reinforces") {
-    return "强化已有基因";
+    return "reinforces existing gene";
   }
   if (relation === "branches") {
-    return "从已有基因分叉";
+    return "branches from existing gene";
   }
   if (relation === "conflicts") {
-    return "与已有基因冲突";
+    return "conflicts with existing gene";
   }
-  return "新增基因";
+  return "new gene";
 }
 
 function requireRecord(value: unknown, message: string): Record<string, unknown> {
@@ -238,8 +251,7 @@ function containsRealPath(value: string): boolean {
 }
 
 function hasNextRoundAdvice(value: string): boolean {
-  return /下一轮|后续|继承|强化|变异|组合|规避|避免|inherit|strengthen|mutate|combine|avoid|next/i
-    .test(value);
+  return /next|later|future|inherit|strengthen|mutate|combine|avoid|reuse|amplify|weaken|do not|should not/i.test(value);
 }
 
 function extractNextRoundAdvice(
@@ -254,6 +266,6 @@ function extractNextRoundAdvice(
     return lines.join("\n");
   }
   return suggestion.polarity === "positive"
-    ? "下一轮枝化生长可继承或强化该表达特征，并在不同探索槽位中做轻微变异。"
-    : "下一轮枝化生长应规避该表达特征，或只在明确适用边界内谨慎使用。";
+    ? "In the next growth round, inherit or strengthen this expression trait and test light variations across different content angles."
+    : "In the next growth round, avoid reproducing this expression trait unless the applicable boundary is explicit.";
 }

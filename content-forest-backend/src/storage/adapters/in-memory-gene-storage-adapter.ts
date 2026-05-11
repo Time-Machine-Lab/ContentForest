@@ -8,8 +8,10 @@ import type {
   GeneExtractionTaskRecord,
   GeneInsightRecord,
   GeneLibraryRecord,
+  GenePerformanceSummaryRecord,
   GeneStoragePort,
   GeneSuggestionRecord,
+  GeneUsageRecordRecord,
 } from "../ports/gene-storage-port.js";
 import { cloneEvidenceSources } from "../ports/gene-storage-port.js";
 
@@ -19,6 +21,9 @@ export class InMemoryGeneStorageAdapter implements GeneStoragePort {
   private readonly tasks = new Map<string, GeneExtractionTaskRecord>();
   private readonly suggestions = new Map<string, GeneSuggestionRecord>();
   private readonly insights = new Map<string, GeneInsightRecord>();
+  private readonly usageRecords = new Map<string, GeneUsageRecordRecord>();
+  private readonly performanceSummaries =
+    new Map<string, GenePerformanceSummaryRecord>();
 
   public async upsertGeneLibrary(record: GeneLibraryRecord): Promise<void> {
     this.libraries.set(record.seedId, { ...record });
@@ -148,6 +153,36 @@ export class InMemoryGeneStorageAdapter implements GeneStoragePort {
       .map((record) => this.cloneInsight(record));
   }
 
+  public async createUsageRecord(record: GeneUsageRecordRecord): Promise<void> {
+    this.usageRecords.set(record.id, { ...record });
+  }
+
+  public async findPerformanceSummaryByInsightId(
+    insightId: string,
+  ): Promise<GenePerformanceSummaryRecord | null> {
+    const record = this.performanceSummaries.get(insightId);
+    return record === undefined ? null : { ...record };
+  }
+
+  public async upsertPerformanceSummary(
+    record: GenePerformanceSummaryRecord,
+  ): Promise<void> {
+    this.performanceSummaries.set(record.insightId, { ...record });
+  }
+
+  public async listPerformanceSummariesBySeed(
+    seedId: string,
+  ): Promise<GenePerformanceSummaryRecord[]> {
+    return [...this.performanceSummaries.values()]
+      .filter((record) => record.seedId === seedId)
+      .sort((left, right) =>
+        right.score === left.score
+          ? right.updatedAt.localeCompare(left.updatedAt)
+          : right.score - left.score,
+      )
+      .map((record) => ({ ...record }));
+  }
+
   private cloneReminder(
     record: GeneExtractionReminderRecord,
   ): GeneExtractionReminderRecord {
@@ -161,6 +196,10 @@ export class InMemoryGeneStorageAdapter implements GeneStoragePort {
     return {
       ...record,
       evidenceSources: cloneEvidenceSources(record.evidenceSources),
+      reasonContext:
+        record.reasonContext === undefined
+          ? undefined
+          : { ...record.reasonContext },
       agentInput: { ...record.agentInput },
     };
   }
@@ -169,6 +208,12 @@ export class InMemoryGeneStorageAdapter implements GeneStoragePort {
     return {
       ...record,
       evidenceSources: cloneEvidenceSources(record.evidenceSources),
+      semantics:
+        record.semantics === undefined ? undefined : {
+          ...record.semantics,
+          relatedInsightIds: [...record.semantics.relatedInsightIds],
+          warnings: [...record.semantics.warnings],
+        },
     };
   }
 
@@ -179,4 +224,3 @@ export class InMemoryGeneStorageAdapter implements GeneStoragePort {
     };
   }
 }
-

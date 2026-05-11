@@ -119,6 +119,8 @@ function validOutput(overrides: Record<string, unknown> = {}): string {
         polarity: "positive",
         evidenceInterpretation:
           "The selected fruit used emotional framing. This is weak human-selection evidence, so next branch growth should test it again before treating it as a strong platform signal.",
+        nextRoundUsage:
+          "Next round usage: inherit and strengthen this emotional opening, then mutate the example scenario for each platform.",
         lineage: "emotion",
         niche: "opening",
         similarityRelation: "reinforces",
@@ -279,8 +281,8 @@ describe("GeneExtractionSkill", () => {
         },
       ],
     });
-    expect(JSON.stringify(output.content)).toContain("正向基因");
-    expect(JSON.stringify(output.content)).toContain("下一轮使用建议");
+    expect(JSON.stringify(output.content)).toContain("positive gene");
+    expect(JSON.stringify(output.content)).toContain("Next Round Usage");
     expect(tools.calls.map((call) => call.name)).toEqual([
       "read_gene_seed_context",
       "read_gene_evidence",
@@ -317,6 +319,7 @@ describe("GeneExtractionSkill", () => {
           validOutput({
             bodyMarkdown: "Open with emotion.",
             evidenceInterpretation: "The selected fruit used emotional framing.",
+            nextRoundUsage: "Use it.",
           }),
           validOutput(),
         ]),
@@ -359,7 +362,7 @@ describe("GeneExtractionSkill", () => {
         title: "Keep emotional opening",
       },
     ]);
-    expect(result.suggestions[0]?.bodyMarkdown).toContain("正向基因");
+    expect(result.suggestions[0]?.bodyMarkdown).toContain("positive gene");
     await expect(
       fixture.geneContentAccess.readGeneInsightMarkdown(
         "genes/seed-scoped/seed_1/gene-suggestion_1.md",

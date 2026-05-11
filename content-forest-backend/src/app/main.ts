@@ -363,6 +363,27 @@ async function handleApiRequest(
     return true;
   }
 
+  const seedGeneLibraryEvolutionMatch = pathname.match(
+    /^\/api\/seeds\/([^/]+)\/gene-library\/evolution$/,
+  );
+  if (seedGeneLibraryEvolutionMatch && method === "GET") {
+    const result = await app.geneController.getGeneLibraryEvolutionSummary(
+      decodeURIComponent(seedGeneLibraryEvolutionMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const seedGeneUsagesMatch = pathname.match(/^\/api\/seeds\/([^/]+)\/gene-usages$/);
+  if (seedGeneUsagesMatch && method === "POST") {
+    const result = await app.geneController.recordGeneUsage(
+      decodeURIComponent(seedGeneUsagesMatch[1] ?? ""),
+      toRecordGeneUsageInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
   const seedGeneRemindersMatch = pathname.match(/^\/api\/seeds\/([^/]+)\/gene-reminders$/);
   if (seedGeneRemindersMatch && method === "GET") {
     const result = await app.geneController.listPendingReminders(
@@ -1225,6 +1246,7 @@ function toCreateGeneReminderInput(body: Record<string, unknown>): {
 
 function toStartGeneExtractionInput(body: Record<string, unknown>): {
   reminderId?: string;
+  reason?: string;
   evidenceSources: Array<{
     sourceType: "fruit_selected" | "fruit_eliminated" | "publication" | "feedback";
     sourceId: string;
@@ -1236,7 +1258,37 @@ function toStartGeneExtractionInput(body: Record<string, unknown>): {
     : [];
   return {
     reminderId: typeof body.reminderId === "string" ? body.reminderId : undefined,
+    reason: typeof body.reason === "string" ? body.reason : undefined,
     evidenceSources: evidenceSources.map(toGeneEvidenceSource),
+  };
+}
+
+function toRecordGeneUsageInput(body: Record<string, unknown>): {
+  insightId: string;
+  sourceType: "growth_task" | "manual" | "publication" | "feedback";
+  sourceId: string;
+  outcome: "positive" | "neutral" | "negative";
+  note?: string;
+} {
+  if (
+    typeof body.insightId !== "string" ||
+    typeof body.sourceId !== "string" ||
+    (body.sourceType !== "growth_task" &&
+      body.sourceType !== "manual" &&
+      body.sourceType !== "publication" &&
+      body.sourceType !== "feedback") ||
+    (body.outcome !== "positive" &&
+      body.outcome !== "neutral" &&
+      body.outcome !== "negative")
+  ) {
+    throw new ApplicationError("VALIDATION_ERROR", "基因使用记录格式不正确", 400);
+  }
+  return {
+    insightId: body.insightId,
+    sourceType: body.sourceType,
+    sourceId: body.sourceId,
+    outcome: body.outcome,
+    note: typeof body.note === "string" ? body.note : undefined,
   };
 }
 

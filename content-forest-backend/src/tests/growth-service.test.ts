@@ -4,7 +4,12 @@ import type { AgentTask, AgentTaskResult } from "../agent/runtime/agent-task.js"
 import { InMemoryFruitMarkdownContentAccessAdapter } from "../content-access/adapters/in-memory-fruit-markdown-content-access-adapter.js";
 import { FruitService } from "../modules/fruit/application/fruit-service.js";
 import {
+  GENE_USAGE_OUTCOMES,
+  GENE_USAGE_SOURCE_TYPES,
+} from "../modules/gene/domain/gene-types.js";
+import {
   GrowthService,
+  type GeneUsageTrackingPort,
   type GrowthReferenceAuthorizationPort,
   type GrowthTaskExecutionScheduler,
 } from "../modules/growth/application/growth-service.js";
@@ -196,7 +201,10 @@ function concurrentSuccessAgent(input: {
 
 async function createFixture(
   agentPort: AgentPort = successAgent(),
-  options: { attemptConcurrency?: number } = {},
+  options: {
+    attemptConcurrency?: number;
+    geneUsageTracking?: GeneUsageTrackingPort;
+  } = {},
 ): Promise<{
   service: GrowthService;
   storage: InMemoryGrowthStorageAdapter;
@@ -267,6 +275,7 @@ async function createFixture(
     generatorStorage,
     fruitService,
     agentPort,
+    geneUsageTracking: options.geneUsageTracking,
     idGenerator: createIdGenerator(),
     now,
     scheduleTaskExecution: scheduler.schedule,
@@ -348,6 +357,42 @@ describe("GrowthService", () => {
       summary: "结构化候选摘要",
       geneTags: ["结构化"],
     });
+  });
+
+  it("records positive gene usage when referenced gene growth completes", async () => {
+    const usages: Array<{
+      seedId: string;
+      insightId: string;
+      sourceType: string;
+      sourceId: string;
+      outcome: string;
+    }> = [];
+    const { service, scheduler } = await createFixture(structuredCandidateAgent(), {
+      geneUsageTracking: {
+        async recordGeneUsage(seedId, input): Promise<void> {
+          usages.push({ seedId, ...input });
+        },
+      },
+    });
+
+    const result = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 1,
+      geneRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
+    });
+    await scheduler.runAll();
+
+    expect(usages).toMatchObject([
+      {
+        seedId: "seed_1",
+        insightId: "gene_1",
+        sourceType: GENE_USAGE_SOURCE_TYPES.growthTask,
+        sourceId: result.task.id,
+        outcome: GENE_USAGE_OUTCOMES.positive,
+      },
+    ]);
   });
 
   it("starts growth from a fruit that belongs to the current seed", async () => {

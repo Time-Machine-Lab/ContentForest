@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>内容森林 - 基因汲取浮动面板预览</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07090d;
+      --bg-2: #0b1016;
+      --panel: rgba(13, 17, 23, .92);
+      --panel-2: rgba(18, 23, 31, .92);
+      --panel-3: rgba(21, 27, 37, .96);
+      --line: rgba(255, 255, 255, .08);
+      --line-2: rgba(139, 156, 255, .22);
+      --text: #eef2f7;
+      --muted: #97a1af;
+      --faint: #6b7483;
+      --accent: #8b9cff;
+      --growth: #60d5c8;
+      --good: #9cdd8f;
+      --warn: #f0c36b;
+      --bad: #e57e7e;
+      --shadow: 0 26px 90px rgba(0, 0, 0, .48);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        linear-gradient(rgba(255, 255, 255, .02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .02) 1px, transparent 1px),
+        radial-gradient(circle at 12% 10%, rgba(139, 156, 255, .12), transparent 20rem),
+        radial-gradient(circle at 82% 18%, rgba(96, 213, 200, .1), transparent 18rem),
+        linear-gradient(180deg, #06080b, #05060a 60%, #040507);
+      background-size: 34px 34px, 34px 34px, auto, auto, auto;
+      letter-spacing: 0;
+    }
+
+    button, textarea, input { font: inherit; }
+    button {
+      border: 0;
+      cursor: pointer;
+      color: inherit;
+    }
+
+    .app {
+      min-height: 100vh;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .workspace {
+      min-height: 100vh;
+      padding: 18px;
+    }
+
+    .workspace-shell {
+      position: relative;
+      min-height: calc(100vh - 36px);
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: 10px;
+      background:
+        linear-gradient(145deg, rgba(94, 215, 197, .06), transparent 32%),
+        linear-gradient(180deg, rgba(12, 15, 20, .94), rgba(9, 11, 15, .92));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(15, 18, 24, .96), rgba(15, 18, 24, .78));
+      backdrop-filter: blur(18px);
+    }
+
+    .title-group {
+      min-width: 0;
+      display: grid;
+      gap: 6px;
+    }
+
+    .kicker {
+      color: var(--growth);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+    h1 {
+      overflow: hidden;
+      font-size: 20px;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .04);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      border-color: rgba(139, 156, 255, .35);
+      background: rgba(139, 156, 255, .08);
+    }
+
+    .btn.primary {
+      border-color: rgba(96, 213, 200, .26);
+      background: linear-gradient(180deg, rgba(96, 213, 200, .16), rgba(96, 213, 200, .08));
+      color: #cbfff7;
+    }
+
+    .btn.ghost {
+      color: var(--muted);
+    }
+
+    .scene {
+      position: relative;
+      height: calc(100vh - 98px);
+      min-height: 720px;
+    }
+
+    .canvas {
+      position: absolute;
+      inset: 0;
+      padding: 18px;
+      background:
+        radial-gradient(circle at 50% 52%, rgba(139, 156, 255, .07), transparent 24rem),
+        radial-gradient(circle at 24% 62%, rgba(96, 213, 200, .08), transparent 20rem);
+    }
+
+    .tree {
+      position: absolute;
+      inset: 18px 420px 18px 18px;
+      border: 1px solid rgba(255, 255, 255, .05);
+      border-radius: 10px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, .012), rgba(255, 255, 255, .005));
+      overflow: hidden;
+    }
+
+    .tree::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(rgba(255, 255, 255, .015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .015) 1px, transparent 1px);
+      background-size: 40px 40px, 40px 40px;
+      opacity: .65;
+    }
+
+    .node {
+      position: absolute;
+      display: grid;
+      gap: 6px;
+      padding: 11px 12px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: rgba(13, 16, 22, .94);
+      box-shadow: 0 14px 40px rgba(0, 0, 0, .25);
+      backdrop-filter: blur(14px);
+    }
+
+    .node.seed { left: 44%; top: 34%; width: 210px; border-color: rgba(96, 213, 200, .26); }
+    .node.fruit-a { left: 28%; top: 20%; width: 180px; }
+    .node.fruit-b { left: 18%; top: 54%; width: 170px; }
+    .node.fruit-c { left: 52%; top: 16%; width: 182px; }
+    .node.fruit-d { left: 59%; top: 58%; width: 172px; }
+
+    .node strong {
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .node span {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .node .badge {
+      width: fit-content;
+      min-height: 22px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 7px;
+      border: 1px solid rgba(255, 255, 255, .09);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, .035);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .node.selected {
+      border-color: rgba(96, 213, 200, .34);
+      background: linear-gradient(145deg, rgba(96, 213, 200, .08), rgba(13, 16, 22, .96));
+    }
+
+    .node.bad {
+      border-color: rgba(240, 195, 107, .18);
+    }
+
+    .connector {
+      position: absolute;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(139, 156, 255, .45), rgba(96, 213, 200, .45), transparent);
+      transform-origin: left center;
+      opacity: .75;
+    }
+
+    .connector.one { left: 36%; top: 31%; width: 19%; transform: rotate(-22deg); }
+    .connector.two { left: 36%; top: 37%; width: 18%; transform: rotate(17deg); }
+    .connector.three { left: 50%; top: 30%; width: 15%; transform: rotate(-16deg); }
+    .connector.four { left: 50%; top: 40%; width: 16%; transform: rotate(18deg); }
+
+    .dock {
+      position: absolute;
+      right: 18px;
+      bottom: 18px;
+      width: min(420px, calc(100vw - 56px));
+      border: 1px solid rgba(96, 213, 200, .18);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(18, 23, 31, .98), rgba(11, 14, 19, .98));
+      box-shadow: 0 26px 100px rgba(0, 0, 0, .52);
+      backdrop-filter: blur(22px);
+      overflow: hidden;
+    }
+
+    .dock-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 14px 15px;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, rgba(96, 213, 200, .08), transparent 44%),
+        rgba(255, 255, 255, .02);
+    }
+
+    .dock-head h2 {
+      font-size: 15px;
+      line-height: 1.25;
+    }
+
+    .dock-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .chip {
+      min-height: 23px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 8px;
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .03);
+      color: #dfe6f3;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .dock-body {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+    }
+
+    .notice {
+      display: grid;
+      gap: 6px;
+      padding: 12px;
+      border: 1px solid rgba(240, 195, 107, .18);
+      border-radius: 10px;
+      background: rgba(240, 195, 107, .06);
+    }
+
+    .notice strong {
+      font-size: 13px;
+    }
+
+    .notice p,
+    .card-desc,
+    .section-hint,
+    .empty {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .event-row {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, .03);
+    }
+
+    .event-row h3 {
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .event-row .row-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 112px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      outline: 0;
+      background: rgba(8, 10, 14, .78);
+      color: var(--text);
+      resize: vertical;
+    }
+
+    textarea:focus {
+      border-color: rgba(139, 156, 255, .48);
+      box-shadow: 0 0 0 3px rgba(139, 156, 255, .14);
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .mini {
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, .03);
+    }
+
+    .mini strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+
+    .mini span {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .basis {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid rgba(139, 156, 255, .18);
+      border-radius: 10px;
+      background:
+        linear-gradient(135deg, rgba(139, 156, 255, .08), transparent 42%),
+        rgba(255, 255, 255, .03);
+    }
+
+    .basis-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .basis-head strong {
+      font-size: 13px;
+    }
+
+    .basis-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .basis-item {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, .03);
+    }
+
+    .basis-item .mark {
+      width: 18px;
+      height: 18px;
+      display: grid;
+      place-items: center;
+      border-radius: 5px;
+      background: rgba(96, 213, 200, .12);
+      color: #b7fff3;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .basis-item strong {
+      font-size: 12px;
+    }
+
+    .basis-item span {
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .gene-card {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid rgba(96, 213, 200, .18);
+      border-radius: 10px;
+      background:
+        linear-gradient(145deg, rgba(96, 213, 200, .08), transparent 42%),
+        rgba(255, 255, 255, .03);
+    }
+
+    .gene-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .gene-card-head strong {
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .gene-card-head .score {
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(96, 213, 200, .18);
+      background: rgba(96, 213, 200, .08);
+      color: #c6fff6;
+      font-size: 11px;
+    }
+
+    .gene-card ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .gene-card-footer {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tag {
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 8px;
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .03);
+      color: #dce5f1;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .tag.good {
+      border-color: rgba(156, 221, 143, .18);
+      background: rgba(156, 221, 143, .08);
+      color: #dbffcf;
+    }
+
+    .tag.warn {
+      border-color: rgba(240, 195, 107, .18);
+      background: rgba(240, 195, 107, .08);
+      color: #ffe8b1;
+    }
+
+    .tag.bad {
+      border-color: rgba(229, 126, 126, .2);
+      background: rgba(229, 126, 126, .08);
+      color: #ffd0cf;
+    }
+
+    .side-note {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border: 1px dashed rgba(255, 255, 255, .08);
+      border-radius: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .floating-help {
+      position: absolute;
+      left: 24px;
+      bottom: 24px;
+      width: 300px;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 12px;
+      background: rgba(11, 14, 20, .9);
+      box-shadow: 0 22px 74px rgba(0, 0, 0, .3);
+      backdrop-filter: blur(18px);
+    }
+
+    .floating-help strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+
+    .floating-help p {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.55;
+    }
+
+    @media (max-width: 1200px) {
+      .tree { inset: 18px 18px 440px 18px; }
+      .dock {
+        right: 18px;
+        left: 18px;
+        bottom: 18px;
+        width: auto;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .workspace { padding: 12px; }
+      .workspace-shell { min-height: calc(100vh - 24px); }
+      .topbar { flex-direction: column; align-items: stretch; }
+      .top-actions { flex-wrap: wrap; }
+      .tree { inset: 16px 16px 520px 16px; }
+      .mini-grid { grid-template-columns: 1fr; }
+      .floating-help { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <section class="workspace">
+      <div class="workspace-shell">
+        <header class="topbar">
+          <div class="title-group">
+            <div class="kicker">Gene Extraction Event</div>
+            <h1>基因汲取浮动面板</h1>
+            <p class="subtitle">在事件发生时记录原因、给出依据、输出可沉淀的建议，而不是把整个能力塞进一个抽屉。</p>
+          </div>
+          <div class="top-actions">
+            <button class="btn ghost" type="button">查看基因库</button>
+            <button class="btn" type="button">汲取提醒</button>
+            <button class="btn primary" type="button">开始汲取</button>
+          </div>
+        </header>
+
+        <div class="scene">
+          <div class="canvas" aria-label="内容树画布">
+            <div class="tree">
+              <span class="connector one"></span>
+              <span class="connector two"></span>
+              <span class="connector three"></span>
+              <span class="connector four"></span>
+
+              <article class="node seed">
+                <span class="badge">Seed</span>
+                <strong>壁纸产品宣传种子</strong>
+                <span>正在沉淀情绪价值、收藏感和低噪声表达。</span>
+              </article>
+
+              <article class="node fruit-a selected">
+                <span class="badge">Fruit · selected</span>
+                <strong>先讲情绪收益，再讲产品本体</strong>
+                <span>点击选择时，输入“为什么选择”，作为汲取事件的上下文。</span>
+              </article>
+
+              <article class="node fruit-b bad">
+                <span class="badge">Fruit · eliminated</span>
+                <strong>直接罗列规格和参数</strong>
+                <span>淘汰时输入“为什么淘汰”，系统提取反向规避基因。</span>
+              </article>
+
+              <article class="node fruit-c">
+                <span class="badge">Fruit · candidate</span>
+                <strong>收藏感的视觉切片</strong>
+                <span>这类节点可以继续观察，暂不触发汲取也能保留在待处理队列。</span>
+              </article>
+
+              <article class="node fruit-d">
+                <span class="badge">Fruit · verified</span>
+                <strong>发布后数据表现稳定</strong>
+                <span>发布验证与反馈回流可作为更高权重证据源。</span>
+              </article>
+            </div>
+
+            <div class="floating-help">
+              <strong>设计意图</strong>
+              <p>把基因汲取从“操作抽屉”改成“浮动任务面板”，让它更像工作区里的即时决策层，而不是一个第二页面。</p>
+            </div>
+          </div>
+
+          <aside class="dock" aria-label="基因汲取建议面板">
+            <header class="dock-head">
+              <div>
+                <h2>基因汲取建议</h2>
+                <div class="dock-meta">
+                  <span class="chip">2 待输入原因</span>
+                  <span class="chip">3 条待处理建议</span>
+                </div>
+              </div>
+              <button class="btn ghost" type="button">折叠</button>
+            </header>
+
+            <div class="dock-body">
+              <section class="notice">
+                <strong>当前事件需要补充原因</strong>
+                <p>请在触发汲取时填写“为什么选择 / 为什么淘汰 / 为什么发布验证成功”，这些原因会成为后续提取基因的重要上下文。</p>
+              </section>
+
+              <section class="event-row">
+                <div class="row-top">
+                  <h3>事件原因输入</h3>
+                  <span class="chip">事件上下文</span>
+                </div>
+                <textarea placeholder="例如：这个果实之所以被选择，是因为开头先给情绪收益，用户理解成本低，并且更适合收藏。"></textarea>
+                <div class="mini-grid">
+                  <div class="mini">
+                    <strong>事件类型</strong>
+                    <span>选择 / 淘汰 / 发布验证 / 数据反馈</span>
+                  </div>
+                  <div class="mini">
+                    <strong>证据强度</strong>
+                    <span>弱证据、强证据、跨样本复现</span>
+                  </div>
+                  <div class="mini">
+                    <strong>归因目标</strong>
+                    <span>情绪表达、结构、标题、CTA、节奏</span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="basis">
+                <div class="basis-head">
+                  <strong>汲取依据</strong>
+                  <span class="chip">Evidence-backed</span>
+                </div>
+                <div class="basis-list">
+                  <div class="basis-item">
+                    <span class="mark">1</span>
+                    <strong>有效性</strong>
+                    <span>不是“看起来像”，而是与结果有稳定关联</span>
+                  </div>
+                  <div class="basis-item">
+                    <span class="mark">2</span>
+                    <strong>可迁移性</strong>
+                    <span>能否跨种子、跨平台、跨样本复现</span>
+                  </div>
+                  <div class="basis-item">
+                    <span class="mark">3</span>
+                    <strong>可作用性</strong>
+                    <span>能否转成生成器可执行的约束或提示</span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="gene-card">
+                <div class="gene-card-head">
+                  <strong>候选基因：先给用户收益，再给产品本体</strong>
+                  <span class="score">0.86 confidence</span>
+                </div>
+                <ul>
+                  <li>来源：3 个被选择果实 + 1 次发布验证</li>
+                  <li>方法：事件归纳 + 互信息筛选 + 人工确认</li>
+                  <li>用途：作为开头结构基因注入生成器提示</li>
+                </ul>
+                <div class="gene-card-footer">
+                  <span class="tag good">正向基因</span>
+                  <span class="tag">开头结构</span>
+                  <span class="tag">情绪价值</span>
+                  <span class="tag warn">需继续验证</span>
+                </div>
+                <div class="side-note">
+                  这个卡片强调“依据、权重、用途、置信度”，避免只给一个结果名字而看不出为什么它会被提取出来。
+                </div>
+                <div style="display:flex; gap:8px; justify-content:flex-end;">
+                  <button class="btn" type="button">忽略</button>
+                  <button class="btn primary" type="button">沉淀到基因库</button>
+                </div>
+              </section>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

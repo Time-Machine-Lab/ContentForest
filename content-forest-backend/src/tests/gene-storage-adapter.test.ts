@@ -7,6 +7,8 @@ import {
   GENE_INSIGHT_STATUSES,
   GENE_REMINDER_STATUSES,
   GENE_SUGGESTION_STATUSES,
+  GENE_USAGE_OUTCOMES,
+  GENE_USAGE_SOURCE_TYPES,
   type GeneEvidenceSource,
 } from "../modules/gene/domain/gene-types.js";
 import { InMemoryGeneStorageAdapter } from "../storage/adapters/in-memory-gene-storage-adapter.js";
@@ -80,7 +82,17 @@ async function exerciseStorage(storage: GeneStoragePort): Promise<void> {
     status: GENE_EXTRACTION_TASK_STATUSES.running,
     failureReason: null,
     evidenceSources,
-    agentInput: { seedId: "seed_1" },
+    reasonContext: {
+      contextVersion: "gene-extraction-reason/v1",
+      userReason: "Selected for emotional clarity.",
+    },
+    agentInput: {
+      seedId: "seed_1",
+      reasonContext: {
+        contextVersion: "gene-extraction-reason/v1",
+        userReason: "Selected for emotional clarity.",
+      },
+    },
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
   });
@@ -90,7 +102,17 @@ async function exerciseStorage(storage: GeneStoragePort): Promise<void> {
     status: GENE_EXTRACTION_TASK_STATUSES.completed,
     failureReason: null,
     evidenceSources,
-    agentInput: { seedId: "seed_1" },
+    reasonContext: {
+      contextVersion: "gene-extraction-reason/v1",
+      userReason: "Selected for emotional clarity.",
+    },
+    agentInput: {
+      seedId: "seed_1",
+      reasonContext: {
+        contextVersion: "gene-extraction-reason/v1",
+        userReason: "Selected for emotional clarity.",
+      },
+    },
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:01.000Z",
   });
@@ -104,6 +126,15 @@ async function exerciseStorage(storage: GeneStoragePort): Promise<void> {
     lineage: "谱系",
     niche: "生态位",
     evidenceSources,
+    semantics: {
+      polarity: "positive",
+      evidenceInterpretation: "The selected fruit carried this trait.",
+      nextRoundUsage:
+        "Next round usage: inherit and strengthen this trait in a controlled variant.",
+      similarityRelation: "new",
+      relatedInsightIds: [],
+      warnings: [],
+    },
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
   });
@@ -130,14 +161,55 @@ async function exerciseStorage(storage: GeneStoragePort): Promise<void> {
   ).resolves.toHaveLength(0);
   await expect(storage.findExtractionTaskById("task_1")).resolves.toMatchObject({
     status: GENE_EXTRACTION_TASK_STATUSES.completed,
+    reasonContext: {
+      userReason: "Selected for emotional clarity.",
+    },
   });
   await expect(
     storage.listSuggestionsBySeedAndStatus(
       "seed_1",
       GENE_SUGGESTION_STATUSES.pending,
     ),
-  ).resolves.toHaveLength(1);
+  ).resolves.toMatchObject([
+    {
+      semantics: {
+        polarity: "positive",
+        similarityRelation: "new",
+      },
+    },
+  ]);
   await expect(storage.listReferableInsightsBySeed("seed_1")).resolves.toHaveLength(1);
+  await storage.createUsageRecord({
+    id: "usage_1",
+    seedId: "seed_1",
+    insightId: "insight_1",
+    sourceType: GENE_USAGE_SOURCE_TYPES.growthTask,
+    sourceId: "growth-task_1",
+    outcome: GENE_USAGE_OUTCOMES.positive,
+    note: "Used by growth",
+    createdAt: "2026-01-01T00:00:01.000Z",
+  });
+  await storage.upsertPerformanceSummary({
+    insightId: "insight_1",
+    seedId: "seed_1",
+    usageCount: 1,
+    positiveCount: 1,
+    neutralCount: 0,
+    negativeCount: 0,
+    score: 1,
+    lastUsedAt: "2026-01-01T00:00:01.000Z",
+    updatedAt: "2026-01-01T00:00:01.000Z",
+  });
+  await expect(
+    storage.findPerformanceSummaryByInsightId("insight_1"),
+  ).resolves.toMatchObject({
+    usageCount: 1,
+    positiveCount: 1,
+    score: 1,
+  });
+  await expect(
+    storage.listPerformanceSummariesBySeed("seed_1"),
+  ).resolves.toHaveLength(1);
 
   const insight = await storage.findInsightById("insight_1");
   if (insight === null) {

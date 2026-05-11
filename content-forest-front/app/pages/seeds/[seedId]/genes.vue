@@ -41,7 +41,6 @@ const filteredInsights = computed(() => {
       insight.title,
       insight.lineage,
       insight.niche,
-      insight.contentLocation,
       insight.status,
     ].join(' ').toLowerCase().includes(search)
   })
@@ -49,7 +48,7 @@ const filteredInsights = computed(() => {
 const lineageStats = computed(() => {
   const counts = new Map<string, number>()
   for (const insight of activeInsights.value) {
-    const lineage = insight.lineage || '未分配谱系'
+    const lineage = cleanSystemText(insight.lineage) || '未分配谱系'
     counts.set(lineage, (counts.get(lineage) ?? 0) + 1)
   }
   return [...counts.entries()]
@@ -96,6 +95,19 @@ function evidenceLabel(sourceType: GeneEvidenceSourceType) {
     feedback: '数据反馈',
   }
   return labels[sourceType]
+}
+
+function cleanSystemText(value?: string | null) {
+  return (value || '')
+    .replace(/\b(?:seed|fruit|node|gene|task|suggestion|library)_[0-9a-zA-Z-]{8,}\b/g, '')
+    .replace(/[A-Za-z]:\\[^\s，。；、)）]+/g, '')
+    .replace(/\s*→\s*/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s·,，;；、-]+|[\s·,，;；、-]+$/g, '')
+}
+
+function displayGeneContext(lineage?: string | null, niche?: string | null) {
+  return `${cleanSystemText(lineage) || '未分配谱系'} · ${cleanSystemText(niche) || '未分配生态位'}`
 }
 
 function plainTextSummary(markdown: string) {
@@ -195,7 +207,7 @@ async function openWorkspace() {
       <div class="cf-page-title">
         <p class="cf-page-kicker">Seed Gene Library</p>
         <h1>{{ seed?.title || '种子基因库' }}</h1>
-        <p>{{ library?.contentLocation || '正在读取当前种子的基因沉淀' }}</p>
+        <p>{{ library ? '沉淀、浏览和归档当前种子的表达经验' : '正在读取当前种子的基因沉淀' }}</p>
       </div>
       <div class="cf-seed-top-actions">
         <NuxtLink class="cf-secondary-action" to="/seeds">返回种子库</NuxtLink>
@@ -273,7 +285,7 @@ async function openWorkspace() {
               <span>{{ insight.status === 'archived' ? '已归档' : '可引用' }}</span>
             </span>
             <span class="cf-gene-insight-copy">
-              {{ insight.lineage || '未分配谱系' }} · {{ insight.niche || '未分配生态位' }}
+              {{ displayGeneContext(insight.lineage, insight.niche) }}
             </span>
             <span class="cf-gene-tag-row">
               <span>{{ insight.evidenceSources.length }} 证据</span>
@@ -290,7 +302,7 @@ async function openWorkspace() {
           <header class="cf-gene-detail-head">
             <span class="cf-workspace-chip">{{ selectedInsight.status === 'archived' ? '已归档' : '可引用' }}</span>
             <h2>{{ selectedInsight.title }}</h2>
-            <p>{{ selectedInsight.lineage || '未分配谱系' }} · {{ selectedInsight.niche || '未分配生态位' }}</p>
+            <p>{{ displayGeneContext(selectedInsight.lineage, selectedInsight.niche) }}</p>
           </header>
 
           <ExceptionNotice
@@ -308,9 +320,9 @@ async function openWorkspace() {
               <strong>证据来源</strong>
               <span>{{ selectedInsight.evidenceSources.length }} 条</span>
             </header>
-            <article v-for="source in selectedInsight.evidenceSources" :key="`${source.sourceType}-${source.sourceId}`" class="cf-gene-evidence">
+            <article v-for="(source, index) in selectedInsight.evidenceSources" :key="`${source.sourceType}-${source.sourceId}`" class="cf-gene-evidence">
               <span>{{ evidenceLabel(source.sourceType) }}</span>
-              <strong>{{ source.sourceId }}</strong>
+              <strong>证据 {{ index + 1 }}</strong>
               <em>{{ source.strength }}</em>
             </article>
           </section>

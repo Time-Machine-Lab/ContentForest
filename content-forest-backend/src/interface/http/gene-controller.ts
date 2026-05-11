@@ -4,6 +4,7 @@ import type {
   EditGeneInsightInput,
   EditGeneSuggestionInput,
   GeneService,
+  RecordGeneUsageInput,
   StartGeneExtractionInput,
 } from "../../modules/gene/application/gene-service.js";
 import type { HttpResult } from "./seed-controller.js";
@@ -26,6 +27,25 @@ export class GeneController {
     return {
       status: 200,
       body: await this.geneService.getSeedGeneLibrary(seedId),
+    };
+  }
+
+  public async getGeneLibraryEvolutionSummary(
+    seedId: string,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.geneService.getGeneLibraryEvolutionSummary(seedId),
+    };
+  }
+
+  public async recordGeneUsage(
+    seedId: string,
+    body: RecordGeneUsageInput,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 201,
+      body: await this.geneService.recordGeneUsage(seedId, body),
     };
   }
 

@@ -13,20 +13,31 @@ import {
   GENE_EVIDENCE_SOURCE_TYPES,
   GENE_EVIDENCE_STRENGTHS,
   GENE_EXTRACTION_AGENT_INPUT_CONTRACT_VERSION,
+  GENE_EXTRACTION_REASON_CONTEXT_VERSION,
   GENE_EXTRACTION_TASK_STATUSES,
   GENE_INSIGHT_STATUSES,
   GENE_REMINDER_STATUSES,
   GENE_SUGGESTION_STATUSES,
+  GENE_USAGE_OUTCOMES,
+  GENE_USAGE_SOURCE_TYPES,
   type GeneEvidenceSource,
   type GeneExtractionAgentInput,
   type GeneExtractionAgentSuggestion,
+  type GeneExtractionReasonContext,
   type GeneExtractionReminder,
   type GeneExtractionTask,
   type GeneExtractionTaskResult,
   type GeneInsightDetail,
   type GeneInsightSummary,
   type GeneLibrary,
+  type GeneLibraryEvolutionSummary,
+  type GeneLineageEvolutionSummary,
+  type GenePerformanceSummary,
   type GeneSuggestion,
+  type GeneUsageOutcome,
+  type GeneUsageRecord,
+  type GeneUsageRecordResult,
+  type GeneUsageSourceType,
 } from "../domain/gene-types.js";
 
 export interface CreateFruitEvidenceReminderInput {
@@ -36,6 +47,7 @@ export interface CreateFruitEvidenceReminderInput {
 
 export interface StartGeneExtractionInput {
   reminderId?: string;
+  reason?: string;
   evidenceSources: GeneEvidenceSource[];
 }
 
@@ -55,6 +67,14 @@ export interface ConfirmGeneSuggestionInput {
 
 export interface EditGeneInsightInput {
   bodyMarkdown: string;
+}
+
+export interface RecordGeneUsageInput {
+  insightId: string;
+  sourceType: GeneUsageSourceType;
+  sourceId: string;
+  outcome: GeneUsageOutcome;
+  note?: string;
 }
 
 const EXECUTABLE_EVIDENCE_SOURCE_TYPES = new Set<GeneEvidenceSource["sourceType"]>([
@@ -122,7 +142,7 @@ export class GeneService {
     await this.requireSeed(seedId);
     const record = await this.storage.findGeneLibraryBySeedId(seedId);
     if (record === null) {
-      throw new ApplicationError("NOT_FOUND", "种子级基因库不存在", 404);
+      throw new ApplicationError("NOT_FOUND", "Seed gene library not found", 404);
     }
     return record;
   }
@@ -136,7 +156,7 @@ export class GeneService {
     if (this.fruitStorage !== undefined) {
       const fruit = await this.fruitStorage.findFruitById(fruitId);
       if (fruit === null) {
-        throw new ApplicationError("NOT_FOUND", "果实不存在", 404);
+        throw new ApplicationError("NOT_FOUND", "Fruit not found", 404);
       }
     }
 
@@ -196,13 +216,20 @@ export class GeneService {
     await this.authorizeEvidenceSources(seedId, evidenceSources);
     const timestamp = this.timestamp();
     const taskId = this.idGenerator.nextId("gene-task");
-    const agentInput = await this.buildAgentInput(seedId, taskId, evidenceSources);
+    const reasonContext = this.normalizeReasonContext(input.reason);
+    const agentInput = await this.buildAgentInput(
+      seedId,
+      taskId,
+      evidenceSources,
+      reasonContext,
+    );
     const task: GeneExtractionTask = {
       id: taskId,
       seedId,
       status: GENE_EXTRACTION_TASK_STATUSES.running,
       failureReason: null,
       evidenceSources,
+      reasonContext,
       agentInput: agentInput as unknown as Record<string, unknown>,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -218,6 +245,7 @@ export class GeneService {
         metadata: {
           seedId,
           evidenceSources,
+          reasonContext,
         },
       });
       if (!result.ok) {
@@ -354,12 +382,16 @@ export class GeneService {
 
   public async listInsights(seedId: string): Promise<GeneInsightSummary[]> {
     await this.requireSeed(seedId);
-    return this.storage.listInsightsBySeed(seedId);
+    return this.enrichInsightsWithPerformance(
+      await this.storage.listInsightsBySeed(seedId),
+    );
   }
 
   public async listReferableInsights(seedId: string): Promise<GeneInsightSummary[]> {
     await this.requireSeed(seedId);
-    return this.storage.listReferableInsightsBySeed(seedId);
+    return this.enrichInsightsWithPerformance(
+      await this.storage.listReferableInsightsBySeed(seedId),
+    );
   }
 
   public async getInsight(insightId: string): Promise<GeneInsightDetail> {
@@ -422,30 +454,106 @@ export class GeneService {
     };
   }
 
+  public async recordGeneUsage(
+    seedId: string,
+    input: RecordGeneUsageInput,
+  ): Promise<GeneUsageRecordResult> {
+    await this.requireSeed(seedId);
+    const insight = await this.requireInsight(
+      this.requireNonBlank(input.insightId, "Gene insight cannot be blank"),
+    );
+    if (insight.seedId !== seedId) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "Gene insight does not belong to current seed",
+        400,
+      );
+    }
+    if (insight.status !== GENE_INSIGHT_STATUSES.active) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "Archived gene insight cannot record new usage",
+        400,
+      );
+    }
+
+    const timestamp = this.timestamp();
+    const usage: GeneUsageRecord = {
+      id: this.idGenerator.nextId("gene-usage"),
+      seedId,
+      insightId: insight.id,
+      sourceType: this.requireUsageSourceType(input.sourceType),
+      sourceId: this.requireNonBlank(input.sourceId, "Gene usage source cannot be blank"),
+      outcome: this.requireUsageOutcome(input.outcome),
+      note: input.note?.trim() ?? "",
+      createdAt: timestamp,
+    };
+    await this.storage.createUsageRecord(usage);
+    const performance = await this.updatePerformanceSummaryFromUsage(
+      insight,
+      usage.outcome,
+      timestamp,
+    );
+    return {
+      usage,
+      performance,
+    };
+  }
+
+  public async getGeneLibraryEvolutionSummary(
+    seedId: string,
+  ): Promise<GeneLibraryEvolutionSummary> {
+    await this.requireSeed(seedId);
+    const insights = await this.enrichInsightsWithPerformance(
+      await this.storage.listInsightsBySeed(seedId),
+    );
+    const sortedInsights = [...insights].sort((left, right) =>
+      this.compareInsightsByPerformance(left, right),
+    );
+    return {
+      seedId,
+      insights: sortedInsights,
+      lineages: this.buildLineageEvolutionSummaries(sortedInsights),
+    };
+  }
+
   private async buildAgentInput(
     seedId: string,
     taskId: string,
     evidenceSources: GeneEvidenceSource[],
+    reasonContext: GeneExtractionReasonContext,
   ): Promise<GeneExtractionAgentInput> {
     const fruitEvidence = await this.buildFruitEvidence(evidenceSources);
     const feedbackEvidence = await this.buildFeedbackEvidence(evidenceSources);
-    const referableGeneInsights = (await this.storage.listReferableInsightsBySeed(seedId))
-      .map((insight) => ({
+    const referableGeneInsights = await Promise.all(
+      (await this.storage.listReferableInsightsBySeed(seedId)).map(async (insight) => ({
         insightId: insight.id,
         title: insight.title,
         lineage: insight.lineage,
         niche: insight.niche,
         contentLocation: insight.contentLocation,
-    }));
+        performance:
+          (await this.storage.findPerformanceSummaryByInsightId(insight.id)) ??
+          this.emptyPerformanceSummary(seedId, insight.id),
+      })),
+    );
 
     return {
       contractVersion: GENE_EXTRACTION_AGENT_INPUT_CONTRACT_VERSION,
       seedId,
       taskId,
+      reasonContext,
       evidenceSources,
       fruitEvidence,
       feedbackEvidence,
       referableGeneInsights,
+    };
+  }
+
+  private normalizeReasonContext(reason: string | undefined): GeneExtractionReasonContext {
+    return {
+      contextVersion: GENE_EXTRACTION_REASON_CONTEXT_VERSION,
+      userReason: this.normalizeOptionalText(reason),
     };
   }
 
@@ -562,15 +670,16 @@ export class GeneService {
         status: GENE_SUGGESTION_STATUSES.pending,
         title: this.requireNonBlank(
           agentSuggestion.title,
-          "Agent 返回的基因建议标题不能为空",
+          "Agent gene suggestion title cannot be blank",
         ),
         bodyMarkdown: this.requireNonBlank(
           agentSuggestion.bodyMarkdown,
-          "Agent 返回的基因建议正文不能为空",
+          "Agent gene suggestion body cannot be blank",
         ),
         lineage: this.normalizeOptionalText(agentSuggestion.lineage),
         niche: this.normalizeOptionalText(agentSuggestion.niche),
         evidenceSources,
+        semantics: this.buildSuggestionSemantics(agentSuggestion),
         createdAt: timestamp,
         updatedAt: timestamp,
       };
@@ -599,7 +708,7 @@ export class GeneService {
       if (!this.isRecord(candidate)) {
         throw new ApplicationError(
           "VALIDATION_ERROR",
-          "Agent 基因建议格式不正确",
+          "Agent gene suggestion format is invalid",
           502,
         );
       }
@@ -616,8 +725,46 @@ export class GeneService {
           typeof candidate.evidenceInterpretation === "string"
             ? candidate.evidenceInterpretation
             : undefined,
+        polarity: this.requirePolarity(candidate.polarity),
+        nextRoundUsage:
+          typeof candidate.nextRoundUsage === "string"
+            ? candidate.nextRoundUsage
+            : undefined,
+        similarityRelation:
+          typeof candidate.similarityRelation === "string"
+            ? this.requireSimilarityRelation(candidate.similarityRelation)
+            : undefined,
+        relatedInsightIds: Array.isArray(candidate.relatedInsightIds)
+          ? candidate.relatedInsightIds.filter(
+              (item): item is string => typeof item === "string",
+            )
+          : undefined,
+        warnings: Array.isArray(candidate.warnings)
+          ? candidate.warnings.filter((item): item is string => typeof item === "string")
+          : undefined,
       };
     });
+  }
+
+  private buildSuggestionSemantics(
+    suggestion: GeneExtractionAgentSuggestion,
+  ): NonNullable<GeneSuggestion["semantics"]> {
+    return {
+      polarity: this.requirePolarity(suggestion.polarity),
+      evidenceInterpretation: this.requireNonBlank(
+        suggestion.evidenceInterpretation ?? "",
+        "Agent gene suggestion evidence interpretation cannot be blank",
+      ),
+      nextRoundUsage: this.requireNonBlank(
+        suggestion.nextRoundUsage ?? "",
+        "Agent gene suggestion next round usage cannot be blank",
+      ),
+      similarityRelation: this.requireSimilarityRelation(
+        suggestion.similarityRelation ?? "new",
+      ),
+      relatedInsightIds: this.normalizeStringArray(suggestion.relatedInsightIds),
+      warnings: this.normalizeStringArray(suggestion.warnings),
+    };
   }
 
   private async markReminderHandled(reminderId: string): Promise<void> {
@@ -644,13 +791,144 @@ export class GeneService {
     });
   }
 
+  private async enrichInsightsWithPerformance(
+    insights: GeneInsightSummary[],
+  ): Promise<GeneInsightSummary[]> {
+    return Promise.all(
+      insights.map(async (insight) => ({
+        ...insight,
+        performance: await this.getPerformanceOrZero(insight),
+      })),
+    );
+  }
+
+  private async getPerformanceOrZero(
+    insight: Pick<GeneInsightSummary, "id" | "seedId">,
+  ): Promise<GenePerformanceSummary> {
+    return (
+      (await this.storage.findPerformanceSummaryByInsightId(insight.id)) ??
+      this.emptyPerformanceSummary(insight.seedId, insight.id)
+    );
+  }
+
+  private async updatePerformanceSummaryFromUsage(
+    insight: GeneInsightSummary,
+    outcome: GeneUsageOutcome,
+    timestamp: string,
+  ): Promise<GenePerformanceSummary> {
+    const current = await this.getPerformanceOrZero(insight);
+    const usageCount = current.usageCount + 1;
+    const positiveCount =
+      current.positiveCount + (outcome === GENE_USAGE_OUTCOMES.positive ? 1 : 0);
+    const neutralCount =
+      current.neutralCount + (outcome === GENE_USAGE_OUTCOMES.neutral ? 1 : 0);
+    const negativeCount =
+      current.negativeCount + (outcome === GENE_USAGE_OUTCOMES.negative ? 1 : 0);
+    const updated: GenePerformanceSummary = {
+      insightId: insight.id,
+      seedId: insight.seedId,
+      usageCount,
+      positiveCount,
+      neutralCount,
+      negativeCount,
+      score: this.calculatePerformanceScore({
+        usageCount,
+        positiveCount,
+        negativeCount,
+      }),
+      lastUsedAt: timestamp,
+      updatedAt: timestamp,
+    };
+    await this.storage.upsertPerformanceSummary(updated);
+    return updated;
+  }
+
+  private calculatePerformanceScore(input: {
+    usageCount: number;
+    positiveCount: number;
+    negativeCount: number;
+  }): number {
+    if (input.usageCount === 0) {
+      return 0;
+    }
+    return Number(
+      ((input.positiveCount - input.negativeCount) / input.usageCount).toFixed(4),
+    );
+  }
+
+  private emptyPerformanceSummary(
+    seedId: string,
+    insightId: string,
+  ): GenePerformanceSummary {
+    return {
+      insightId,
+      seedId,
+      usageCount: 0,
+      positiveCount: 0,
+      neutralCount: 0,
+      negativeCount: 0,
+      score: 0,
+      lastUsedAt: null,
+      updatedAt: "",
+    };
+  }
+
+  private buildLineageEvolutionSummaries(
+    insights: GeneInsightSummary[],
+  ): GeneLineageEvolutionSummary[] {
+    const groups = new Map<string, GeneLineageEvolutionSummary>();
+    for (const insight of insights) {
+      const lineage = insight.lineage.trim().length > 0 ? insight.lineage : "Ungrouped";
+      const performance =
+        insight.performance ?? this.emptyPerformanceSummary(insight.seedId, insight.id);
+      const current = groups.get(lineage) ?? {
+        lineage,
+        insightCount: 0,
+        usageCount: 0,
+        positiveCount: 0,
+        neutralCount: 0,
+        negativeCount: 0,
+        score: 0,
+      };
+      current.insightCount += 1;
+      current.usageCount += performance.usageCount;
+      current.positiveCount += performance.positiveCount;
+      current.neutralCount += performance.neutralCount;
+      current.negativeCount += performance.negativeCount;
+      current.score = this.calculatePerformanceScore(current);
+      groups.set(lineage, current);
+    }
+    return [...groups.values()].sort((left, right) =>
+      right.score === left.score
+        ? right.usageCount - left.usageCount
+        : right.score - left.score,
+    );
+  }
+
+  private compareInsightsByPerformance(
+    left: GeneInsightSummary,
+    right: GeneInsightSummary,
+  ): number {
+    const leftPerformance =
+      left.performance ?? this.emptyPerformanceSummary(left.seedId, left.id);
+    const rightPerformance =
+      right.performance ?? this.emptyPerformanceSummary(right.seedId, right.id);
+    if (rightPerformance.score !== leftPerformance.score) {
+      return rightPerformance.score - leftPerformance.score;
+    }
+    if (rightPerformance.usageCount !== leftPerformance.usageCount) {
+      return rightPerformance.usageCount - leftPerformance.usageCount;
+    }
+    return right.updatedAt.localeCompare(left.updatedAt);
+  }
+
   private normalizeEvidenceSources(
     evidenceSources: GeneEvidenceSource[],
   ): GeneEvidenceSource[] {
     if (!Array.isArray(evidenceSources) || evidenceSources.length === 0) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "基因汲取至少需要一个证据来源",
+        "Gene extraction requires at least one evidence source",
         400,
       );
     }
@@ -706,7 +984,7 @@ export class GeneService {
     if (rootSeedId !== seedId) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "果实证据不属于当前种子",
+        "Fruit evidence does not belong to the current seed",
         400,
       );
     }
@@ -736,7 +1014,7 @@ export class GeneService {
     if (rootSeedId !== seedId) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "发布证据不属于当前种子",
+        "Publication evidence does not belong to the current seed",
         400,
       );
     }
@@ -824,14 +1102,14 @@ export class GeneService {
     const normalizedSeedId = this.requireNonBlank(seedId, "种子不能为空");
     const seed = await this.seedStorage.findSeedById(normalizedSeedId);
     if (seed === null) {
-      throw new ApplicationError("NOT_FOUND", "种子不存在", 404);
+      throw new ApplicationError("NOT_FOUND", "Seed not found", 404);
     }
   }
 
   private async requireReminder(reminderId: string): Promise<GeneExtractionReminder> {
     const reminder = await this.storage.findReminderById(reminderId);
     if (reminder === null) {
-      throw new ApplicationError("NOT_FOUND", "汲取提醒不存在", 404);
+      throw new ApplicationError("NOT_FOUND", "Gene extraction reminder not found", 404);
     }
     return reminder;
   }
@@ -839,7 +1117,7 @@ export class GeneService {
   private async requireSuggestion(suggestionId: string): Promise<GeneSuggestion> {
     const suggestion = await this.storage.findSuggestionById(suggestionId);
     if (suggestion === null) {
-      throw new ApplicationError("NOT_FOUND", "基因建议不存在", 404);
+      throw new ApplicationError("NOT_FOUND", "Gene suggestion not found", 404);
     }
     return suggestion;
   }
@@ -861,7 +1139,7 @@ export class GeneService {
   private async requireInsight(insightId: string): Promise<GeneInsightSummary> {
     const insight = await this.storage.findInsightById(insightId);
     if (insight === null) {
-      throw new ApplicationError("NOT_FOUND", "基因经验不存在", 404);
+      throw new ApplicationError("NOT_FOUND", "Gene insight not found", 404);
     }
     return insight;
   }
@@ -886,7 +1164,7 @@ export class GeneService {
     ) {
       return value;
     }
-    throw new ApplicationError("VALIDATION_ERROR", "证据来源类型不正确", 400);
+    throw new ApplicationError("VALIDATION_ERROR", "Evidence source type is invalid", 400);
   }
 
   private requireEvidenceStrength(value: string): GeneEvidenceSource["strength"] {
@@ -897,7 +1175,30 @@ export class GeneService {
     ) {
       return value;
     }
-    throw new ApplicationError("VALIDATION_ERROR", "证据强度不正确", 400);
+    throw new ApplicationError("VALIDATION_ERROR", "Evidence strength is invalid", 400);
+  }
+
+  private requireUsageSourceType(value: string): GeneUsageSourceType {
+    if (
+      value === GENE_USAGE_SOURCE_TYPES.growthTask ||
+      value === GENE_USAGE_SOURCE_TYPES.manual ||
+      value === GENE_USAGE_SOURCE_TYPES.publication ||
+      value === GENE_USAGE_SOURCE_TYPES.feedback
+    ) {
+      return value;
+    }
+    throw new ApplicationError("VALIDATION_ERROR", "Gene usage source type is invalid", 400);
+  }
+
+  private requireUsageOutcome(value: string): GeneUsageOutcome {
+    if (
+      value === GENE_USAGE_OUTCOMES.positive ||
+      value === GENE_USAGE_OUTCOMES.neutral ||
+      value === GENE_USAGE_OUTCOMES.negative
+    ) {
+      return value;
+    }
+    throw new ApplicationError("VALIDATION_ERROR", "Gene usage outcome is invalid", 400);
   }
 
   private requireString(value: unknown, message: string): string {
@@ -917,6 +1218,44 @@ export class GeneService {
 
   private normalizeOptionalText(value: string | undefined): string {
     return value?.trim() ?? "";
+  }
+
+  private normalizeStringArray(value: string[] | undefined): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return [...new Set(value.map((item) => item.trim()).filter((item) => item.length > 0))];
+  }
+
+  private requirePolarity(
+    value: unknown,
+  ): "positive" | "negative" {
+    if (value === "positive" || value === "negative") {
+      return value;
+    }
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "Agent 返回的基因建议缺少正负向语义",
+      502,
+    );
+  }
+
+  private requireSimilarityRelation(
+    value: unknown,
+  ): "new" | "reinforces" | "branches" | "conflicts" {
+    if (
+      value === "new" ||
+      value === "reinforces" ||
+      value === "branches" ||
+      value === "conflicts"
+    ) {
+      return value;
+    }
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "Agent 返回的基因建议相似关系不合法",
+      502,
+    );
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {
