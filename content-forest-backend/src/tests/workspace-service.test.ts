@@ -346,6 +346,23 @@ describe("WorkspaceService", () => {
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
+    await geneStorage.createExtractionTask({
+      id: "gene-task_running",
+      seedId: "seed_1",
+      reminderId: "gene-reminder_1",
+      status: "running",
+      failureReason: null,
+      evidenceSources: [
+        {
+          sourceType: "fruit_selected",
+          sourceId: "fruit_1",
+          strength: "weak",
+        },
+      ],
+      agentInput: {},
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
 
     const snapshot = await workspaceService.getWorkspaceSnapshot("seed_1");
 
@@ -372,6 +389,7 @@ describe("WorkspaceService", () => {
     expect(snapshot.geneExtractionHub.pendingReminders).toEqual([
       expect.objectContaining({
         id: "gene-reminder_1",
+        runningTaskId: "gene-task_running",
       }),
     ]);
     expect(snapshot.geneExtractionHub.pendingSuggestions).toEqual([

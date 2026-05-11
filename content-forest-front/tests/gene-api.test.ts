@@ -11,6 +11,7 @@ test('gene api client uses documented gene extraction endpoints', async () => {
 
   const extractionPayload = {
     reminderId: 'reminder 1',
+    reason: 'selected because the emotional opening is clearer',
     evidenceSources: [
       {
         sourceType: 'fruit_selected' as const,

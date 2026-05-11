@@ -70,6 +70,22 @@ describe("gene extraction suggestion validation", () => {
     ).toThrow(/title is required/);
   });
 
+  it("accepts Chinese next-round usage wording and nextRoundUsageAdvice fallback", () => {
+    const output = validateGeneExtractionSuggestions({
+      suggestions: [
+        validSuggestion({
+          bodyMarkdown:
+            "表达特征：标题先抛具体痛点。\n适用场景：小红书产品种草。\n下一轮建议：继承这个痛点前置结构，并变异不同用户场景。",
+          nextRoundUsage: undefined,
+          nextRoundUsageAdvice:
+            "下一轮建议：继承这个痛点前置结构，并变异不同用户场景。",
+        }),
+      ],
+    });
+
+    expect(output.suggestions[0]?.nextRoundUsage).toContain("下一轮建议");
+  });
+
   it("rejects invalid polarity and invalid similarity relation", () => {
     expect(() =>
       validateGeneExtractionSuggestions({

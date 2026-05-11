@@ -347,12 +347,15 @@ components:
           format: date-time
     GeneExtractionReminder:
       type: object
-      required: [id, seedId, status, evidenceSources, createdAt, updatedAt]
+      required: [id, seedId, reminderId, status, evidenceSources, createdAt, updatedAt]
       properties:
         id:
           type: string
         seedId:
           type: string
+        reminderId:
+          type: string
+          nullable: true
         status:
           type: string
           enum: [pending, handled, ignored]

@@ -30,6 +30,7 @@ export interface GeneExtractionReminder {
 export interface GeneExtractionTask {
   id: string
   seedId: string
+  reminderId?: string | null
   status: GeneTaskStatus
   failureReason?: string | null
   evidenceSources: GeneEvidenceSource[]
@@ -71,6 +72,7 @@ export interface GeneInsightDetail extends GeneInsightSummary {
 
 export interface StartGeneExtractionTaskRequest {
   reminderId?: string
+  reason?: string
   evidenceSources: GeneEvidenceSource[]
 }
 

@@ -84,7 +84,9 @@ export interface WorkspaceGeneLibrarySummary {
   updatedAt: string;
 }
 
-export type WorkspaceGeneReminderSummary = GeneExtractionReminder;
+export interface WorkspaceGeneReminderSummary extends GeneExtractionReminder {
+  runningTaskId: string | null;
+}
 
 export type WorkspaceGeneSuggestionSummary = Omit<GeneSuggestion, "bodyMarkdown">;
 

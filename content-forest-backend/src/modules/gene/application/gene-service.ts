@@ -191,6 +191,14 @@ export class GeneService {
     );
   }
 
+  public async listRunningExtractionTasks(seedId: string): Promise<GeneExtractionTask[]> {
+    await this.requireSeed(seedId);
+    return this.storage.listExtractionTasksBySeedAndStatus(
+      seedId,
+      GENE_EXTRACTION_TASK_STATUSES.running,
+    );
+  }
+
   public async ignoreReminder(reminderId: string): Promise<GeneExtractionReminder> {
     const reminder = await this.requireReminder(reminderId);
     if (reminder.status !== GENE_REMINDER_STATUSES.pending) {
@@ -214,6 +222,10 @@ export class GeneService {
     const evidenceSources = this.normalizeEvidenceSources(input.evidenceSources);
     this.requireExecutableEvidence(evidenceSources);
     await this.authorizeEvidenceSources(seedId, evidenceSources);
+    const reminderId = await this.normalizeTaskReminderId(seedId, input.reminderId);
+    if (reminderId !== null) {
+      await this.ensureNoRunningTaskForReminder(seedId, reminderId);
+    }
     const timestamp = this.timestamp();
     const taskId = this.idGenerator.nextId("gene-task");
     const reasonContext = this.normalizeReasonContext(input.reason);
@@ -226,6 +238,7 @@ export class GeneService {
     const task: GeneExtractionTask = {
       id: taskId,
       seedId,
+      reminderId,
       status: GENE_EXTRACTION_TASK_STATUSES.running,
       failureReason: null,
       evidenceSources,
@@ -266,8 +279,8 @@ export class GeneService {
         updatedAt: this.timestamp(),
       };
       await this.storage.saveExtractionTask(completedTask);
-      if (input.reminderId !== undefined) {
-        await this.markReminderHandled(input.reminderId);
+      if (reminderId !== null) {
+        await this.markReminderHandled(reminderId);
       }
       return {
         task: completedTask,
@@ -777,6 +790,49 @@ export class GeneService {
       status: GENE_REMINDER_STATUSES.handled,
       updatedAt: this.timestamp(),
     });
+  }
+
+  private async normalizeTaskReminderId(
+    seedId: string,
+    reminderId: string | undefined,
+  ): Promise<string | null> {
+    if (reminderId === undefined) {
+      return null;
+    }
+    const normalized = this.requireNonBlank(reminderId, "Gene extraction reminder cannot be blank");
+    const reminder = await this.requireReminder(normalized);
+    if (reminder.seedId !== seedId) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "Gene extraction reminder does not belong to this seed",
+        400,
+      );
+    }
+    if (reminder.status !== GENE_REMINDER_STATUSES.pending) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "Gene extraction reminder is not pending",
+        400,
+      );
+    }
+    return normalized;
+  }
+
+  private async ensureNoRunningTaskForReminder(
+    seedId: string,
+    reminderId: string,
+  ): Promise<void> {
+    const runningTasks = await this.storage.listExtractionTasksBySeedAndStatus(
+      seedId,
+      GENE_EXTRACTION_TASK_STATUSES.running,
+    );
+    if (runningTasks.some((task) => task.reminderId === reminderId)) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "Gene extraction reminder already has a running task",
+        409,
+      );
+    }
   }
 
   private async failTask(

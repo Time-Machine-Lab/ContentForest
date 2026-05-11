@@ -132,6 +132,7 @@ export interface WorkspaceGeneReminderSummary {
   seedId: string
   status: 'pending'
   evidenceSources: WorkspaceEvidenceSource[]
+  runningTaskId: string | null
   createdAt: string
   updatedAt: string
 }

@@ -32,6 +32,7 @@ CREATE INDEX IF NOT EXISTS idx_gene_extraction_reminders_seed_status_updated_at
 CREATE TABLE IF NOT EXISTS gene_extraction_tasks (
   id TEXT PRIMARY KEY,
   seed_id TEXT NOT NULL,
+  reminder_id TEXT,
   status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
   failure_reason TEXT,
   evidence_sources_json TEXT NOT NULL DEFAULT '[]',

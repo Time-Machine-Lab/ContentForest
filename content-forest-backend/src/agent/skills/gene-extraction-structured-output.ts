@@ -147,7 +147,7 @@ async function askForRepair(
           "You repair JSON structure for gene extraction suggestions.",
           "Only fix structure, missing fields, invalid enum values, or forbidden claims.",
           "Ensure each bodyMarkdown includes a concrete trait, applicable niche, and next-round usage advice.",
-          "Ensure each suggestion includes nextRoundUsage as a separate actionable field.",
+          "Ensure each suggestion includes nextRoundUsage as a separate actionable field; do not rename it to nextRoundUsageAdvice.",
           "Ensure each evidenceInterpretation explains evidence strength without inventing missing metrics.",
           "Do not invent system state. Return exactly one JSON object.",
         ].join("\n"),

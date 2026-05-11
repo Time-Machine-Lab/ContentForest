@@ -131,6 +131,7 @@ export interface GeneExtractionReminder {
 export interface GeneExtractionTask {
   id: string;
   seedId: string;
+  reminderId?: string | null;
   status: GeneExtractionTaskStatus;
   failureReason: string | null;
   evidenceSources: GeneEvidenceSource[];

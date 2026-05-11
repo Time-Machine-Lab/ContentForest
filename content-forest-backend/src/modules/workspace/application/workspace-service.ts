@@ -175,16 +175,23 @@ export class WorkspaceService {
     const [
       geneLibrary,
       pendingReminders,
+      runningExtractionTasks,
       pendingSuggestions,
       insights,
       referableInsights,
     ] = await Promise.all([
       this.geneService.getSeedGeneLibrary(seedId),
       this.geneService.listPendingReminders(seedId),
+      this.geneService.listRunningExtractionTasks(seedId),
       this.geneService.listPendingSuggestions(seedId),
       this.geneService.listInsights(seedId),
       this.geneService.listReferableInsights(seedId),
     ]);
+    const runningTaskByReminderId = new Map(
+      runningExtractionTasks
+        .filter((task) => task.reminderId !== null && task.reminderId !== undefined)
+        .map((task) => [task.reminderId as string, task.id]),
+    );
 
     return {
       seedId,
@@ -196,6 +203,7 @@ export class WorkspaceService {
       pendingReminders: pendingReminders.map((reminder) => ({
         ...reminder,
         evidenceSources: reminder.evidenceSources.map((source) => ({ ...source })),
+        runningTaskId: runningTaskByReminderId.get(reminder.id) ?? null,
       })),
       pendingSuggestions: pendingSuggestions.map(toWorkspaceGeneSuggestionSummary),
       stats: {

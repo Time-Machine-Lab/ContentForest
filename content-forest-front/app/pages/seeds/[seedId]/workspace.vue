@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { createFruitApi, type FruitDetail, type FruitSelectionState } from '../../../../src/modules/fruit'
 import { createFeedbackApi, type FeedbackHistory, type FeedbackSnapshot } from '../../../../src/modules/feedback'
-import { createGeneApi, type GeneSuggestion } from '../../../../src/modules/gene'
+import { createGeneApi, type GeneEvidenceSource, type GeneSuggestion } from '../../../../src/modules/gene'
 import { createGrowthApi, type GrowthFailedInput, type GrowthNodeType, type GrowthTaskDetail } from '../../../../src/modules/growth'
 import { createPublicationApi, type PublicationRecord } from '../../../../src/modules/publication'
 import { createSeedApi } from '../../../../src/modules/seed'
@@ -101,7 +101,7 @@ const growthLoading = ref(false)
 const growthError = ref('')
 const dragState = ref<DragState | null>(null)
 const suppressClickNodeId = ref('')
-const hideEliminatedNodes = ref(false)
+const hideEliminatedNodes = ref(true)
 const resourcePopoverOpen = ref(false)
 const resourceQuery = ref('')
 const generatorMenuOpen = ref(false)
@@ -116,7 +116,10 @@ const mutationRate = ref(18)
 const fruitCountOptions = [1, 2, 3, 4, 5, 6]
 const geneHubDialogOpen = ref(false)
 const geneActionLoading = ref('')
+const geneReminderActionLoading = reactive<Record<string, 'extract' | 'ignore'>>({})
 const geneActionError = ref('')
+const geneReasonComposerIds = ref<string[]>([])
+const geneExtractionReasonDrafts = reactive<Record<string, string>>({})
 const activeGeneSuggestion = ref<GeneSuggestion | null>(null)
 const geneSuggestionDraft = reactive({
   title: '',
@@ -153,6 +156,9 @@ const feedbackDraft = reactive({
 
 const pollTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const growthTaskFruitCounts = new Map<string, number>()
+const geneExtractionPollAttempts = new Map<string, number>()
+const GENE_EXTRACTION_POLL_INTERVAL_MS = 2400
+const GENE_EXTRACTION_MAX_POLL_ATTEMPTS = 80
 
 const isReadOnly = computed(() => Boolean(snapshot.value?.workspaceReadOnly || route.query.readonly === '1'))
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) ?? nodes.value[0] ?? null)
@@ -964,6 +970,75 @@ function evidenceStrengthSummary(sources: Array<{ strength: string }>) {
   return strengths.length > 0 ? strengths.join(' / ') : '待补充证据强度'
 }
 
+function selectionStateLabel(state?: FruitSelectionState) {
+  if (state === 'selected') return '已选择'
+  if (state === 'eliminated') return '已淘汰'
+  return '候选'
+}
+
+function findEvidenceNode(source: GeneEvidenceSource) {
+  return nodes.value.find((node) => {
+    if (source.sourceType === 'fruit_selected' || source.sourceType === 'fruit_eliminated') {
+      return node.fruitId === source.sourceId || node.id === source.sourceId
+    }
+    return node.id === source.sourceId
+  }) ?? null
+}
+
+function evidenceSourceTitle(source: GeneEvidenceSource) {
+  return findEvidenceNode(source)?.title || evidenceLabel(source.sourceType)
+}
+
+function evidenceSourceMeta(source: GeneEvidenceSource) {
+  const node = findEvidenceNode(source)
+  if (!node) return `${evidenceLabel(source.sourceType)} · ${source.strength}`
+  const parts = [
+    node.nodeType === 'fruit' ? selectionStateLabel(node.selectionState) : '种子',
+    `${source.strength} 证据`,
+  ]
+  if (node.geneTags[0]) parts.push(node.geneTags[0])
+  return parts.join(' · ')
+}
+
+function evidenceSourcePreview(source: GeneEvidenceSource) {
+  const node = findEvidenceNode(source)
+  return node?.summary || '当前证据暂未加载详情，可先根据事件类型说明你的判断原因。'
+}
+
+async function focusEvidenceSource(source: GeneEvidenceSource) {
+  const node = findEvidenceNode(source)
+  if (!node) return
+  geneHubDialogOpen.value = false
+  await selectNode(node.id)
+}
+
+function openGeneReasonComposer(reminderId: string) {
+  if (!geneReasonComposerIds.value.includes(reminderId)) {
+    geneReasonComposerIds.value = [...geneReasonComposerIds.value, reminderId]
+  }
+  if (geneExtractionReasonDrafts[reminderId] === undefined) {
+    geneExtractionReasonDrafts[reminderId] = ''
+  }
+}
+
+function cancelGeneReasonComposer(reminderId: string) {
+  geneReasonComposerIds.value = geneReasonComposerIds.value.filter((id) => id !== reminderId)
+}
+
+function isGeneReasonComposerOpen(reminderId: string) {
+  return geneReasonComposerIds.value.includes(reminderId)
+}
+
+function geneReminderAction(reminderId: string) {
+  const reminder = geneHub.value?.pendingReminders.find((item) => item.id === reminderId)
+  if (reminder?.runningTaskId) return 'extract'
+  return geneReminderActionLoading[reminderId] ?? ''
+}
+
+function isGeneReminderBusy(reminderId: string) {
+  return Boolean(geneReminderAction(reminderId))
+}
+
 function openGeneLibrary() {
   void navigateTo(`/seeds/${encodeURIComponent(seedId.value)}/genes`)
 }
@@ -978,27 +1053,93 @@ function resetGeneSuggestionDraft(suggestion: GeneSuggestion | null) {
 
 async function startGeneExtraction(reminderId: string) {
   const reminder = geneHub.value?.pendingReminders.find((item) => item.id === reminderId)
-  if (!reminder || geneActionLoading.value) return
+  if (!reminder || isGeneReminderBusy(reminderId)) return
+  if (!isGeneReasonComposerOpen(reminderId)) {
+    openGeneReasonComposer(reminderId)
+    return
+  }
 
-  geneActionLoading.value = `extract:${reminderId}`
+  geneReminderActionLoading[reminderId] = 'extract'
   geneActionError.value = ''
+  pollGeneExtractionReminder(reminderId)
 
   try {
-    await geneApi.startExtractionTask(seedId.value, {
+    const result = await geneApi.startExtractionTask(seedId.value, {
       reminderId: reminder.id,
+      reason: geneExtractionReasonDrafts[reminderId]?.trim() || undefined,
       evidenceSources: reminder.evidenceSources,
     })
+    delete geneExtractionReasonDrafts[reminderId]
+    cancelGeneReasonComposer(reminderId)
     await loadWorkspace(selectedNodeId.value)
+    if (!activeGeneSuggestion.value && result.suggestions[0]) {
+      resetGeneSuggestionDraft(result.suggestions[0])
+    }
   } catch (error) {
-    geneActionError.value = errorMessage(error)
+    await loadWorkspace(selectedNodeId.value)
+    const reminderStillPending = geneHub.value?.pendingReminders.some((item) => item.id === reminderId) ?? false
+    geneActionError.value = reminderStillPending ? errorMessage(error) : ''
   } finally {
-    geneActionLoading.value = ''
+    delete geneReminderActionLoading[reminderId]
+    stopGeneExtractionPolling(reminderId)
   }
 }
 
+function pollGeneExtractionReminder(reminderId: string) {
+  stopGeneExtractionPolling(reminderId)
+  geneExtractionPollAttempts.set(reminderId, 0)
+  scheduleGeneExtractionPoll(reminderId)
+}
+
+function scheduleGeneExtractionPoll(reminderId: string) {
+  const key = geneExtractionPollKey(reminderId)
+  const timer = setTimeout(async () => {
+    pollTimers.delete(key)
+    const attempts = (geneExtractionPollAttempts.get(reminderId) ?? 0) + 1
+    geneExtractionPollAttempts.set(reminderId, attempts)
+
+    try {
+      await loadWorkspace(selectedNodeId.value)
+      const reminder = geneHub.value?.pendingReminders.find((item) => item.id === reminderId) ?? null
+      if (reminder === null) {
+        delete geneReminderActionLoading[reminderId]
+        delete geneExtractionReasonDrafts[reminderId]
+        cancelGeneReasonComposer(reminderId)
+        stopGeneExtractionPolling(reminderId)
+        return
+      }
+      if (attempts >= GENE_EXTRACTION_MAX_POLL_ATTEMPTS) {
+        delete geneReminderActionLoading[reminderId]
+        stopGeneExtractionPolling(reminderId)
+        geneActionError.value = '基因汲取仍在处理，请稍后重新打开工作区查看结果'
+        return
+      }
+      if (reminder.runningTaskId || geneReminderActionLoading[reminderId] === 'extract') {
+        scheduleGeneExtractionPoll(reminderId)
+      }
+    } catch (error) {
+      geneActionError.value = errorMessage(error)
+      scheduleGeneExtractionPoll(reminderId)
+    }
+  }, GENE_EXTRACTION_POLL_INTERVAL_MS)
+  pollTimers.set(key, timer)
+}
+
+function geneExtractionPollKey(reminderId: string) {
+  return `gene-extraction:${reminderId}`
+}
+
+function stopGeneExtractionPolling(reminderId: string) {
+  const key = geneExtractionPollKey(reminderId)
+  const timer = pollTimers.get(key)
+  if (timer) clearTimeout(timer)
+  pollTimers.delete(key)
+  geneExtractionPollAttempts.delete(reminderId)
+}
+
 async function ignoreGeneReminder(reminderId: string) {
-  if (geneActionLoading.value) return
-  geneActionLoading.value = `ignore:${reminderId}`
+  if (isGeneReminderBusy(reminderId)) return
+  geneReminderActionLoading[reminderId] = 'ignore'
   geneActionError.value = ''
 
   try {
@@ -1007,7 +1148,7 @@ async function ignoreGeneReminder(reminderId: string) {
   } catch (error) {
     geneActionError.value = errorMessage(error)
   } finally {
-    geneActionLoading.value = ''
+    delete geneReminderActionLoading[reminderId]
   }
 }
 
@@ -1369,6 +1510,7 @@ function stopGrowthPolling(taskId: string) {
 function stopAllPolling() {
   pollTimers.forEach((timer) => clearTimeout(timer))
   pollTimers.clear()
+  geneExtractionPollAttempts.clear()
 }
 
 async function restoreFailedInput() {
@@ -1461,7 +1603,16 @@ function formatDateTime(value: string) {
       :aria-label="`基因汲取，${geneHubStatusText}`"
       @click="geneHubDialogOpen = true"
     >
-      <span class="cf-gene-bubble-core">G</span>
+      <span class="cf-gene-bubble-core" aria-hidden="true">
+        <span class="cf-dna-helix">
+          <span class="cf-dna-pair" />
+          <span class="cf-dna-pair" />
+          <span class="cf-dna-pair" />
+          <span class="cf-dna-pair" />
+          <span class="cf-dna-pair" />
+          <span class="cf-dna-pair" />
+        </span>
+      </span>
       <span v-if="geneHubReminderBadgeCount > 0" class="cf-gene-bubble-badge">{{ geneHubReminderBadgeCount }}</span>
     </button>
 
@@ -1506,17 +1657,65 @@ function formatDateTime(value: string) {
             </header>
 
             <div class="cf-gene-task-list">
-              <article v-for="reminder in geneHub.pendingReminders" :key="reminder.id" class="cf-gene-task-card is-reminder">
+              <article
+                v-for="reminder in geneHub.pendingReminders"
+                :key="reminder.id"
+                class="cf-gene-task-card is-reminder"
+                :class="{ 'is-composing': isGeneReasonComposerOpen(reminder.id), 'is-extracting': geneReminderAction(reminder.id) === 'extract' }"
+              >
+                <div v-if="geneReminderAction(reminder.id) === 'extract'" class="cf-gene-card-loader" aria-hidden="true">
+                  <span class="cf-gene-card-loader-core">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                  <em>基因链路编织中</em>
+                </div>
                 <div class="cf-gene-task-main">
                   <span class="cf-gene-task-badge">待汲取</span>
                   <strong>{{ evidenceSourceSummary(reminder.evidenceSources) || '新的物竞天择事件' }}</strong>
                   <p>{{ reminder.evidenceSources.length }} 条证据 · {{ evidenceStrengthSummary(reminder.evidenceSources) }}</p>
+                  <div class="cf-gene-evidence-preview">
+                    <article v-for="source in reminder.evidenceSources" :key="`${source.sourceType}-${source.sourceId}`">
+                      <div>
+                        <span>{{ evidenceLabel(source.sourceType) }}</span>
+                        <strong>{{ evidenceSourceTitle(source) }}</strong>
+                        <em>{{ evidenceSourceMeta(source) }}</em>
+                      </div>
+                      <p>{{ evidenceSourcePreview(source) }}</p>
+                      <button type="button" @click="focusEvidenceSource(source)">查看果实</button>
+                    </article>
+                  </div>
+
+                  <Transition name="cf-gene-compose">
+                    <section v-if="isGeneReasonComposerOpen(reminder.id)" class="cf-gene-reason-panel">
+                      <header>
+                        <div>
+                          <strong>补充本次汲取原因</strong>
+                          <span>这段说明会作为 Agent 判断“为什么这个事件值得沉淀”的上下文。</span>
+                        </div>
+                      </header>
+                      <label class="cf-gene-reason-field">
+                        <span>原因说明</span>
+                        <textarea
+                          v-model="geneExtractionReasonDrafts[reminder.id]"
+                          placeholder="例如：这个果实被选择，是因为标题先给情绪收益，再引出产品价值，用户理解成本更低。"
+                        />
+                      </label>
+                      <div class="cf-gene-reason-actions">
+                        <button type="button" :disabled="isGeneReminderBusy(reminder.id)" @click="startGeneExtraction(reminder.id)">
+                          确认汲取
+                        </button>
+                        <button type="button" :disabled="isGeneReminderBusy(reminder.id)" @click="cancelGeneReasonComposer(reminder.id)">取消</button>
+                      </div>
+                    </section>
+                  </Transition>
                 </div>
                 <div class="cf-gene-task-actions">
-                  <button type="button" :disabled="Boolean(geneActionLoading)" @click="startGeneExtraction(reminder.id)">
-                    {{ geneActionLoading === `extract:${reminder.id}` ? '汲取中' : '开始汲取' }}
+                  <button type="button" :disabled="isGeneReminderBusy(reminder.id)" @click="startGeneExtraction(reminder.id)">
+                    {{ isGeneReasonComposerOpen(reminder.id) ? '填写中' : '开始汲取' }}
                   </button>
-                  <button type="button" :disabled="Boolean(geneActionLoading)" @click="ignoreGeneReminder(reminder.id)">忽略</button>
+                  <button type="button" :disabled="isGeneReminderBusy(reminder.id)" @click="ignoreGeneReminder(reminder.id)">忽略</button>
                 </div>
               </article>
 
@@ -2775,28 +2974,61 @@ button:disabled {
   z-index: 34;
   right: 430px;
   bottom: 22px;
-  width: 52px;
-  height: 52px;
+  width: 58px;
+  height: 58px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(94, 215, 197, .28);
+  border: 1px solid rgba(106, 236, 215, .34);
   border-radius: 999px;
   background:
-    radial-gradient(circle at 38% 28%, rgba(255, 255, 255, .2), transparent 28%),
-    linear-gradient(145deg, rgba(94, 215, 197, .18), rgba(139, 156, 255, .12)),
+    radial-gradient(circle at 36% 24%, rgba(255, 255, 255, .22), transparent 24%),
+    radial-gradient(circle at 64% 70%, rgba(139, 156, 255, .2), transparent 34%),
+    linear-gradient(145deg, rgba(94, 215, 197, .2), rgba(139, 156, 255, .14)),
     rgba(12, 15, 20, .96);
   color: #dffff9;
-  box-shadow: 0 18px 58px rgba(0, 0, 0, .44), 0 0 0 1px rgba(94, 215, 197, .08);
+  box-shadow:
+    0 20px 68px rgba(0, 0, 0, .48),
+    0 0 0 1px rgba(94, 215, 197, .08),
+    0 0 26px rgba(94, 215, 197, .16);
   cursor: pointer;
   backdrop-filter: blur(20px);
   transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
 }
 
+.cf-gene-bubble::before,
+.cf-gene-bubble::after {
+  content: "";
+  position: absolute;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.cf-gene-bubble::before {
+  inset: -4px;
+  border: 1px solid rgba(240, 195, 107, .28);
+  border-top-color: rgba(94, 215, 197, .58);
+  border-right-color: rgba(139, 156, 255, .38);
+  opacity: .85;
+  animation: cf-gene-orbit 4.8s linear infinite;
+}
+
+.cf-gene-bubble::after {
+  inset: 7px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(94, 215, 197, .2), transparent 34%),
+    radial-gradient(circle at 50% 100%, rgba(139, 156, 255, .18), transparent 34%);
+  filter: blur(1px);
+  opacity: .72;
+}
+
 .cf-gene-bubble:hover,
 .cf-gene-bubble[aria-expanded="true"] {
-  transform: translateY(-2px);
-  border-color: rgba(94, 215, 197, .46);
-  box-shadow: 0 22px 72px rgba(0, 0, 0, .5), 0 0 24px rgba(94, 215, 197, .18);
+  transform: translateY(-2px) scale(1.04);
+  border-color: rgba(94, 215, 197, .6);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, .54),
+    0 0 0 1px rgba(94, 215, 197, .16),
+    0 0 34px rgba(94, 215, 197, .24);
 }
 
 .cf-gene-bubble.has-work {
@@ -2804,22 +3036,125 @@ button:disabled {
 }
 
 .cf-gene-bubble-core {
-  width: 34px;
-  height: 34px;
+  position: relative;
+  z-index: 1;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, .14);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .16);
   border-radius: 999px;
-  background: rgba(255, 255, 255, .055);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(94, 215, 197, .12), transparent 58%),
+    rgba(255, 255, 255, .055);
   color: #cffff8;
-  font-size: 14px;
-  font-weight: 800;
+  perspective: 110px;
+  box-shadow: inset 0 0 18px rgba(94, 215, 197, .14);
+}
+
+.cf-dna-helix {
+  position: relative;
+  width: 22px;
+  height: 31px;
+  display: block;
+  transform-style: preserve-3d;
+  animation: cf-dna-spin 2.4s linear infinite;
+}
+
+.cf-dna-helix::before,
+.cf-dna-helix::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 2px;
+  border-radius: 999px;
+  opacity: .92;
+  filter: drop-shadow(0 0 5px rgba(94, 215, 197, .55));
+}
+
+.cf-dna-helix::before {
+  left: 5px;
+  background: linear-gradient(180deg, transparent, #6aecd7 16%, #8b9cff 50%, #6aecd7 84%, transparent);
+  transform: rotate(13deg);
+}
+
+.cf-dna-helix::after {
+  right: 5px;
+  background: linear-gradient(180deg, transparent, #8b9cff 16%, #6aecd7 50%, #8b9cff 84%, transparent);
+  transform: rotate(-13deg);
+}
+
+.cf-dna-pair {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(106, 236, 215, .95), rgba(255, 255, 255, .75), rgba(139, 156, 255, .95));
+  box-shadow: 0 0 7px rgba(139, 156, 255, .38);
+  transform-origin: center;
+}
+
+.cf-dna-pair::before,
+.cf-dna-pair::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: #d9fff8;
+  transform: translateY(-50%);
+  box-shadow: 0 0 8px rgba(94, 215, 197, .58);
+}
+
+.cf-dna-pair::before {
+  left: -2px;
+}
+
+.cf-dna-pair::after {
+  right: -2px;
+  background: #dce2ff;
+  box-shadow: 0 0 8px rgba(139, 156, 255, .58);
+}
+
+.cf-dna-pair:nth-child(1) {
+  top: 3px;
+  transform: rotate(-18deg) scaleX(.68);
+}
+
+.cf-dna-pair:nth-child(2) {
+  top: 8px;
+  transform: rotate(14deg) scaleX(.92);
+}
+
+.cf-dna-pair:nth-child(3) {
+  top: 13px;
+  transform: rotate(24deg) scaleX(.7);
+}
+
+.cf-dna-pair:nth-child(4) {
+  top: 18px;
+  transform: rotate(-24deg) scaleX(.7);
+}
+
+.cf-dna-pair:nth-child(5) {
+  top: 23px;
+  transform: rotate(-14deg) scaleX(.92);
+}
+
+.cf-dna-pair:nth-child(6) {
+  top: 28px;
+  transform: rotate(18deg) scaleX(.68);
 }
 
 .cf-gene-bubble-badge {
   position: absolute;
-  top: -4px;
-  right: -3px;
+  z-index: 2;
+  top: -5px;
+  right: -4px;
   min-width: 20px;
   height: 20px;
   display: inline-flex;
@@ -2828,11 +3163,12 @@ button:disabled {
   padding: 0 6px;
   border: 2px solid #11151c;
   border-radius: 999px;
-  background: #ff4d5f;
+  background: linear-gradient(180deg, #ff5f70, #f82d48);
   color: #fff;
   font-size: 11px;
   font-weight: 800;
   line-height: 1;
+  box-shadow: 0 6px 16px rgba(248, 45, 72, .34);
 }
 
 .cf-gene-dialog-backdrop {
@@ -2968,6 +3304,7 @@ button:disabled {
 .cf-gene-dialog-metrics span,
 .cf-gene-section-head span,
 .cf-gene-task-main p,
+.cf-gene-reason-field span,
 .cf-gene-editor label span {
   color: var(--cf-muted);
   font-size: 11px;
@@ -2999,10 +3336,12 @@ button:disabled {
 }
 
 .cf-gene-task-card {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
+  overflow: hidden;
   padding: 12px;
   border: 1px solid rgba(255, 255, 255, .08);
   border-radius: 10px;
@@ -3018,6 +3357,95 @@ button:disabled {
 
 .cf-gene-task-card.is-suggestion {
   border-color: rgba(94, 215, 197, .2);
+}
+
+.cf-gene-task-card.is-composing {
+  align-items: start;
+  border-color: rgba(94, 215, 197, .34);
+  background:
+    linear-gradient(135deg, rgba(94, 215, 197, .08), transparent 44%),
+    rgba(8, 10, 14, .56);
+}
+
+.cf-gene-task-card.is-extracting {
+  border-color: rgba(94, 215, 197, .48);
+  background:
+    radial-gradient(circle at 86% 50%, rgba(94, 215, 197, .14), transparent 14rem),
+    linear-gradient(135deg, rgba(94, 215, 197, .1), transparent 42%),
+    rgba(8, 10, 14, .62);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .05),
+    0 0 0 1px rgba(94, 215, 197, .08),
+    0 18px 48px rgba(0, 0, 0, .28);
+}
+
+.cf-gene-task-card.is-extracting::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent, rgba(94, 215, 197, .18), transparent);
+  animation: cf-gene-card-scan 1.7s ease-in-out infinite;
+}
+
+.cf-gene-task-card.is-extracting button:disabled {
+  opacity: 1;
+}
+
+.cf-gene-card-loader {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 9px 0 7px;
+  border: 1px solid rgba(94, 215, 197, .3);
+  border-radius: 999px;
+  background: rgba(4, 10, 13, .82);
+  color: #c8fff5;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .28);
+  backdrop-filter: blur(12px);
+}
+
+.cf-gene-card-loader-core {
+  position: relative;
+  width: 22px;
+  height: 18px;
+  display: block;
+}
+
+.cf-gene-card-loader-core span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--cf-growth);
+  box-shadow: 0 0 14px rgba(94, 215, 197, .58);
+  animation: cf-gene-card-orbit 1.28s linear infinite;
+}
+
+.cf-gene-card-loader-core span:nth-child(2) {
+  animation-delay: -.42s;
+  background: var(--cf-accent);
+}
+
+.cf-gene-card-loader-core span:nth-child(3) {
+  animation-delay: -.84s;
+  background: #f0c36b;
+}
+
+.cf-gene-card-loader em {
+  color: #dffdf8;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .cf-gene-task-main {
@@ -3037,6 +3465,179 @@ button:disabled {
 
 .cf-gene-task-main p {
   margin: 0;
+}
+
+.cf-gene-evidence-preview {
+  display: grid;
+  gap: 7px;
+  margin-top: 5px;
+}
+
+.cf-gene-evidence-preview article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .026);
+}
+
+.cf-gene-evidence-preview article > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.cf-gene-evidence-preview span,
+.cf-gene-evidence-preview em {
+  color: var(--cf-muted);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 16px;
+}
+
+.cf-gene-evidence-preview strong {
+  overflow: hidden;
+  color: var(--cf-text);
+  font-size: 12px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-gene-evidence-preview p {
+  grid-column: 1 / -1;
+  display: -webkit-box;
+  overflow: hidden;
+  color: #a7b0bd;
+  font-size: 12px;
+  line-height: 18px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.cf-gene-evidence-preview button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(139, 156, 255, .18);
+  border-radius: 7px;
+  background: rgba(139, 156, 255, .07);
+  color: #dce2ff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cf-gene-evidence-preview button:hover {
+  border-color: rgba(139, 156, 255, .34);
+  background: rgba(139, 156, 255, .12);
+}
+
+.cf-gene-reason-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px;
+  border: 1px solid rgba(94, 215, 197, .22);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(94, 215, 197, .08), transparent 46%),
+    rgba(4, 7, 11, .7);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
+}
+
+.cf-gene-reason-panel header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cf-gene-reason-panel header div {
+  display: grid;
+  gap: 3px;
+}
+
+.cf-gene-reason-panel header strong {
+  color: var(--cf-text);
+  font-size: 13px;
+}
+
+.cf-gene-reason-panel header span {
+  color: var(--cf-muted);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.cf-gene-reason-field {
+  display: grid;
+  gap: 6px;
+}
+
+.cf-gene-reason-field textarea {
+  width: 100%;
+  min-height: 78px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 9px;
+  outline: 0;
+  background: rgba(5, 7, 11, .62);
+  color: var(--cf-text);
+  font-size: 12px;
+  line-height: 18px;
+  resize: vertical;
+}
+
+.cf-gene-reason-field textarea::placeholder {
+  color: rgba(143, 152, 168, .74);
+}
+
+.cf-gene-reason-field textarea:focus {
+  border-color: rgba(94, 215, 197, .42);
+  box-shadow: 0 0 0 3px rgba(94, 215, 197, .1);
+}
+
+.cf-gene-reason-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cf-gene-reason-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .045);
+  color: var(--cf-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cf-gene-reason-actions button:first-child {
+  border-color: rgba(94, 215, 197, .28);
+  background: rgba(94, 215, 197, .12);
+  color: #c0fff4;
+}
+
+.cf-gene-compose-enter-active,
+.cf-gene-compose-leave-active {
+  overflow: hidden;
+  transition: opacity .18s ease, transform .18s ease, max-height .18s ease;
+}
+
+.cf-gene-compose-enter-from,
+.cf-gene-compose-leave-to {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-5px);
+}
+
+.cf-gene-compose-enter-to,
+.cf-gene-compose-leave-from {
+  max-height: 240px;
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .cf-gene-task-badge {
@@ -4137,6 +4738,57 @@ button:disabled {
   }
 }
 
+@keyframes cf-gene-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes cf-gene-card-orbit {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg) translateX(8px) scale(.84);
+  }
+
+  50% {
+    transform: translate(-50%, -50%) rotate(180deg) translateX(8px) scale(1.15);
+  }
+
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg) translateX(8px) scale(.84);
+  }
+}
+
+@keyframes cf-gene-card-scan {
+  0% {
+    transform: translateX(-120%);
+    opacity: 0;
+  }
+
+  35%,
+  70% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+}
+
+@keyframes cf-dna-spin {
+  0% {
+    transform: rotateY(0deg) rotateZ(-4deg);
+  }
+
+  50% {
+    transform: rotateY(180deg) rotateZ(4deg);
+  }
+
+  100% {
+    transform: rotateY(360deg) rotateZ(-4deg);
+  }
+}
+
 @keyframes cf-menu-in {
   from {
     opacity: 0;
@@ -4221,6 +4873,10 @@ button:disabled {
   .cf-vessel-thread,
   .cf-vessel-core,
   .cf-vessel-scan,
+  .cf-gene-bubble::before,
+  .cf-gene-card-loader-core span,
+  .cf-gene-task-card.is-extracting::after,
+  .cf-dna-helix,
   .cf-pill-menu,
   .cf-resource-popover,
   .cf-header-tree-status.is-growing .cf-growth-meter span {

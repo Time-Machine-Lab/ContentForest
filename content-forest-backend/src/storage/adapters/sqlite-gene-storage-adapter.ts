@@ -42,6 +42,7 @@ interface GeneReminderRow {
 interface GeneTaskRow {
   id: string;
   seed_id: string;
+  reminder_id: string | null;
   status: GeneExtractionTaskStatus;
   failure_reason: string | null;
   evidence_sources_json: string;
@@ -210,17 +211,19 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
         `INSERT INTO gene_extraction_tasks (
           id,
           seed_id,
+          reminder_id,
           status,
           failure_reason,
           evidence_sources_json,
           agent_input_json,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
         record.seedId,
+        record.reminderId ?? null,
         record.status,
         record.failureReason,
         JSON.stringify(record.evidenceSources),
@@ -246,6 +249,7 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
       .prepare(
         `UPDATE gene_extraction_tasks
           SET status = ?,
+              reminder_id = ?,
               failure_reason = ?,
               evidence_sources_json = ?,
               agent_input_json = ?,
@@ -254,12 +258,27 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
       )
       .run(
         record.status,
+        record.reminderId ?? null,
         record.failureReason,
         JSON.stringify(record.evidenceSources),
         JSON.stringify(record.agentInput),
         record.updatedAt,
         record.id,
       );
+  }
+
+  public async listExtractionTasksBySeedAndStatus(
+    seedId: string,
+    status: GeneExtractionTaskStatus,
+  ): Promise<GeneExtractionTaskRecord[]> {
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM gene_extraction_tasks
+          WHERE seed_id = ? AND status = ?
+          ORDER BY updated_at DESC`,
+      )
+      .all(seedId, status) as unknown as GeneTaskRow[];
+    return rows.map((row) => this.toTaskRecord(row));
   }
 
   public async createSuggestion(record: GeneSuggestionRecord): Promise<void> {
@@ -564,6 +583,7 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
       CREATE TABLE IF NOT EXISTS gene_extraction_tasks (
         id TEXT PRIMARY KEY,
         seed_id TEXT NOT NULL,
+        reminder_id TEXT,
         status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
         failure_reason TEXT,
         evidence_sources_json TEXT NOT NULL DEFAULT '[]',
@@ -656,6 +676,14 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
     } catch {
       // Older databases may already have the column.
     }
+    try {
+      this.database.exec(`
+        ALTER TABLE gene_extraction_tasks
+          ADD COLUMN reminder_id TEXT;
+      `);
+    } catch {
+      // Older databases may already have the column.
+    }
   }
 
   private toLibraryRecord(row: GeneLibraryRow): GeneLibraryRecord {
@@ -683,6 +711,7 @@ export class SqliteGeneStorageAdapter implements GeneStoragePort {
     return {
       id: row.id,
       seedId: row.seed_id,
+      reminderId: row.reminder_id,
       status: row.status,
       failureReason: row.failure_reason,
       evidenceSources: this.parseEvidenceSources(row.evidence_sources_json),

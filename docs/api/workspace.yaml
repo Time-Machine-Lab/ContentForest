@@ -368,7 +368,7 @@ components:
           format: date-time
     WorkspaceGeneReminderSummary:
       type: object
-      required: [id, seedId, status, evidenceSources, createdAt, updatedAt]
+      required: [id, seedId, status, evidenceSources, runningTaskId, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -381,6 +381,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/GeneEvidenceSource'
+        runningTaskId:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time

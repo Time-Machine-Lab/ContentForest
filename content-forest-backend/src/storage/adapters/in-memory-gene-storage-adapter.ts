@@ -1,5 +1,6 @@
 import {
   GENE_INSIGHT_STATUSES,
+  type GeneExtractionTaskStatus,
   type GeneReminderStatus,
   type GeneSuggestionStatus,
 } from "../../modules/gene/domain/gene-types.js";
@@ -82,6 +83,16 @@ export class InMemoryGeneStorageAdapter implements GeneStoragePort {
     record: GeneExtractionTaskRecord,
   ): Promise<void> {
     this.tasks.set(record.id, this.cloneTask(record));
+  }
+
+  public async listExtractionTasksBySeedAndStatus(
+    seedId: string,
+    status: GeneExtractionTaskStatus,
+  ): Promise<GeneExtractionTaskRecord[]> {
+    return [...this.tasks.values()]
+      .filter((record) => record.seedId === seedId && record.status === status)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map((record) => this.cloneTask(record));
   }
 
   public async createSuggestion(record: GeneSuggestionRecord): Promise<void> {

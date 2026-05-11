@@ -69,7 +69,7 @@ export function validateGeneExtractionSuggestions(
     if (suggestion.nextRoundUsage.trim().length === 0) {
       errors.push(`${prefix}.nextRoundUsage is required`);
     }
-    if (!hasNextRoundAdvice(suggestion.nextRoundUsage)) {
+    if (!hasNextRoundAdvice(`${suggestion.nextRoundUsage}\n${suggestion.bodyMarkdown}`)) {
       errors.push(`${prefix}.nextRoundUsageAdvice is required`);
     }
   }
@@ -148,9 +148,7 @@ function normalizeSuggestion(value: unknown): StructuredGeneExtractionSuggestion
     evidenceInterpretation: typeof record.evidenceInterpretation === "string"
       ? record.evidenceInterpretation
       : "",
-    nextRoundUsage: typeof record.nextRoundUsage === "string"
-      ? record.nextRoundUsage
-      : "",
+    nextRoundUsage: normalizeNextRoundUsage(record),
     lineage: typeof record.lineage === "string" ? record.lineage : "",
     niche: typeof record.niche === "string" ? record.niche : "",
     similarityRelation: normalizeSimilarityRelation(record.similarityRelation),
@@ -242,6 +240,16 @@ function normalizeStringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+function normalizeNextRoundUsage(record: Record<string, unknown>): string {
+  if (typeof record.nextRoundUsage === "string") {
+    return record.nextRoundUsage;
+  }
+  if (typeof record.nextRoundUsageAdvice === "string") {
+    return record.nextRoundUsageAdvice;
+  }
+  return "";
+}
+
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
 }
@@ -251,7 +259,7 @@ function containsRealPath(value: string): boolean {
 }
 
 function hasNextRoundAdvice(value: string): boolean {
-  return /next|later|future|inherit|strengthen|mutate|combine|avoid|reuse|amplify|weaken|do not|should not/i.test(value);
+  return /next|later|future|inherit|strengthen|mutate|combine|avoid|reuse|amplify|weaken|do not|should not|下一|下轮|下一轮|后续|继承|强化|变异|组合|结合|避免|规避|复用|放大|弱化|不要|不应|建议|操作|使用/i.test(value);
 }
 
 function extractNextRoundAdvice(

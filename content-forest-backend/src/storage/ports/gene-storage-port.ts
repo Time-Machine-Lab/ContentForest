@@ -2,6 +2,7 @@ import type {
   GeneEvidenceSource,
   GeneExtractionReminder,
   GeneExtractionTask,
+  GeneExtractionTaskStatus,
   GeneInsightSummary,
   GeneLibrary,
   GenePerformanceSummary,
@@ -33,6 +34,10 @@ export interface GeneStoragePort {
   createExtractionTask(record: GeneExtractionTaskRecord): Promise<void>;
   findExtractionTaskById(taskId: string): Promise<GeneExtractionTaskRecord | null>;
   saveExtractionTask(record: GeneExtractionTaskRecord): Promise<void>;
+  listExtractionTasksBySeedAndStatus(
+    seedId: string,
+    status: GeneExtractionTaskStatus,
+  ): Promise<GeneExtractionTaskRecord[]>;
 
   createSuggestion(record: GeneSuggestionRecord): Promise<void>;
   findSuggestionById(suggestionId: string): Promise<GeneSuggestionRecord | null>;
