@@ -6,6 +6,7 @@ import { GENERATOR_ENABLE_STATES } from "../modules/generator/domain/generator-t
 import { GENE_INSIGHT_STATUSES } from "../modules/gene/domain/gene-types.js";
 import {
   NUTRIENT_ARCHIVE_STATES,
+  NUTRIENT_CARD_STATUSES,
   NUTRIENT_LIBRARY_SCOPES,
 } from "../modules/nutrient/domain/nutrient-types.js";
 import { InMemoryGeneStorageAdapter } from "../storage/adapters/in-memory-gene-storage-adapter.js";
@@ -23,6 +24,7 @@ const context: AgentTaskContext = {
     authorizationScope: {
       generatorId: "generator_1",
       nutrientRefs: [],
+      temporaryNutrientCardRefs: [],
       geneRefs: [],
     },
   },
@@ -33,6 +35,10 @@ const context: AgentTaskContext = {
 function resourceContext(
   nutrientRefs: Array<{ resourceType: "nutrient"; resourceId: string }>,
   geneRefs: Array<{ resourceType: "gene"; resourceId: string }> = [],
+  temporaryNutrientCardRefs: Array<{
+    resourceType: "nutrient_card";
+    resourceId: string;
+  }> = [],
 ): AgentTaskContext {
   return {
     ...context,
@@ -42,6 +48,7 @@ function resourceContext(
         seedId: "seed_1",
         generatorId: "generator_1",
         nutrientRefs,
+        temporaryNutrientCardRefs,
         geneRefs,
       },
     },
@@ -291,6 +298,39 @@ describe("Branch growth resource tool", () => {
       beforeInsights,
     );
   });
+
+  it("reads authorized unsettled nutrient cards as temporary candidate resources", async () => {
+    const fixture = await createResourceFixture();
+    const tool = new ReadGrowthResourcesTool(fixture);
+
+    const output = await tool.execute(
+      {},
+      resourceContext(
+        [],
+        [],
+        [
+          { resourceType: "nutrient_card", resourceId: "card_unsettled" },
+          { resourceType: "nutrient_card", resourceId: "card_other_seed" },
+          { resourceType: "nutrient_card", resourceId: "card_archived" },
+        ],
+      ),
+    );
+
+    expect(output.content).toMatchObject({
+      temporaryNutrientCards: [
+        {
+          resourceType: "nutrient_card",
+          resourceId: "card_unsettled",
+          title: "Unsettled card",
+          status: NUTRIENT_CARD_STATUSES.unsettled,
+          candidate: true,
+          markdown: "Unsettled card markdown",
+        },
+      ],
+    });
+    expect(JSON.stringify(output.content)).not.toContain("Other seed card markdown");
+    expect(JSON.stringify(output.content)).not.toContain("Archived card markdown");
+  });
 });
 
 async function createResourceFixture(): Promise<{
@@ -383,6 +423,32 @@ async function createResourceFixture(): Promise<{
     markdown: "Archived library markdown",
   });
 
+  await createNutrientCard({
+    nutrientStorage,
+    nutrientContentAccess,
+    cardId: "card_unsettled",
+    seedId: "seed_1",
+    title: "Unsettled card",
+    markdown: "Unsettled card markdown",
+  });
+  await createNutrientCard({
+    nutrientStorage,
+    nutrientContentAccess,
+    cardId: "card_other_seed",
+    seedId: "seed_2",
+    title: "Other seed card",
+    markdown: "Other seed card markdown",
+  });
+  await createNutrientCard({
+    nutrientStorage,
+    nutrientContentAccess,
+    cardId: "card_archived",
+    seedId: "seed_1",
+    title: "Archived card",
+    markdown: "Archived card markdown",
+    status: NUTRIENT_CARD_STATUSES.archived,
+  });
+
   const geneLocation = await geneContentAccess.createGeneInsightMarkdown({
     seedId: "seed_1",
     insightId: "gene_1",
@@ -465,6 +531,42 @@ async function createNutrientContent(input: {
     updatedAt: "2026-01-01T00:00:00.000Z",
     archivedAt:
       input.archiveState === NUTRIENT_ARCHIVE_STATES.archived
+        ? "2026-01-01T00:00:00.000Z"
+        : null,
+  });
+}
+
+async function createNutrientCard(input: {
+  nutrientStorage: InMemoryNutrientStorageAdapter;
+  nutrientContentAccess: InMemoryNutrientMarkdownContentAccessAdapter;
+  cardId: string;
+  seedId: string;
+  title: string;
+  markdown: string;
+  status?: (typeof NUTRIENT_CARD_STATUSES)[keyof typeof NUTRIENT_CARD_STATUSES];
+}): Promise<void> {
+  const contentLocation =
+    await input.nutrientContentAccess.createNutrientMarkdown({
+      contentId: input.cardId,
+      libraryScope: NUTRIENT_LIBRARY_SCOPES.seedScoped,
+      seedId: input.seedId,
+      markdown: input.markdown,
+    });
+  const status = input.status ?? NUTRIENT_CARD_STATUSES.unsettled;
+  await input.nutrientStorage.createCard({
+    id: input.cardId,
+    seedId: input.seedId,
+    title: input.title,
+    status,
+    contentLocation,
+    settledContentId: null,
+    defaultForGrowth: false,
+    conversationId: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    settledAt: null,
+    archivedAt:
+      status === NUTRIENT_CARD_STATUSES.archived
         ? "2026-01-01T00:00:00.000Z"
         : null,
   });

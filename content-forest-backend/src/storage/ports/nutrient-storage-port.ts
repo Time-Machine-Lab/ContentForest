@@ -1,5 +1,6 @@
 import type {
   NutrientArchiveState,
+  NutrientCardStatus,
   NutrientLibraryScope,
 } from "../../modules/nutrient/domain/nutrient-types.js";
 
@@ -26,6 +27,21 @@ export interface NutrientContentRecord {
   archivedAt: string | null;
 }
 
+export interface NutrientCardRecord {
+  id: string;
+  seedId: string;
+  title: string;
+  status: NutrientCardStatus;
+  contentLocation: string;
+  settledContentId: string | null;
+  defaultForGrowth: boolean;
+  conversationId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  settledAt: string | null;
+  archivedAt: string | null;
+}
+
 export interface NutrientLibraryListFilter {
   scope?: NutrientLibraryScope;
   archiveState?: NutrientArchiveState;
@@ -36,9 +52,14 @@ export interface NutrientContentListFilter {
   archiveState?: NutrientArchiveState;
 }
 
+export interface NutrientCardListFilter {
+  status?: NutrientCardStatus;
+}
+
 export interface ReferableNutrientContentRecord {
   content: NutrientContentRecord;
   library: NutrientLibraryRecord;
+  defaultForGrowth: boolean;
 }
 
 export interface NutrientStoragePort {
@@ -56,4 +77,15 @@ export interface NutrientStoragePort {
     filter?: NutrientContentListFilter,
   ): Promise<NutrientContentRecord[]>;
   listReferableContents(seedId: string): Promise<ReferableNutrientContentRecord[]>;
+
+  createCard(record: NutrientCardRecord): Promise<void>;
+  findCardById(cardId: string): Promise<NutrientCardRecord | null>;
+  saveCard(record: NutrientCardRecord): Promise<void>;
+  listCardsBySeed(
+    seedId: string,
+    filter?: NutrientCardListFilter,
+  ): Promise<NutrientCardRecord[]>;
+  findCardsBySettledContentIds(
+    contentIds: string[],
+  ): Promise<NutrientCardRecord[]>;
 }

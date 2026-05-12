@@ -1,10 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import type {
   NutrientArchiveState,
+  NutrientCardStatus,
   NutrientLibraryScope,
 } from "../../modules/nutrient/domain/nutrient-types.js";
 import { NUTRIENT_ARCHIVE_STATES } from "../../modules/nutrient/domain/nutrient-types.js";
 import type {
+  NutrientCardListFilter,
+  NutrientCardRecord,
   NutrientContentListFilter,
   NutrientContentRecord,
   NutrientLibraryListFilter,
@@ -36,6 +39,21 @@ interface NutrientContentRow {
   archived_at: string | null;
 }
 
+interface NutrientCardRow {
+  id: string;
+  seed_id: string;
+  title: string;
+  status: NutrientCardStatus;
+  content_location: string;
+  settled_content_id: string | null;
+  default_for_growth: number;
+  conversation_id: string | null;
+  created_at: string;
+  updated_at: string;
+  settled_at: string | null;
+  archived_at: string | null;
+}
+
 interface ReferableRow extends NutrientContentRow {
   library_name: string;
   library_description: string;
@@ -45,6 +63,7 @@ interface ReferableRow extends NutrientContentRow {
   library_created_at: string;
   library_updated_at: string;
   library_archived_at: string | null;
+  default_for_growth: number;
 }
 
 export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
@@ -240,12 +259,27 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
             l.archive_state AS library_archive_state,
             l.created_at AS library_created_at,
             l.updated_at AS library_updated_at,
-            l.archived_at AS library_archived_at
+            l.archived_at AS library_archived_at,
+            CASE
+              WHEN EXISTS (
+                SELECT 1 FROM nutrient_cards default_card
+                WHERE default_card.settled_content_id = c.id
+                  AND default_card.status = 'settled'
+                  AND default_card.default_for_growth = 1
+              )
+              THEN 1
+              ELSE 0
+            END AS default_for_growth
           FROM nutrient_contents c
           INNER JOIN nutrient_libraries l ON l.id = c.library_id
           WHERE c.archive_state = ?
             AND l.archive_state = ?
             AND (l.scope = 'public' OR l.seed_id = ?)
+            AND NOT EXISTS (
+              SELECT 1 FROM nutrient_cards card
+              WHERE card.settled_content_id = c.id
+                AND card.status = 'archived'
+            )
           ORDER BY c.updated_at DESC`,
       )
       .all(
@@ -266,7 +300,114 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
         updatedAt: row.library_updated_at,
         archivedAt: row.library_archived_at,
       },
+      defaultForGrowth: row.default_for_growth === 1,
     }));
+  }
+
+  public async createCard(record: NutrientCardRecord): Promise<void> {
+    this.database
+      .prepare(
+        `INSERT INTO nutrient_cards (
+          id,
+          seed_id,
+          title,
+          status,
+          content_location,
+          settled_content_id,
+          default_for_growth,
+          conversation_id,
+          created_at,
+          updated_at,
+          settled_at,
+          archived_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        record.id,
+        record.seedId,
+        record.title,
+        record.status,
+        record.contentLocation,
+        record.settledContentId,
+        record.defaultForGrowth ? 1 : 0,
+        record.conversationId,
+        record.createdAt,
+        record.updatedAt,
+        record.settledAt,
+        record.archivedAt,
+      );
+  }
+
+  public async findCardById(cardId: string): Promise<NutrientCardRecord | null> {
+    const row = this.database
+      .prepare("SELECT * FROM nutrient_cards WHERE id = ?")
+      .get(cardId) as NutrientCardRow | undefined;
+    return row === undefined ? null : this.toCardRecord(row);
+  }
+
+  public async saveCard(record: NutrientCardRecord): Promise<void> {
+    this.database
+      .prepare(
+        `UPDATE nutrient_cards
+          SET title = ?,
+              status = ?,
+              content_location = ?,
+              settled_content_id = ?,
+              default_for_growth = ?,
+              conversation_id = ?,
+              updated_at = ?,
+              settled_at = ?,
+              archived_at = ?
+          WHERE id = ?`,
+      )
+      .run(
+        record.title,
+        record.status,
+        record.contentLocation,
+        record.settledContentId,
+        record.defaultForGrowth ? 1 : 0,
+        record.conversationId,
+        record.updatedAt,
+        record.settledAt,
+        record.archivedAt,
+        record.id,
+      );
+  }
+
+  public async listCardsBySeed(
+    seedId: string,
+    filter: NutrientCardListFilter = {},
+  ): Promise<NutrientCardRecord[]> {
+    const clauses = ["seed_id = ?"];
+    const params = [seedId];
+    if (filter.status !== undefined) {
+      clauses.push("status = ?");
+      params.push(filter.status);
+    }
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM nutrient_cards
+          WHERE ${clauses.join(" AND ")}
+          ORDER BY updated_at DESC`,
+      )
+      .all(...params) as unknown as NutrientCardRow[];
+    return rows.map((row) => this.toCardRecord(row));
+  }
+
+  public async findCardsBySettledContentIds(
+    contentIds: string[],
+  ): Promise<NutrientCardRecord[]> {
+    if (contentIds.length === 0) {
+      return [];
+    }
+    const placeholders = contentIds.map(() => "?").join(", ");
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM nutrient_cards
+          WHERE settled_content_id IN (${placeholders})`,
+      )
+      .all(...contentIds) as unknown as NutrientCardRow[];
+    return rows.map((row) => this.toCardRecord(row));
   }
 
   public close(): void {
@@ -311,6 +452,30 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
 
       CREATE INDEX IF NOT EXISTS idx_nutrient_contents_library_archive_updated_at
         ON nutrient_contents (library_id, archive_state, updated_at);
+
+      CREATE TABLE IF NOT EXISTS nutrient_cards (
+        id TEXT PRIMARY KEY,
+        seed_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'unsettled' CHECK (status IN ('unsettled', 'settled', 'archived')),
+        content_location TEXT NOT NULL,
+        settled_content_id TEXT,
+        default_for_growth INTEGER NOT NULL DEFAULT 0 CHECK (default_for_growth IN (0, 1)),
+        conversation_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        settled_at TEXT,
+        archived_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_nutrient_cards_seed_status_updated_at
+        ON nutrient_cards (seed_id, status, updated_at);
+
+      CREATE INDEX IF NOT EXISTS idx_nutrient_cards_settled_content_id
+        ON nutrient_cards (settled_content_id);
+
+      CREATE INDEX IF NOT EXISTS idx_nutrient_cards_seed_default_for_growth
+        ON nutrient_cards (seed_id, default_for_growth);
     `);
   }
 
@@ -337,6 +502,23 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
       contentLocation: row.content_location,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      archivedAt: row.archived_at,
+    };
+  }
+
+  private toCardRecord(row: NutrientCardRow): NutrientCardRecord {
+    return {
+      id: row.id,
+      seedId: row.seed_id,
+      title: row.title,
+      status: row.status,
+      contentLocation: row.content_location,
+      settledContentId: row.settled_content_id,
+      defaultForGrowth: row.default_for_growth === 1,
+      conversationId: row.conversation_id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      settledAt: row.settled_at,
       archivedAt: row.archived_at,
     };
   }

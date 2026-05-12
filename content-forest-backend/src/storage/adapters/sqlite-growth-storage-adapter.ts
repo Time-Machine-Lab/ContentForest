@@ -12,6 +12,7 @@ import type {
   GrowthSearchMode,
   GrowthSourceNodeRef,
   GrowthTaskStatus,
+  GrowthTemporaryNutrientCardRef,
 } from "../../modules/growth/domain/growth-types.js";
 import type {
   GrowthAttemptRecord,
@@ -31,6 +32,7 @@ interface GrowthTaskRow {
   generator_id: string;
   fruit_count: number;
   nutrient_refs_json: string;
+  temporary_nutrient_card_refs_json: string;
   gene_refs_json: string;
   detail_params_json: string;
   search_mode: GrowthSearchMode;
@@ -75,6 +77,7 @@ interface GrowthFailedInputRow {
   generator_id: string;
   fruit_count: number;
   nutrient_refs_json: string;
+  temporary_nutrient_card_refs_json: string;
   gene_refs_json: string;
   detail_params_json: string;
   search_mode: GrowthSearchMode;
@@ -104,6 +107,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
           generator_id,
           fruit_count,
           nutrient_refs_json,
+          temporary_nutrient_card_refs_json,
           gene_refs_json,
           detail_params_json,
           search_mode,
@@ -116,7 +120,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
           created_at,
           updated_at,
           finished_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
@@ -128,6 +132,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         record.generatorId,
         record.fruitCount,
         JSON.stringify(record.nutrientRefs),
+        JSON.stringify(record.temporaryNutrientCardRefs),
         JSON.stringify(record.geneRefs),
         JSON.stringify(record.detailParams),
         record.pipelineParams.searchMode,
@@ -170,6 +175,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
               generator_id = ?,
               fruit_count = ?,
               nutrient_refs_json = ?,
+              temporary_nutrient_card_refs_json = ?,
               gene_refs_json = ?,
               detail_params_json = ?,
               search_mode = ?,
@@ -189,6 +195,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         record.generatorId,
         record.fruitCount,
         JSON.stringify(record.nutrientRefs),
+        JSON.stringify(record.temporaryNutrientCardRefs),
         JSON.stringify(record.geneRefs),
         JSON.stringify(record.detailParams),
         record.pipelineParams.searchMode,
@@ -351,13 +358,14 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
           generator_id,
           fruit_count,
           nutrient_refs_json,
+          temporary_nutrient_card_refs_json,
           gene_refs_json,
           detail_params_json,
           search_mode,
           mutation_intensity,
           failure_reason,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(source_node_type, source_node_id) DO UPDATE SET
           task_id = excluded.task_id,
           seed_id = excluded.seed_id,
@@ -365,6 +373,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
           generator_id = excluded.generator_id,
           fruit_count = excluded.fruit_count,
           nutrient_refs_json = excluded.nutrient_refs_json,
+          temporary_nutrient_card_refs_json = excluded.temporary_nutrient_card_refs_json,
           gene_refs_json = excluded.gene_refs_json,
           detail_params_json = excluded.detail_params_json,
           search_mode = excluded.search_mode,
@@ -381,6 +390,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         record.generatorId,
         record.fruitCount,
         JSON.stringify(record.nutrientRefs),
+        JSON.stringify(record.temporaryNutrientCardRefs),
         JSON.stringify(record.geneRefs),
         JSON.stringify(record.detailParams),
         record.pipelineParams.searchMode,
@@ -431,6 +441,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         generator_id TEXT NOT NULL,
         fruit_count INTEGER NOT NULL CHECK (fruit_count >= 1 AND fruit_count <= 6),
         nutrient_refs_json TEXT NOT NULL DEFAULT '[]',
+        temporary_nutrient_card_refs_json TEXT NOT NULL DEFAULT '[]',
         gene_refs_json TEXT NOT NULL DEFAULT '[]',
         detail_params_json TEXT NOT NULL DEFAULT '{}',
         search_mode TEXT NOT NULL DEFAULT 'broad_exploration' CHECK (search_mode IN ('broad_exploration', 'directional_strengthening', 'local_variation', 'negative_feedback_avoidance')),
@@ -489,6 +500,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         generator_id TEXT NOT NULL,
         fruit_count INTEGER NOT NULL CHECK (fruit_count >= 1 AND fruit_count <= 6),
         nutrient_refs_json TEXT NOT NULL DEFAULT '[]',
+        temporary_nutrient_card_refs_json TEXT NOT NULL DEFAULT '[]',
         gene_refs_json TEXT NOT NULL DEFAULT '[]',
         detail_params_json TEXT NOT NULL DEFAULT '{}',
         search_mode TEXT NOT NULL DEFAULT 'broad_exploration',
@@ -501,6 +513,11 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       CREATE INDEX IF NOT EXISTS idx_growth_failed_inputs_seed_updated_at
         ON growth_failed_inputs (seed_id, updated_at);
     `);
+    this.ensureColumn(
+      "growth_tasks",
+      "temporary_nutrient_card_refs_json",
+      "TEXT NOT NULL DEFAULT '[]'",
+    );
     this.ensureColumn(
       "growth_tasks",
       "search_mode",
@@ -520,6 +537,11 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       "growth_attempts",
       "mutation_plan_json",
       "TEXT NOT NULL DEFAULT '{}'",
+    );
+    this.ensureColumn(
+      "growth_failed_inputs",
+      "temporary_nutrient_card_refs_json",
+      "TEXT NOT NULL DEFAULT '[]'",
     );
     this.ensureColumn(
       "growth_failed_inputs",
@@ -561,6 +583,9 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       generatorId: row.generator_id,
       fruitCount: row.fruit_count,
       nutrientRefs: this.parseResourceRefs(row.nutrient_refs_json),
+      temporaryNutrientCardRefs: this.parseTemporaryNutrientCardRefs(
+        row.temporary_nutrient_card_refs_json,
+      ),
       geneRefs: this.parseResourceRefs(row.gene_refs_json),
       detailParams: this.parseRecord(row.detail_params_json),
       pipelineParams: {
@@ -622,6 +647,9 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       generatorId: row.generator_id,
       fruitCount: row.fruit_count,
       nutrientRefs: this.parseResourceRefs(row.nutrient_refs_json),
+      temporaryNutrientCardRefs: this.parseTemporaryNutrientCardRefs(
+        row.temporary_nutrient_card_refs_json,
+      ),
       geneRefs: this.parseResourceRefs(row.gene_refs_json),
       detailParams: this.parseRecord(row.detail_params_json),
       pipelineParams: {
@@ -648,6 +676,9 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       generatorId:
         typeof parsed.generatorId === "string" ? parsed.generatorId : generatorId,
       nutrientRefs: this.parseResourceRefsFromUnknown(parsed.nutrientRefs),
+      temporaryNutrientCardRefs: this.parseTemporaryNutrientCardRefsFromUnknown(
+        parsed.temporaryNutrientCardRefs,
+      ),
       geneRefs: this.parseResourceRefsFromUnknown(parsed.geneRefs),
     };
   }
@@ -669,6 +700,34 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
             ((item as GrowthResourceRef).resourceType === "nutrient" ||
               (item as GrowthResourceRef).resourceType === "gene") &&
             typeof (item as GrowthResourceRef).resourceId === "string",
+        )
+      : [];
+  }
+
+  private parseTemporaryNutrientCardRefs(
+    value: string,
+  ): GrowthTemporaryNutrientCardRef[] {
+    try {
+      return this.parseTemporaryNutrientCardRefsFromUnknown(
+        JSON.parse(value) as unknown,
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  private parseTemporaryNutrientCardRefsFromUnknown(
+    value: unknown,
+  ): GrowthTemporaryNutrientCardRef[] {
+    return Array.isArray(value)
+      ? value.filter(
+          (item): item is GrowthTemporaryNutrientCardRef =>
+            typeof item === "object" &&
+            item !== null &&
+            (item as GrowthTemporaryNutrientCardRef).resourceType ===
+              "nutrient_card" &&
+            typeof (item as GrowthTemporaryNutrientCardRef).resourceId ===
+              "string",
         )
       : [];
   }

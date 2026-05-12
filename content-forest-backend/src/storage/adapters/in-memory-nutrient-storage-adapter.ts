@@ -3,6 +3,8 @@ import {
   NUTRIENT_LIBRARY_SCOPES,
 } from "../../modules/nutrient/domain/nutrient-types.js";
 import type {
+  NutrientCardListFilter,
+  NutrientCardRecord,
   NutrientContentListFilter,
   NutrientContentRecord,
   NutrientLibraryListFilter,
@@ -14,6 +16,7 @@ import type {
 export class InMemoryNutrientStorageAdapter implements NutrientStoragePort {
   private readonly libraries = new Map<string, NutrientLibraryRecord>();
   private readonly contents = new Map<string, NutrientContentRecord>();
+  private readonly cards = new Map<string, NutrientCardRecord>();
 
   public async createLibrary(record: NutrientLibraryRecord): Promise<void> {
     this.libraries.set(record.id, { ...record });
@@ -96,17 +99,71 @@ export class InMemoryNutrientStorageAdapter implements NutrientStoragePort {
             library.seedId === seedId);
         if (
           !libraryReferable ||
-          content.archiveState !== NUTRIENT_ARCHIVE_STATES.active
+          content.archiveState !== NUTRIENT_ARCHIVE_STATES.active ||
+          this.isBlockedByArchivedCard(content.id)
         ) {
           return [];
         }
         return [{
           content: { ...content },
           library: { ...library },
+          defaultForGrowth: this.isDefaultForGrowth(content.id),
         }];
       })
       .sort((left, right) =>
         right.content.updatedAt.localeCompare(left.content.updatedAt),
       );
+  }
+
+  public async createCard(record: NutrientCardRecord): Promise<void> {
+    this.cards.set(record.id, { ...record });
+  }
+
+  public async findCardById(cardId: string): Promise<NutrientCardRecord | null> {
+    const record = this.cards.get(cardId);
+    return record === undefined ? null : { ...record };
+  }
+
+  public async saveCard(record: NutrientCardRecord): Promise<void> {
+    this.cards.set(record.id, { ...record });
+  }
+
+  public async listCardsBySeed(
+    seedId: string,
+    filter: NutrientCardListFilter = {},
+  ): Promise<NutrientCardRecord[]> {
+    return [...this.cards.values()]
+      .filter((record) => record.seedId === seedId)
+      .filter((record) => filter.status === undefined || record.status === filter.status)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map((record) => ({ ...record }));
+  }
+
+  public async findCardsBySettledContentIds(
+    contentIds: string[],
+  ): Promise<NutrientCardRecord[]> {
+    const contentIdSet = new Set(contentIds);
+    return [...this.cards.values()]
+      .filter(
+        (record) =>
+          record.settledContentId !== null &&
+          contentIdSet.has(record.settledContentId),
+      )
+      .map((record) => ({ ...record }));
+  }
+
+  private isDefaultForGrowth(contentId: string): boolean {
+    return [...this.cards.values()].some(
+      (card) =>
+        card.settledContentId === contentId &&
+        card.defaultForGrowth &&
+        card.status !== "archived",
+    );
+  }
+
+  private isBlockedByArchivedCard(contentId: string): boolean {
+    return [...this.cards.values()].some(
+      (card) => card.settledContentId === contentId && card.status === "archived",
+    );
   }
 }

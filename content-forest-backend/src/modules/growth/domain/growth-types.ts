@@ -21,6 +21,7 @@ export type GrowthAttemptStatus =
 export type GrowthSourceNodeRef = ParentNodeRef;
 
 export type GrowthResourceType = "nutrient" | "gene";
+export type GrowthTemporaryResourceType = "nutrient_card";
 
 export const GROWTH_SEARCH_MODES = {
   broadExploration: "broad_exploration",
@@ -53,6 +54,11 @@ export type GrowthPathStepStatus =
 
 export interface GrowthResourceRef {
   resourceType: GrowthResourceType;
+  resourceId: string;
+}
+
+export interface GrowthTemporaryNutrientCardRef {
+  resourceType: GrowthTemporaryResourceType;
   resourceId: string;
 }
 
@@ -89,6 +95,7 @@ export interface GrowthTaskInput {
   generatorId: string;
   fruitCount: number;
   nutrientRefs: GrowthResourceRef[];
+  temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[];
   geneRefs: GrowthResourceRef[];
   detailParams: Record<string, unknown>;
   pipelineParams: GrowthPipelineParams;
@@ -99,6 +106,7 @@ export interface GrowthAuthorizationScope {
   sourceNodeRef: GrowthSourceNodeRef;
   generatorId: string;
   nutrientRefs: GrowthResourceRef[];
+  temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[];
   geneRefs: GrowthResourceRef[];
 }
 

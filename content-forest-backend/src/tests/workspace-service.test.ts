@@ -293,6 +293,7 @@ describe("WorkspaceService", () => {
       generatorId: "generator_1",
       fruitCount: 3,
       nutrientRefs: [],
+      temporaryNutrientCardRefs: [],
       geneRefs: [],
       detailParams: {},
       pipelineParams: {

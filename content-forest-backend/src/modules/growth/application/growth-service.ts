@@ -42,6 +42,7 @@ import {
   type GrowthTaskDetail,
   type GrowthTaskInput,
   type GrowthTaskResult,
+  type GrowthTemporaryNutrientCardRef,
 } from "../domain/growth-types.js";
 
 export interface StartGrowthTaskInput {
@@ -51,6 +52,7 @@ export interface StartGrowthTaskInput {
   generatorId: string;
   fruitCount?: number;
   nutrientRefs?: GrowthResourceRef[];
+  temporaryNutrientCardRefs?: GrowthTemporaryNutrientCardRef[];
   geneRefs?: GrowthResourceRef[];
   detailParams?: Record<string, unknown>;
   searchMode?: GrowthSearchMode;
@@ -146,6 +148,7 @@ export class GrowthService {
         sourceNodeRef: normalized.sourceNodeRef,
         generatorId: normalized.generatorId,
         nutrientRefs: normalized.nutrientRefs,
+        temporaryNutrientCardRefs: normalized.temporaryNutrientCardRefs,
         geneRefs: normalized.geneRefs,
       },
       agentInput: baseAgentInput,
@@ -197,6 +200,7 @@ export class GrowthService {
       generatorId: failedInput.generatorId,
       fruitCount: failedInput.fruitCount,
       nutrientRefs: failedInput.nutrientRefs,
+      temporaryNutrientCardRefs: failedInput.temporaryNutrientCardRefs,
       geneRefs: failedInput.geneRefs,
       detailParams: failedInput.detailParams,
       searchMode: failedInput.pipelineParams.searchMode,
@@ -549,11 +553,15 @@ export class GrowthService {
       input.nutrientRefs,
       "nutrient",
     );
+    const temporaryNutrientCardRefs = this.normalizeTemporaryNutrientCardRefs(
+      input.temporaryNutrientCardRefs,
+    );
     const geneRefs = this.normalizeResourceRefs(input.geneRefs, "gene");
     const detailParams = this.normalizeDetailParams(input.detailParams);
     const pipelineParams = this.resolvePipelineParams(input, {
       sourceNodeRef,
       nutrientRefs,
+      temporaryNutrientCardRefs,
       geneRefs,
     });
     const authorizationScope = await this.referenceAuthorization.authorize({
@@ -561,6 +569,7 @@ export class GrowthService {
       sourceNodeRef,
       generatorId,
       nutrientRefs,
+      temporaryNutrientCardRefs,
       geneRefs,
     });
 
@@ -571,6 +580,7 @@ export class GrowthService {
       generatorId,
       fruitCount,
       nutrientRefs: authorizationScope.nutrientRefs,
+      temporaryNutrientCardRefs: authorizationScope.temporaryNutrientCardRefs,
       geneRefs: authorizationScope.geneRefs,
       detailParams,
       pipelineParams,
@@ -720,6 +730,44 @@ export class GrowthService {
     }).filter((ref): ref is GrowthResourceRef => ref !== null);
   }
 
+  private normalizeTemporaryNutrientCardRefs(
+    refs: GrowthTemporaryNutrientCardRef[] | undefined,
+  ): GrowthTemporaryNutrientCardRef[] {
+    if (refs === undefined) {
+      return [];
+    }
+    if (!Array.isArray(refs)) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "临时营养卡片引用格式不正确",
+        400,
+      );
+    }
+
+    const seen = new Set<string>();
+    return refs.map((ref) => {
+      if (ref.resourceType !== "nutrient_card") {
+        throw new ApplicationError(
+          "VALIDATION_ERROR",
+          "临时营养卡片引用类型不正确",
+          400,
+        );
+      }
+      const resourceId = this.requireNonBlank(
+        ref.resourceId,
+        "临时营养卡片不能为空",
+      );
+      if (seen.has(resourceId)) {
+        return null;
+      }
+      seen.add(resourceId);
+      return {
+        resourceType: "nutrient_card" as const,
+        resourceId,
+      };
+    }).filter((ref): ref is GrowthTemporaryNutrientCardRef => ref !== null);
+  }
+
   private normalizeDetailParams(
     value: Record<string, unknown> | undefined,
   ): Record<string, unknown> {
@@ -731,6 +779,7 @@ export class GrowthService {
     normalized: {
       sourceNodeRef: GrowthSourceNodeRef;
       nutrientRefs: GrowthResourceRef[];
+      temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[];
       geneRefs: GrowthResourceRef[];
     },
   ): {
@@ -765,6 +814,7 @@ export class GrowthService {
     normalized: {
       sourceNodeRef: GrowthSourceNodeRef;
       nutrientRefs: GrowthResourceRef[];
+      temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[];
       geneRefs: GrowthResourceRef[];
     },
   ): GrowthSearchMode {
@@ -789,6 +839,7 @@ export class GrowthService {
     normalized: {
       sourceNodeRef: GrowthSourceNodeRef;
       nutrientRefs: GrowthResourceRef[];
+      temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[];
       geneRefs: GrowthResourceRef[];
     },
     searchMode: GrowthSearchMode,
@@ -804,6 +855,7 @@ export class GrowthService {
     }
     if (
       normalized.nutrientRefs.length === 0 &&
+      normalized.temporaryNutrientCardRefs.length === 0 &&
       normalized.geneRefs.length === 0 &&
       input.userInput === undefined
     ) {
@@ -817,6 +869,7 @@ export class GrowthService {
     normalized: {
       sourceNodeRef: GrowthSourceNodeRef;
       nutrientRefs: GrowthResourceRef[];
+      temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[];
       geneRefs: GrowthResourceRef[];
     },
     searchMode: GrowthSearchMode,
@@ -825,6 +878,7 @@ export class GrowthService {
     const signals = [
       `来源节点：${normalized.sourceNodeRef.nodeType}`,
       `营养引用：${normalized.nutrientRefs.length}`,
+      `未沉淀营养卡片引用：${normalized.temporaryNutrientCardRefs.length}`,
       `基因引用：${normalized.geneRefs.length}`,
       `用户输入：${input.userInput?.trim() ? "有" : "无"}`,
     ];
@@ -889,6 +943,7 @@ export class GrowthService {
         sourceNodeRef: input.sourceNodeRef,
         generatorId: input.generatorId,
         nutrientRefs: input.nutrientRefs,
+        temporaryNutrientCardRefs: input.temporaryNutrientCardRefs,
         geneRefs: input.geneRefs,
       },
       detailParams: input.detailParams,
@@ -917,6 +972,7 @@ export class GrowthService {
       fruitCount: input.fruitCount,
       references: {
         nutrientRefs: input.nutrientRefs,
+        temporaryNutrientCardRefs: input.temporaryNutrientCardRefs,
         geneRefs: input.geneRefs,
       },
       pipeline: input.pipelineParams,
@@ -1002,6 +1058,11 @@ export class GrowthService {
     if (task.nutrientRefs.length > 0) {
       directions.push(`从 ${task.nutrientRefs.length} 条营养资料中提取平台或案例路线`);
     }
+    if (task.temporaryNutrientCardRefs.length > 0) {
+      directions.push(
+        `试用 ${task.temporaryNutrientCardRefs.length} 条未沉淀营养卡片，验证候选资料价值`,
+      );
+    }
     if (task.pipelineParams.searchMode === GROWTH_SEARCH_MODES.negativeFeedbackAvoidance) {
       directions.push("规避近期无效表达，重构更像真实分享的内容入口");
     }
@@ -1081,6 +1142,7 @@ export class GrowthService {
       `搜索模式=${task.pipelineParams.searchMode}`,
       `突变激进程度=${task.pipelineParams.mutationIntensity}`,
       `营养引用=${task.nutrientRefs.length}`,
+      `未沉淀营养卡片引用=${task.temporaryNutrientCardRefs.length}`,
       `基因引用=${task.geneRefs.length}`,
       `来源=${task.sourceNodeRef.nodeType}`,
     ].join("；");
@@ -1215,6 +1277,7 @@ export class GrowthService {
       return candidateToGrowthFruitInput(result.output.content, {
         authorizedResourceRefs: [
           ...task.authorizationScope.nutrientRefs,
+          ...task.authorizationScope.temporaryNutrientCardRefs,
           ...task.authorizationScope.geneRefs,
         ],
       });
@@ -1239,6 +1302,7 @@ export class GrowthService {
       generatorId: task.generatorId,
       fruitCount: task.fruitCount,
       nutrientRefs: task.nutrientRefs,
+      temporaryNutrientCardRefs: task.temporaryNutrientCardRefs,
       geneRefs: task.geneRefs,
       detailParams: task.detailParams,
       pipelineParams: task.pipelineParams,
@@ -1317,6 +1381,9 @@ class PassThroughGrowthReferenceAuthorization
       ...input,
       sourceNodeRef: { ...input.sourceNodeRef },
       nutrientRefs: input.nutrientRefs.map((ref) => ({ ...ref })),
+      temporaryNutrientCardRefs: input.temporaryNutrientCardRefs.map((ref) => ({
+        ...ref,
+      })),
       geneRefs: input.geneRefs.map((ref) => ({ ...ref })),
     };
   }

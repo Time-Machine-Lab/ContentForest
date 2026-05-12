@@ -301,13 +301,14 @@ function readAuthorizedRefs(
   const record = scope as Record<string, unknown>;
   return [
     ...normalizeRefs(record.nutrientRefs, "nutrient"),
+    ...normalizeRefs(record.temporaryNutrientCardRefs, "nutrient_card"),
     ...normalizeRefs(record.geneRefs, "gene"),
   ];
 }
 
 function normalizeRefs(
   value: unknown,
-  resourceType: "nutrient" | "gene",
+  resourceType: "nutrient" | "gene" | "nutrient_card",
 ): BranchGrowthResourceRef[] {
   if (!Array.isArray(value)) {
     return [];

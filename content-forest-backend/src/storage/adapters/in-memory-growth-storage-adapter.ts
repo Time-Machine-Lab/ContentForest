@@ -115,6 +115,9 @@ export class InMemoryGrowthStorageAdapter implements GrowthStoragePort {
       ...record,
       sourceNodeRef: { ...record.sourceNodeRef },
       nutrientRefs: cloneGrowthResourceRefs(record.nutrientRefs),
+      temporaryNutrientCardRefs: cloneGrowthResourceRefs(
+        record.temporaryNutrientCardRefs,
+      ),
       geneRefs: cloneGrowthResourceRefs(record.geneRefs),
       detailParams: { ...record.detailParams },
       pipelineParams: { ...record.pipelineParams },
@@ -148,6 +151,9 @@ export class InMemoryGrowthStorageAdapter implements GrowthStoragePort {
       ...record,
       sourceNodeRef: { ...record.sourceNodeRef },
       nutrientRefs: cloneGrowthResourceRefs(record.nutrientRefs),
+      temporaryNutrientCardRefs: cloneGrowthResourceRefs(
+        record.temporaryNutrientCardRefs,
+      ),
       geneRefs: cloneGrowthResourceRefs(record.geneRefs),
       detailParams: { ...record.detailParams },
       pipelineParams: { ...record.pipelineParams },
@@ -161,6 +167,9 @@ export class InMemoryGrowthStorageAdapter implements GrowthStoragePort {
       ...scope,
       sourceNodeRef: { ...scope.sourceNodeRef },
       nutrientRefs: cloneGrowthResourceRefs(scope.nutrientRefs),
+      temporaryNutrientCardRefs: cloneGrowthResourceRefs(
+        scope.temporaryNutrientCardRefs,
+      ),
       geneRefs: cloneGrowthResourceRefs(scope.geneRefs),
     };
   }

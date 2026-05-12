@@ -3,6 +3,7 @@ import type { GeneMarkdownContentAccessPort } from "../../content-access/ports/g
 import type { NutrientMarkdownContentAccessPort } from "../../content-access/ports/nutrient-markdown-content-access-port.js";
 import type { SeedMarkdownContentAccessPort } from "../../content-access/ports/seed-markdown-content-access-port.js";
 import { GENE_INSIGHT_STATUSES } from "../../modules/gene/domain/gene-types.js";
+import { NUTRIENT_CARD_STATUSES } from "../../modules/nutrient/domain/nutrient-types.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
 import type { FruitStoragePort } from "../../storage/ports/fruit-storage-port.js";
 import type { GeneStoragePort } from "../../storage/ports/gene-storage-port.js";
@@ -128,6 +129,36 @@ export class ReadGrowthResourcesTool implements ToolContract {
         });
       }
     }
+    const temporaryNutrientCards = [];
+    if (
+      this.dependencies.nutrientStorage !== undefined &&
+      this.dependencies.nutrientContentAccess !== undefined &&
+      typeof context.input.seedId === "string"
+    ) {
+      for (const ref of refs.filter((item) => item.resourceType === "nutrient_card")) {
+        const card = await this.dependencies.nutrientStorage.findCardById(
+          ref.resourceId,
+        );
+        if (
+          card === null ||
+          card.seedId !== context.input.seedId ||
+          card.status !== NUTRIENT_CARD_STATUSES.unsettled
+        ) {
+          continue;
+        }
+        temporaryNutrientCards.push({
+          resourceType: "nutrient_card",
+          resourceId: ref.resourceId,
+          title: card.title,
+          status: card.status,
+          candidate: true,
+          markdown:
+            await this.dependencies.nutrientContentAccess.readNutrientMarkdown(
+              card.contentLocation,
+            ),
+        });
+      }
+    }
     const genes = [];
     for (const ref of refs.filter((item) => item.resourceType === "gene")) {
       if (
@@ -175,6 +206,7 @@ export class ReadGrowthResourcesTool implements ToolContract {
       content: {
         requestedRefs: refs,
         nutrients,
+        temporaryNutrientCards,
         genes,
       },
     };

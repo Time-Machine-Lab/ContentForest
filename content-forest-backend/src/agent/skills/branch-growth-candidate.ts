@@ -1,7 +1,7 @@
 import { ApplicationError } from "../../shared/errors/application-error.js";
 
 export interface BranchGrowthResourceRef {
-  resourceType: "nutrient" | "gene";
+  resourceType: "nutrient" | "gene" | "nutrient_card";
   resourceId: string;
 }
 
@@ -199,7 +199,11 @@ function normalizeResourceRefs(
     }
     const ref = requireRecord(item, "resource ref must be an object");
     const resourceType = ref.resourceType;
-    if (resourceType !== "nutrient" && resourceType !== "gene") {
+    if (
+      resourceType !== "nutrient" &&
+      resourceType !== "gene" &&
+      resourceType !== "nutrient_card"
+    ) {
       throw new ApplicationError("VALIDATION_ERROR", "resource type is invalid", 502);
     }
     return {

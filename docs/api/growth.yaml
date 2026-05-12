@@ -137,6 +137,16 @@ components:
           enum: [nutrient, gene]
         resourceId:
           type: string
+    TemporaryNutrientCardRef:
+      type: object
+      required: [resourceType, resourceId]
+      description: 未沉淀营养卡片的本次生长临时引用，不等同于正式营养内容。
+      properties:
+        resourceType:
+          type: string
+          enum: [nutrient_card]
+        resourceId:
+          type: string
     StartGrowthTaskRequest:
       type: object
       required: [seedId, sourceNodeRef, generatorId]
@@ -158,6 +168,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ResourceRef'
+        temporaryNutrientCardRefs:
+          type: array
+          description: 仅允许引用当前种子下未沉淀且未归档的营养卡片。
+          items:
+            $ref: '#/components/schemas/TemporaryNutrientCardRef'
         geneRefs:
           type: array
           items:
@@ -288,6 +303,7 @@ components:
         - generatorId
         - fruitCount
         - nutrientRefs
+        - temporaryNutrientCardRefs
         - geneRefs
         - successfulFruitIds
         - pipelineParams
@@ -316,6 +332,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ResourceRef'
+        temporaryNutrientCardRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/TemporaryNutrientCardRef'
         geneRefs:
           type: array
           items:
@@ -377,6 +397,7 @@ components:
         - generatorId
         - fruitCount
         - nutrientRefs
+        - temporaryNutrientCardRefs
         - geneRefs
         - pipelineParams
         - failureReason
@@ -398,6 +419,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ResourceRef'
+        temporaryNutrientCardRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/TemporaryNutrientCardRef'
         geneRefs:
           type: array
           items:

@@ -288,6 +288,7 @@ async function createFixture(
   options: {
     attemptConcurrency?: number;
     geneUsageTracking?: GeneUsageTrackingPort;
+    referenceAuthorization?: GrowthReferenceAuthorizationPort;
   } = {},
 ): Promise<{
   service: GrowthService;
@@ -360,6 +361,7 @@ async function createFixture(
     fruitService,
     agentPort,
     geneUsageTracking: options.geneUsageTracking,
+    referenceAuthorization: options.referenceAuthorization,
     idGenerator: createIdGenerator(),
     now,
     scheduleTaskExecution: scheduler.schedule,
@@ -718,6 +720,13 @@ describe("GrowthService", () => {
         if (input.nutrientRefs.some((ref) => ref.resourceId === "blocked")) {
           throw new ApplicationError("VALIDATION_ERROR", "引用资源不可访问", 400);
         }
+        if (
+          input.temporaryNutrientCardRefs.some(
+            (ref) => ref.resourceId === "blocked-card",
+          )
+        ) {
+          throw new ApplicationError("VALIDATION_ERROR", "营养卡片不可访问", 400);
+        }
         return input;
       },
     };
@@ -743,6 +752,16 @@ describe("GrowthService", () => {
         nutrientRefs: [{ resourceType: "nutrient", resourceId: "blocked" }],
       }),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(
+      service.startGrowthTask({
+        seedId: "seed_1",
+        sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+        generatorId: "generator_1",
+        temporaryNutrientCardRefs: [
+          { resourceType: "nutrient_card", resourceId: "blocked-card" },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
 
     await service.startGrowthTask({
       seedId: "seed_1",
@@ -750,6 +769,9 @@ describe("GrowthService", () => {
       generatorId: "generator_1",
       fruitCount: 1,
       nutrientRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
+      temporaryNutrientCardRefs: [
+        { resourceType: "nutrient_card", resourceId: "card_1" },
+      ],
       geneRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
     });
     await fixture.scheduler.runAll();
@@ -757,7 +779,17 @@ describe("GrowthService", () => {
     expect(capturedTasks[0]?.input).toMatchObject({
       authorizationScope: {
         nutrientRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
+        temporaryNutrientCardRefs: [
+          { resourceType: "nutrient_card", resourceId: "card_1" },
+        ],
         geneRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
+      },
+      roundGrowthBrief: {
+        references: {
+          temporaryNutrientCardRefs: [
+            { resourceType: "nutrient_card", resourceId: "card_1" },
+          ],
+        },
       },
     });
     expect(JSON.stringify(capturedTasks[0]?.input)).not.toContain(":\\");

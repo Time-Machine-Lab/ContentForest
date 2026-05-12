@@ -1,9 +1,14 @@
 import type {
+  BindNutrientCardConversationInput,
+  CreateNutrientCardInput,
   CreateNutrientContentInput,
   CreateNutrientLibraryInput,
+  ListNutrientCardsInput,
   ListNutrientContentsInput,
   ListNutrientLibrariesInput,
   NutrientService,
+  SettleNutrientCardInput,
+  UpdateNutrientCardInput,
   UpdateNutrientContentInput,
   UpdateNutrientLibraryInput,
 } from "../../modules/nutrient/application/nutrient-service.js";
@@ -120,6 +125,84 @@ export class NutrientController {
     return {
       status: 200,
       body: await this.nutrientService.listReferableContents(seedId),
+    };
+  }
+
+  public async createCard(
+    seedId: string,
+    body: CreateNutrientCardInput,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 201,
+      body: await this.nutrientService.createCard(seedId, body),
+    };
+  }
+
+  public async listCards(
+    seedId: string,
+    query: ListNutrientCardsInput = {},
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.listCards(seedId, query),
+    };
+  }
+
+  public async getCard(cardId: string): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.getCard(cardId),
+    };
+  }
+
+  public async updateCard(
+    cardId: string,
+    body: UpdateNutrientCardInput,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.updateCard(cardId, body),
+    };
+  }
+
+  public async settleCard(
+    cardId: string,
+    body: SettleNutrientCardInput,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.settleCard(cardId, body),
+    };
+  }
+
+  public async archiveCard(cardId: string): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.archiveCard(cardId),
+    };
+  }
+
+  public async setDefaultForGrowth(cardId: string): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.setDefaultForGrowth(cardId),
+    };
+  }
+
+  public async clearDefaultForGrowth(cardId: string): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.clearDefaultForGrowth(cardId),
+    };
+  }
+
+  public async bindCardConversation(
+    cardId: string,
+    body: BindNutrientCardConversationInput,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.bindCardConversation(cardId, body),
     };
   }
 }

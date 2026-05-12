@@ -231,10 +231,20 @@ export async function bootstrapApp(
             resourceId: ref.resourceId,
           })),
         );
+        await nutrientService.assertTemporaryNutrientCardRefsReferable(
+          scope.seedId,
+          scope.temporaryNutrientCardRefs.map((ref) => ({
+            resourceType: "nutrient_card",
+            resourceId: ref.resourceId,
+          })),
+        );
         return {
           ...scope,
           sourceNodeRef: { ...scope.sourceNodeRef },
           nutrientRefs: scope.nutrientRefs.map((ref) => ({ ...ref })),
+          temporaryNutrientCardRefs: scope.temporaryNutrientCardRefs.map((ref) => ({
+            ...ref,
+          })),
           geneRefs: scope.geneRefs.map((ref) => ({ ...ref })),
         };
       },

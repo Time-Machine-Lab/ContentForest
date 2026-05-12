@@ -11,6 +11,7 @@ import type {
   GrowthResourceRef,
   GrowthSearchMode,
   GrowthSourceNodeRef,
+  GrowthTemporaryNutrientCardRef,
 } from "../modules/growth/domain/growth-types.js";
 import {
   GROWTH_MUTATION_INTENSITIES,
@@ -18,8 +19,10 @@ import {
 } from "../modules/growth/domain/growth-types.js";
 import type {
   NutrientArchiveState,
+  NutrientCardStatus,
   NutrientLibraryScope,
 } from "../modules/nutrient/domain/nutrient-types.js";
+import { NUTRIENT_CARD_STATUSES } from "../modules/nutrient/domain/nutrient-types.js";
 
 await loadLocalEnvFile();
 const app = await bootstrapApp();
@@ -203,6 +206,102 @@ async function handleApiRequest(
   if (referableNutrientsMatch && method === "GET") {
     const result = await app.nutrientController.listReferableContents(
       decodeURIComponent(referableNutrientsMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const seedNutrientCardsMatch = pathname.match(
+    /^\/api\/seeds\/([^/]+)\/nutrient-cards$/,
+  );
+  if (seedNutrientCardsMatch && method === "GET") {
+    const result = await app.nutrientController.listCards(
+      decodeURIComponent(seedNutrientCardsMatch[1] ?? ""),
+      {
+        status: toNutrientCardStatus(url.searchParams.get("status")),
+      },
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+  if (seedNutrientCardsMatch && method === "POST") {
+    const result = await app.nutrientController.createCard(
+      decodeURIComponent(seedNutrientCardsMatch[1] ?? ""),
+      toCreateNutrientCardInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientCardSettleMatch = pathname.match(
+    /^\/api\/nutrient-cards\/([^/]+)\/settle$/,
+  );
+  if (nutrientCardSettleMatch && method === "POST") {
+    const result = await app.nutrientController.settleCard(
+      decodeURIComponent(nutrientCardSettleMatch[1] ?? ""),
+      toSettleNutrientCardInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientCardArchiveMatch = pathname.match(
+    /^\/api\/nutrient-cards\/([^/]+)\/archive$/,
+  );
+  if (nutrientCardArchiveMatch && method === "POST") {
+    const result = await app.nutrientController.archiveCard(
+      decodeURIComponent(nutrientCardArchiveMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientCardDefaultClearMatch = pathname.match(
+    /^\/api\/nutrient-cards\/([^/]+)\/default-for-growth\/clear$/,
+  );
+  if (nutrientCardDefaultClearMatch && method === "POST") {
+    const result = await app.nutrientController.clearDefaultForGrowth(
+      decodeURIComponent(nutrientCardDefaultClearMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientCardDefaultMatch = pathname.match(
+    /^\/api\/nutrient-cards\/([^/]+)\/default-for-growth$/,
+  );
+  if (nutrientCardDefaultMatch && method === "POST") {
+    const result = await app.nutrientController.setDefaultForGrowth(
+      decodeURIComponent(nutrientCardDefaultMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientCardConversationMatch = pathname.match(
+    /^\/api\/nutrient-cards\/([^/]+)\/conversation$/,
+  );
+  if (nutrientCardConversationMatch && method === "POST") {
+    const result = await app.nutrientController.bindCardConversation(
+      decodeURIComponent(nutrientCardConversationMatch[1] ?? ""),
+      toBindNutrientCardConversationInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientCardMatch = pathname.match(/^\/api\/nutrient-cards\/([^/]+)$/);
+  if (nutrientCardMatch && method === "GET") {
+    const result = await app.nutrientController.getCard(
+      decodeURIComponent(nutrientCardMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+  if (nutrientCardMatch && method === "PATCH") {
+    const result = await app.nutrientController.updateCard(
+      decodeURIComponent(nutrientCardMatch[1] ?? ""),
+      toUpdateNutrientCardInput(await readJsonBody(request)),
     );
     sendJson(response, result.status, result.body);
     return true;
@@ -853,6 +952,78 @@ function toUpdateNutrientContentInput(body: Record<string, unknown>): {
   return input;
 }
 
+function toCreateNutrientCardInput(body: Record<string, unknown>): {
+  title: string;
+  markdown: string;
+  conversationId?: string | null;
+} {
+  rejectUnexpectedFields(body, ["title", "markdown", "conversationId"]);
+  if (typeof body.title !== "string" || typeof body.markdown !== "string") {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "创建营养卡片需要提供标题和 Markdown 正文",
+      400,
+    );
+  }
+  if (
+    body.conversationId !== undefined &&
+    body.conversationId !== null &&
+    typeof body.conversationId !== "string"
+  ) {
+    throw new ApplicationError("VALIDATION_ERROR", "会话标识必须是字符串", 400);
+  }
+  return {
+    title: body.title,
+    markdown: body.markdown,
+    conversationId: body.conversationId,
+  };
+}
+
+function toUpdateNutrientCardInput(body: Record<string, unknown>): {
+  title?: string;
+  markdown?: string;
+} {
+  rejectUnexpectedFields(body, ["title", "markdown"]);
+  const input: { title?: string; markdown?: string } = {};
+  if (body.title !== undefined) {
+    if (typeof body.title !== "string") {
+      throw new ApplicationError("VALIDATION_ERROR", "营养卡片标题必须是字符串", 400);
+    }
+    input.title = body.title;
+  }
+  if (body.markdown !== undefined) {
+    if (typeof body.markdown !== "string") {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "营养卡片 Markdown 正文必须是字符串",
+        400,
+      );
+    }
+    input.markdown = body.markdown;
+  }
+  return input;
+}
+
+function toSettleNutrientCardInput(body: Record<string, unknown>): {
+  libraryId: string;
+} {
+  rejectUnexpectedFields(body, ["libraryId"]);
+  if (typeof body.libraryId !== "string") {
+    throw new ApplicationError("VALIDATION_ERROR", "沉淀营养卡片需要提供营养库", 400);
+  }
+  return { libraryId: body.libraryId };
+}
+
+function toBindNutrientCardConversationInput(body: Record<string, unknown>): {
+  conversationId: string;
+} {
+  rejectUnexpectedFields(body, ["conversationId"]);
+  if (typeof body.conversationId !== "string") {
+    throw new ApplicationError("VALIDATION_ERROR", "绑定会话需要提供会话标识", 400);
+  }
+  return { conversationId: body.conversationId };
+}
+
 function toListNutrientLibrariesInput(
   searchParams: URLSearchParams,
 ): {
@@ -907,6 +1078,22 @@ function parseNutrientArchiveState(
       "归档状态必须是 active 或 archived",
       400,
     );
+  }
+  return value;
+}
+
+function toNutrientCardStatus(
+  value: string | null,
+): NutrientCardStatus | undefined {
+  if (value === null || value.length === 0) {
+    return undefined;
+  }
+  if (
+    value !== NUTRIENT_CARD_STATUSES.unsettled &&
+    value !== NUTRIENT_CARD_STATUSES.settled &&
+    value !== NUTRIENT_CARD_STATUSES.archived
+  ) {
+    throw new ApplicationError("VALIDATION_ERROR", "营养卡片状态不正确", 400);
   }
   return value;
 }
@@ -1131,6 +1318,7 @@ function toStartGrowthTaskInput(body: Record<string, unknown>): {
   generatorId: string;
   fruitCount?: number;
   nutrientRefs?: GrowthResourceRef[];
+  temporaryNutrientCardRefs?: GrowthTemporaryNutrientCardRef[];
   geneRefs?: GrowthResourceRef[];
   detailParams?: Record<string, unknown>;
   searchMode?: GrowthSearchMode;
@@ -1155,6 +1343,9 @@ function toStartGrowthTaskInput(body: Record<string, unknown>): {
     generatorId: body.generatorId,
     fruitCount: typeof body.fruitCount === "number" ? body.fruitCount : undefined,
     nutrientRefs: toGrowthResourceRefs(body.nutrientRefs, "nutrient"),
+    temporaryNutrientCardRefs: toTemporaryNutrientCardRefs(
+      body.temporaryNutrientCardRefs,
+    ),
     geneRefs: toGrowthResourceRefs(body.geneRefs, "gene"),
     detailParams: toOptionalRecord(body.detailParams),
     searchMode: toGrowthSearchMode(body.searchMode),
@@ -1243,6 +1434,39 @@ function toGrowthResourceRefs(
     return {
       resourceType,
       resourceId: (item as GrowthResourceRef).resourceId,
+    };
+  });
+}
+
+function toTemporaryNutrientCardRefs(
+  value: unknown,
+): GrowthTemporaryNutrientCardRef[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "临时营养卡片引用格式不正确",
+      400,
+    );
+  }
+  return value.map((item) => {
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      (item as GrowthTemporaryNutrientCardRef).resourceType !== "nutrient_card" ||
+      typeof (item as GrowthTemporaryNutrientCardRef).resourceId !== "string"
+    ) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "临时营养卡片引用格式不正确",
+        400,
+      );
+    }
+    return {
+      resourceType: "nutrient_card",
+      resourceId: (item as GrowthTemporaryNutrientCardRef).resourceId,
     };
   });
 }

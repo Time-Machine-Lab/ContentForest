@@ -9,6 +9,7 @@
 -- - Markdown 不保存数据库维护的 meta 信息。
 -- - 营养库和营养内容不提供硬删除语义；归档通过 archive_state 表达。
 -- - 公共营养库 seed_id 必须为空；种子专属营养库 seed_id 必须非空，且作用域创建后不可变。
+-- - 营养卡片是种子级候选资料，不能属于公共营养库；沉淀后通过 settled_content_id 关联正式营养内容。
 
 CREATE TABLE IF NOT EXISTS nutrient_libraries (
   id TEXT PRIMARY KEY,
@@ -46,3 +47,27 @@ CREATE TABLE IF NOT EXISTS nutrient_contents (
 
 CREATE INDEX IF NOT EXISTS idx_nutrient_contents_library_archive_updated_at
   ON nutrient_contents (library_id, archive_state, updated_at);
+
+CREATE TABLE IF NOT EXISTS nutrient_cards (
+  id TEXT PRIMARY KEY,
+  seed_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'unsettled' CHECK (status IN ('unsettled', 'settled', 'archived')),
+  content_location TEXT NOT NULL,
+  settled_content_id TEXT,
+  default_for_growth INTEGER NOT NULL DEFAULT 0 CHECK (default_for_growth IN (0, 1)),
+  conversation_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  settled_at TEXT,
+  archived_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_nutrient_cards_seed_status_updated_at
+  ON nutrient_cards (seed_id, status, updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_nutrient_cards_settled_content_id
+  ON nutrient_cards (settled_content_id);
+
+CREATE INDEX IF NOT EXISTS idx_nutrient_cards_seed_default_for_growth
+  ON nutrient_cards (seed_id, default_for_growth);

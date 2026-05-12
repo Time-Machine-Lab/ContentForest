@@ -3,6 +3,7 @@ import { InMemoryNutrientMarkdownContentAccessAdapter } from "../content-access/
 import { NutrientService } from "../modules/nutrient/application/nutrient-service.js";
 import {
   NUTRIENT_ARCHIVE_STATES,
+  NUTRIENT_CARD_STATUSES,
   NUTRIENT_LIBRARY_SCOPES,
 } from "../modules/nutrient/domain/nutrient-types.js";
 import { SEED_ARCHIVE_STATES } from "../modules/seed/domain/seed-types.js";
@@ -269,6 +270,117 @@ describe("NutrientService", () => {
     await expect(
       service.assertNutrientRefsReferable("seed_1", [
         { resourceType: "nutrient", resourceId: archivedContent.id },
+      ]),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("manages nutrient card lifecycle from unsettled to settled and archived", async () => {
+    const { service } = await createFixture();
+    const library = await service.createLibrary({
+      name: "壁纸专属营养",
+      scope: NUTRIENT_LIBRARY_SCOPES.seedScoped,
+      seedId: "seed_1",
+    });
+
+    const card = await service.createCard("seed_1", {
+      title: "小红书壁纸案例",
+      markdown: "未沉淀资料",
+      conversationId: "conversation_1",
+    });
+    const edited = await service.updateCard(card.id, {
+      title: "小红书壁纸爆款案例",
+      markdown: "更新后的候选资料",
+    });
+    const settled = await service.settleCard(card.id, { libraryId: library.id });
+    const archived = await service.archiveCard(card.id);
+
+    expect(card).toMatchObject({
+      id: "nutrient-card_2",
+      seedId: "seed_1",
+      status: NUTRIENT_CARD_STATUSES.unsettled,
+      contentLocation: "nutrients/seed-scoped/seed_1/nutrient-card_2.md",
+      conversationId: "conversation_1",
+    });
+    expect(edited).toMatchObject({
+      title: "小红书壁纸爆款案例",
+      markdown: "更新后的候选资料",
+    });
+    expect(settled).toMatchObject({
+      status: NUTRIENT_CARD_STATUSES.settled,
+      settledContentId: "nutrient-content_3",
+      markdown: "更新后的候选资料",
+    });
+    expect(archived).toMatchObject({
+      status: NUTRIENT_CARD_STATUSES.archived,
+      defaultForGrowth: false,
+    });
+    expect((await service.listReferableContents("seed_1")).map((item) => item.id))
+      .toEqual([]);
+  });
+
+  it("marks settled nutrient cards as default for growth and exposes the flag", async () => {
+    const { service } = await createFixture();
+    const library = await service.createLibrary({
+      name: "壁纸专属营养",
+      scope: NUTRIENT_LIBRARY_SCOPES.seedScoped,
+      seedId: "seed_1",
+    });
+    const card = await service.createCard("seed_1", {
+      title: "常驻资料",
+      markdown: "每次都要参考",
+    });
+
+    await expect(
+      service.setDefaultForGrowth(card.id),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    const settled = await service.settleCard(card.id, { libraryId: library.id });
+    const marked = await service.setDefaultForGrowth(card.id);
+    const referable = await service.listReferableContents("seed_1");
+    const cleared = await service.clearDefaultForGrowth(card.id);
+
+    expect(settled.settledContentId).toBe("nutrient-content_3");
+    expect(marked.defaultForGrowth).toBe(true);
+    expect(referable).toEqual([
+      expect.objectContaining({
+        id: "nutrient-content_3",
+        defaultForGrowth: true,
+      }),
+    ]);
+    expect(cleared.defaultForGrowth).toBe(false);
+  });
+
+  it("validates temporary references only for current seed unsettled nutrient cards", async () => {
+    const { service } = await createFixture();
+    const library = await service.createLibrary({
+      name: "壁纸专属营养",
+      scope: NUTRIENT_LIBRARY_SCOPES.seedScoped,
+      seedId: "seed_1",
+    });
+    const card = await service.createCard("seed_1", {
+      title: "候选资料",
+      markdown: "候选正文",
+    });
+    const otherSeedCard = await service.createCard("seed_2", {
+      title: "其他种子候选",
+      markdown: "其他正文",
+    });
+
+    await expect(
+      service.assertTemporaryNutrientCardRefsReferable("seed_1", [
+        { resourceType: "nutrient_card", resourceId: card.id },
+      ]),
+    ).resolves.toBeUndefined();
+    await expect(
+      service.assertTemporaryNutrientCardRefsReferable("seed_1", [
+        { resourceType: "nutrient_card", resourceId: otherSeedCard.id },
+      ]),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await service.settleCard(card.id, { libraryId: library.id });
+    await expect(
+      service.assertTemporaryNutrientCardRefsReferable("seed_1", [
+        { resourceType: "nutrient_card", resourceId: card.id },
       ]),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });

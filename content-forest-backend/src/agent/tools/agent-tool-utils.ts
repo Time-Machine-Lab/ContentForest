@@ -28,13 +28,14 @@ export function readAuthorizedGeneratorId(context: AgentTaskContext): string {
 
 export function readAuthorizedResourceRefs(
   context: AgentTaskContext,
-): Array<{ resourceType: "nutrient" | "gene"; resourceId: string }> {
+): Array<{ resourceType: "nutrient" | "gene" | "nutrient_card"; resourceId: string }> {
   const scope = requireRecord(
     context.input.authorizationScope,
     "任务授权范围不能为空",
   );
   return [
     ...normalizeResourceRefs(scope.nutrientRefs, "nutrient"),
+    ...normalizeResourceRefs(scope.temporaryNutrientCardRefs, "nutrient_card"),
     ...normalizeResourceRefs(scope.geneRefs, "gene"),
   ];
 }
@@ -72,8 +73,8 @@ export function normalizeRelativeSkillPath(value: unknown): string {
 
 function normalizeResourceRefs(
   value: unknown,
-  expectedType: "nutrient" | "gene",
-): Array<{ resourceType: "nutrient" | "gene"; resourceId: string }> {
+  expectedType: "nutrient" | "gene" | "nutrient_card",
+): Array<{ resourceType: "nutrient" | "gene" | "nutrient_card"; resourceId: string }> {
   if (!Array.isArray(value)) {
     return [];
   }
