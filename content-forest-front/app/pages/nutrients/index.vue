@@ -2,6 +2,7 @@
 import type { NutrientArchiveState, NutrientLibraryScope } from '../../../src/modules/nutrient'
 import ExceptionNotice from '../../components/base/ExceptionNotice.vue'
 import MarkdownViewer from '../../components/markdown/MarkdownViewer.vue'
+import NutrientWorkbenchDialog from '../../components/nutrient/NutrientWorkbenchDialog.vue'
 
 type NutrientView = NutrientLibraryScope | 'archived'
 type EditorMode = 'read' | 'create' | 'edit'
@@ -64,10 +65,13 @@ const editorMode = ref<EditorMode>('read')
 const contentTitleDraft = ref('')
 const contentMarkdownDraft = ref('')
 const contentFormError = ref('')
+const nutrientWorkbenchOpen = ref(false)
 
 const canMutateLibrary = computed(() => selectedLibrary.value?.archiveState === 'active')
 const canCreateContent = computed(() => canMutateLibrary.value && Boolean(selectedLibrary.value))
 const contentBusy = computed(() => createContentLoading.value || saveContentLoading.value || operationLoading.value)
+const selectedSeedScopedSeedId = computed(() => selectedLibrary.value?.scope === 'seed_scoped' ? selectedLibrary.value.seedId : '')
+const canOpenNutrientWorkbench = computed(() => Boolean(selectedSeedScopedSeedId.value))
 
 onMounted(() => {
   void loadLibraries('public')
@@ -96,6 +100,10 @@ watch(
     contentMarkdownDraft.value = content.markdown
   },
 )
+
+watch(selectedSeedScopedSeedId, (seedId) => {
+  if (!seedId) nutrientWorkbenchOpen.value = false
+})
 
 async function changeView(nextView: NutrientView) {
   if (view.value === nextView) return
@@ -329,6 +337,7 @@ function formatDate(value: string) {
                 </button>
               </template>
               <template v-else>
+                <button v-if="canOpenNutrientWorkbench" class="cf-primary-action" type="button" @click="nutrientWorkbenchOpen = true">营养工作台</button>
                 <button class="cf-secondary-action" type="button" :disabled="!canMutateLibrary" @click="libraryMetaEditing = true">编辑库</button>
                 <button v-if="selectedLibrary.archiveState === 'active'" class="cf-danger-action" type="button" :disabled="operationLoading" @click="archiveSelectedLibrary">归档</button>
                 <button v-else class="cf-secondary-action" type="button" :disabled="operationLoading" @click="restoreSelectedLibrary">回档</button>
@@ -425,5 +434,13 @@ function formatDate(value: string) {
         </div>
       </main>
     </div>
+
+    <NutrientWorkbenchDialog
+      v-if="selectedSeedScopedSeedId"
+      :open="nutrientWorkbenchOpen"
+      :seed-id="selectedSeedScopedSeedId"
+      :seed-title="selectedLibrary?.name"
+      @close="nutrientWorkbenchOpen = false"
+    />
   </section>
 </template>

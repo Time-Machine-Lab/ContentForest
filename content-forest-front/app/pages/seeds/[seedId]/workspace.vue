@@ -6,6 +6,7 @@ import { createGrowthApi, type GrowthFailedInput, type GrowthMutationIntensity, 
 import { createPublicationApi, type PublicationRecord } from '../../../../src/modules/publication'
 import { createSeedApi, type SeedBriefDetail } from '../../../../src/modules/seed'
 import { createWorkspaceApi, type WorkspaceNode, type WorkspaceNodeRef, type WorkspaceSnapshot } from '../../../../src/modules/workspace'
+import NutrientWorkbenchDialog from '../../../components/nutrient/NutrientWorkbenchDialog.vue'
 
 type NodeType = 'seed' | 'fruit'
 type NodeStatus = 'idle' | 'growing' | 'failed'
@@ -151,6 +152,7 @@ const defaultSearchModeOption = searchModeOptions[0] as GrowthSearchModeOption
 const defaultMutationIntensityOption = mutationIntensityOptions[1] as GrowthMutationIntensityOption
 const selectedSearchMode = ref<GrowthSearchMode>('broad_exploration')
 const selectedMutationIntensity = ref<GrowthMutationIntensity>('balanced')
+const nutrientWorkbenchOpen = ref(false)
 const geneHubDialogOpen = ref(false)
 const geneActionLoading = ref('')
 const geneReminderActionLoading = reactive<Record<string, 'extract' | 'ignore' | undefined>>({})
@@ -1890,6 +1892,14 @@ function formatDateTime(value: string | null | undefined) {
           </svg>
           <span>简报</span>
         </button>
+        <button class="cf-topbar-icon-action" type="button" :aria-expanded="nutrientWorkbenchOpen" title="打开营养工作台" @click="nutrientWorkbenchOpen = true">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 4.8c3.9 0 6.8 2.1 6.8 5.3 0 4.9-5.2 7.8-6.8 9.1-1.6-1.3-6.8-4.2-6.8-9.1 0-3.2 2.9-5.3 6.8-5.3Z" />
+            <path d="M9.2 10.4c1.5.1 2.4.7 2.8 1.9.4-1.2 1.3-1.8 2.8-1.9" />
+            <path d="M12 12.3v4.1" />
+          </svg>
+          <span>营养</span>
+        </button>
         <button
           class="cf-topbar-icon-action"
           type="button"
@@ -1920,6 +1930,13 @@ function formatDateTime(value: string | null | undefined) {
         </button>
       </div>
     </header>
+
+    <NutrientWorkbenchDialog
+      :open="nutrientWorkbenchOpen"
+      :seed-id="seedId"
+      :seed-title="snapshot?.seed.title"
+      @close="nutrientWorkbenchOpen = false"
+    />
 
     <button
       v-if="geneHub"

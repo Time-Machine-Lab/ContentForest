@@ -307,6 +307,55 @@ async function handleApiRequest(
     return true;
   }
 
+  if (pathname === "/api/nutrient-research-sessions" && method === "POST") {
+    const result = await app.nutrientController.createResearchSession(
+      toCreateNutrientResearchSessionInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const researchSessionMessagesMatch = pathname.match(
+    /^\/api\/nutrient-research-sessions\/([^/]+)\/messages$/,
+  );
+  if (researchSessionMessagesMatch && method === "GET") {
+    const result = await app.nutrientController.listResearchMessages(
+      decodeURIComponent(researchSessionMessagesMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+  if (researchSessionMessagesMatch && method === "POST") {
+    const result = await app.nutrientController.submitResearchMessage(
+      decodeURIComponent(researchSessionMessagesMatch[1] ?? ""),
+      toSubmitNutrientResearchMessageInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const researchSessionBlocksMatch = pathname.match(
+    /^\/api\/nutrient-research-sessions\/([^/]+)\/depositable-blocks$/,
+  );
+  if (researchSessionBlocksMatch && method === "GET") {
+    const result = await app.nutrientController.listDepositableBlocks(
+      decodeURIComponent(researchSessionBlocksMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const researchSessionMatch = pathname.match(
+    /^\/api\/nutrient-research-sessions\/([^/]+)$/,
+  );
+  if (researchSessionMatch && method === "GET") {
+    const result = await app.nutrientController.getResearchSession(
+      decodeURIComponent(researchSessionMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
   const workspaceSnapshotMatch = pathname.match(
     /^\/api\/seeds\/([^/]+)\/workspace$/,
   );
@@ -1022,6 +1071,46 @@ function toBindNutrientCardConversationInput(body: Record<string, unknown>): {
     throw new ApplicationError("VALIDATION_ERROR", "绑定会话需要提供会话标识", 400);
   }
   return { conversationId: body.conversationId };
+}
+
+function toCreateNutrientResearchSessionInput(body: Record<string, unknown>): {
+  seedId: string;
+  nutrientCardId?: string | null;
+  title?: string;
+} {
+  rejectUnexpectedFields(body, ["seedId", "nutrientCardId", "title"]);
+  if (typeof body.seedId !== "string") {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "创建营养研究会话需要提供种子",
+      400,
+    );
+  }
+  if (
+    body.nutrientCardId !== undefined &&
+    body.nutrientCardId !== null &&
+    typeof body.nutrientCardId !== "string"
+  ) {
+    throw new ApplicationError("VALIDATION_ERROR", "营养卡片必须是字符串", 400);
+  }
+  if (body.title !== undefined && typeof body.title !== "string") {
+    throw new ApplicationError("VALIDATION_ERROR", "会话标题必须是字符串", 400);
+  }
+  return {
+    seedId: body.seedId,
+    nutrientCardId: body.nutrientCardId,
+    title: body.title,
+  };
+}
+
+function toSubmitNutrientResearchMessageInput(body: Record<string, unknown>): {
+  message: string;
+} {
+  rejectUnexpectedFields(body, ["message"]);
+  if (typeof body.message !== "string") {
+    throw new ApplicationError("VALIDATION_ERROR", "研究消息必须是字符串", 400);
+  }
+  return { message: body.message };
 }
 
 function toListNutrientLibrariesInput(

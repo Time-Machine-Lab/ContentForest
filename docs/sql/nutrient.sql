@@ -71,3 +71,44 @@ CREATE INDEX IF NOT EXISTS idx_nutrient_cards_settled_content_id
 
 CREATE INDEX IF NOT EXISTS idx_nutrient_cards_seed_default_for_growth
   ON nutrient_cards (seed_id, default_for_growth);
+
+CREATE TABLE IF NOT EXISTS nutrient_research_sessions (
+  id TEXT PRIMARY KEY,
+  seed_id TEXT NOT NULL,
+  nutrient_card_id TEXT,
+  title TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_nutrient_research_sessions_seed_updated_at
+  ON nutrient_research_sessions (seed_id, updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_nutrient_research_sessions_card_updated_at
+  ON nutrient_research_sessions (nutrient_card_id, updated_at);
+
+CREATE TABLE IF NOT EXISTS nutrient_research_messages (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content TEXT NOT NULL,
+  agent_task_id TEXT,
+  trace_json TEXT NOT NULL DEFAULT '[]',
+  failure_reason TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_nutrient_research_messages_session_created_at
+  ON nutrient_research_messages (session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS nutrient_depositable_blocks (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  markdown TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_nutrient_depositable_blocks_session_created_at
+  ON nutrient_depositable_blocks (session_id, created_at);

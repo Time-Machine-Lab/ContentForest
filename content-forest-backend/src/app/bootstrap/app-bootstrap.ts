@@ -25,7 +25,9 @@ import { SkillRegistry } from "../../agent/runtime/skill-runtime.js";
 import { ToolRegistry } from "../../agent/runtime/tool-registry.js";
 import { BranchGrowthSkill } from "../../agent/skills/branch-growth-skill.js";
 import { GeneExtractionSkill } from "../../agent/skills/gene-extraction-skill.js";
+import { NutrientResearchSkill } from "../../agent/skills/nutrient-research-skill.js";
 import { SeedBriefSkill } from "../../agent/skills/seed-brief-skill.js";
+import { ControlledWebSearchTool } from "../../agent/tools/controlled-web-search-tool.js";
 import { ExecuteGeneratorScriptTool } from "../../agent/tools/execute-generator-script-tool.js";
 import { ReadGeneratorSkillTool } from "../../agent/tools/read-generator-skill-tool.js";
 import {
@@ -119,7 +121,9 @@ export async function bootstrapApp(
   skillRegistry.register(new BranchGrowthSkill());
   skillRegistry.register(new GeneExtractionSkill());
   skillRegistry.register(new SeedBriefSkill());
+  skillRegistry.register(new NutrientResearchSkill());
   const toolRegistry = new ToolRegistry();
+  toolRegistry.register(new ControlledWebSearchTool());
   toolRegistry.register(
     new ReadGeneratorSkillTool({
       generatorStorage,
@@ -198,6 +202,7 @@ export async function bootstrapApp(
     storage: nutrientStorage,
     contentAccess: nutrientContentAccess,
     seedStorage,
+    agentPort: agentRuntime,
   });
   const fruitService = new FruitService({
     storage: fruitStorage,

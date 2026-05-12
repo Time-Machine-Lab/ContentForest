@@ -73,6 +73,42 @@ export interface NutrientCardDetail extends NutrientCardSummary {
   markdown: string;
 }
 
+export type NutrientResearchMessageRole = "user" | "assistant";
+
+export interface NutrientResearchMessage {
+  id: string;
+  sessionId: string;
+  role: NutrientResearchMessageRole;
+  content: string;
+  agentTaskId: string | null;
+  trace: Record<string, unknown>[];
+  failureReason: string | null;
+  createdAt: string;
+}
+
+export interface NutrientDepositableBlock {
+  id: string;
+  sessionId: string;
+  messageId: string;
+  title: string;
+  markdown: string;
+  createdAt: string;
+}
+
+export interface NutrientResearchSessionSummary {
+  id: string;
+  seedId: string;
+  nutrientCardId: string | null;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NutrientResearchSessionDetail extends NutrientResearchSessionSummary {
+  messages: NutrientResearchMessage[];
+  depositableBlocks: NutrientDepositableBlock[];
+}
+
 export interface ReferableNutrientContent extends NutrientContentSummary {
   defaultForGrowth: boolean;
   library: {

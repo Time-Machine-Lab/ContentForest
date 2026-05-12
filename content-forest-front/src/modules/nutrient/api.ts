@@ -1,13 +1,26 @@
 import type {
+  BindNutrientCardConversationRequest,
   CreateNutrientContentRequest,
+  CreateNutrientCardRequest,
   CreateNutrientLibraryRequest,
+  CreateNutrientResearchSessionRequest,
+  NutrientCardDetail,
+  NutrientCardListQuery,
+  NutrientCardSummary,
   NutrientContentDetail,
   NutrientContentListQuery,
   NutrientContentSummary,
+  NutrientDepositableBlock,
   NutrientLibraryDetail,
   NutrientLibraryListQuery,
   NutrientLibrarySummary,
+  NutrientResearchMessage,
+  NutrientResearchSessionDetail,
   ReferableNutrientContent,
+  SettleNutrientCardRequest,
+  SubmitNutrientResearchMessageRequest,
+  SubmitNutrientResearchMessageResult,
+  UpdateNutrientCardRequest,
   UpdateNutrientContentRequest,
   UpdateNutrientLibraryRequest,
 } from './types'
@@ -21,6 +34,12 @@ export interface NutrientFetchOptions {
     | UpdateNutrientLibraryRequest
     | CreateNutrientContentRequest
     | UpdateNutrientContentRequest
+    | CreateNutrientCardRequest
+    | UpdateNutrientCardRequest
+    | SettleNutrientCardRequest
+    | BindNutrientCardConversationRequest
+    | CreateNutrientResearchSessionRequest
+    | SubmitNutrientResearchMessageRequest
     | null
 }
 
@@ -106,6 +125,73 @@ export function createNutrientApi(fetcher: NutrientFetcher, baseUrl = '') {
     },
     listReferableNutrients(seedId: string) {
       return fetcher<ReferableNutrientContent[]>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/referable-nutrients`))
+    },
+    listCards(seedId: string, query: NutrientCardListQuery = {}) {
+      const search = queryString({ status: query.status })
+      return fetcher<NutrientCardSummary[]>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/nutrient-cards${search}`))
+    },
+    createCard(seedId: string, payload: CreateNutrientCardRequest) {
+      return fetcher<NutrientCardDetail>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/nutrient-cards`), {
+        method: 'POST',
+        body: payload,
+      })
+    },
+    getCard(cardId: string) {
+      return fetcher<NutrientCardDetail>(endpoint(baseUrl, `/api/nutrient-cards/${encodeURIComponent(cardId)}`))
+    },
+    updateCard(cardId: string, payload: UpdateNutrientCardRequest) {
+      return fetcher<NutrientCardDetail>(endpoint(baseUrl, `/api/nutrient-cards/${encodeURIComponent(cardId)}`), {
+        method: 'PATCH',
+        body: payload,
+      })
+    },
+    settleCard(cardId: string, payload: SettleNutrientCardRequest) {
+      return fetcher<NutrientCardDetail>(endpoint(baseUrl, `/api/nutrient-cards/${encodeURIComponent(cardId)}/settle`), {
+        method: 'POST',
+        body: payload,
+      })
+    },
+    archiveCard(cardId: string) {
+      return fetcher<NutrientCardDetail>(endpoint(baseUrl, `/api/nutrient-cards/${encodeURIComponent(cardId)}/archive`), {
+        method: 'POST',
+      })
+    },
+    setDefaultForGrowth(cardId: string) {
+      return fetcher<NutrientCardDetail>(endpoint(baseUrl, `/api/nutrient-cards/${encodeURIComponent(cardId)}/default-for-growth`), {
+        method: 'POST',
+      })
+    },
+    clearDefaultForGrowth(cardId: string) {
+      return fetcher<NutrientCardDetail>(endpoint(baseUrl, `/api/nutrient-cards/${encodeURIComponent(cardId)}/default-for-growth/clear`), {
+        method: 'POST',
+      })
+    },
+    bindCardConversation(cardId: string, payload: BindNutrientCardConversationRequest) {
+      return fetcher<NutrientCardDetail>(endpoint(baseUrl, `/api/nutrient-cards/${encodeURIComponent(cardId)}/conversation`), {
+        method: 'POST',
+        body: payload,
+      })
+    },
+    createResearchSession(payload: CreateNutrientResearchSessionRequest) {
+      return fetcher<NutrientResearchSessionDetail>(endpoint(baseUrl, '/api/nutrient-research-sessions'), {
+        method: 'POST',
+        body: payload,
+      })
+    },
+    getResearchSession(sessionId: string) {
+      return fetcher<NutrientResearchSessionDetail>(endpoint(baseUrl, `/api/nutrient-research-sessions/${encodeURIComponent(sessionId)}`))
+    },
+    listResearchMessages(sessionId: string) {
+      return fetcher<NutrientResearchMessage[]>(endpoint(baseUrl, `/api/nutrient-research-sessions/${encodeURIComponent(sessionId)}/messages`))
+    },
+    submitResearchMessage(sessionId: string, payload: SubmitNutrientResearchMessageRequest) {
+      return fetcher<SubmitNutrientResearchMessageResult>(endpoint(baseUrl, `/api/nutrient-research-sessions/${encodeURIComponent(sessionId)}/messages`), {
+        method: 'POST',
+        body: payload,
+      })
+    },
+    listDepositableBlocks(sessionId: string) {
+      return fetcher<NutrientDepositableBlock[]>(endpoint(baseUrl, `/api/nutrient-research-sessions/${encodeURIComponent(sessionId)}/depositable-blocks`))
     },
   }
 }

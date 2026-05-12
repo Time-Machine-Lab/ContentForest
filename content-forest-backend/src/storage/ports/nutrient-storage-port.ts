@@ -2,6 +2,7 @@ import type {
   NutrientArchiveState,
   NutrientCardStatus,
   NutrientLibraryScope,
+  NutrientResearchMessageRole,
 } from "../../modules/nutrient/domain/nutrient-types.js";
 
 export interface NutrientLibraryRecord {
@@ -40,6 +41,35 @@ export interface NutrientCardRecord {
   updatedAt: string;
   settledAt: string | null;
   archivedAt: string | null;
+}
+
+export interface NutrientResearchSessionRecord {
+  id: string;
+  seedId: string;
+  nutrientCardId: string | null;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NutrientResearchMessageRecord {
+  id: string;
+  sessionId: string;
+  role: NutrientResearchMessageRole;
+  content: string;
+  agentTaskId: string | null;
+  trace: Record<string, unknown>[];
+  failureReason: string | null;
+  createdAt: string;
+}
+
+export interface NutrientDepositableBlockRecord {
+  id: string;
+  sessionId: string;
+  messageId: string;
+  title: string;
+  markdown: string;
+  createdAt: string;
 }
 
 export interface NutrientLibraryListFilter {
@@ -88,4 +118,23 @@ export interface NutrientStoragePort {
   findCardsBySettledContentIds(
     contentIds: string[],
   ): Promise<NutrientCardRecord[]>;
+
+  createResearchSession(record: NutrientResearchSessionRecord): Promise<void>;
+  findResearchSessionById(
+    sessionId: string,
+  ): Promise<NutrientResearchSessionRecord | null>;
+  saveResearchSession(record: NutrientResearchSessionRecord): Promise<void>;
+  findResearchSessionByCardId(
+    cardId: string,
+  ): Promise<NutrientResearchSessionRecord | null>;
+
+  createResearchMessage(record: NutrientResearchMessageRecord): Promise<void>;
+  listResearchMessagesBySession(
+    sessionId: string,
+  ): Promise<NutrientResearchMessageRecord[]>;
+
+  createDepositableBlock(record: NutrientDepositableBlockRecord): Promise<void>;
+  listDepositableBlocksBySession(
+    sessionId: string,
+  ): Promise<NutrientDepositableBlockRecord[]>;
 }

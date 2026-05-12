@@ -5,10 +5,13 @@ import {
 import type {
   NutrientCardListFilter,
   NutrientCardRecord,
+  NutrientDepositableBlockRecord,
   NutrientContentListFilter,
   NutrientContentRecord,
   NutrientLibraryListFilter,
   NutrientLibraryRecord,
+  NutrientResearchMessageRecord,
+  NutrientResearchSessionRecord,
   NutrientStoragePort,
   ReferableNutrientContentRecord,
 } from "../ports/nutrient-storage-port.js";
@@ -17,6 +20,9 @@ export class InMemoryNutrientStorageAdapter implements NutrientStoragePort {
   private readonly libraries = new Map<string, NutrientLibraryRecord>();
   private readonly contents = new Map<string, NutrientContentRecord>();
   private readonly cards = new Map<string, NutrientCardRecord>();
+  private readonly researchSessions = new Map<string, NutrientResearchSessionRecord>();
+  private readonly researchMessages = new Map<string, NutrientResearchMessageRecord>();
+  private readonly depositableBlocks = new Map<string, NutrientDepositableBlockRecord>();
 
   public async createLibrary(record: NutrientLibraryRecord): Promise<void> {
     this.libraries.set(record.id, { ...record });
@@ -165,5 +171,72 @@ export class InMemoryNutrientStorageAdapter implements NutrientStoragePort {
     return [...this.cards.values()].some(
       (card) => card.settledContentId === contentId && card.status === "archived",
     );
+  }
+
+  public async createResearchSession(
+    record: NutrientResearchSessionRecord,
+  ): Promise<void> {
+    this.researchSessions.set(record.id, { ...record });
+  }
+
+  public async findResearchSessionById(
+    sessionId: string,
+  ): Promise<NutrientResearchSessionRecord | null> {
+    const record = this.researchSessions.get(sessionId);
+    return record === undefined ? null : { ...record };
+  }
+
+  public async saveResearchSession(
+    record: NutrientResearchSessionRecord,
+  ): Promise<void> {
+    this.researchSessions.set(record.id, { ...record });
+  }
+
+  public async findResearchSessionByCardId(
+    cardId: string,
+  ): Promise<NutrientResearchSessionRecord | null> {
+    const record = [...this.researchSessions.values()]
+      .filter((session) => session.nutrientCardId === cardId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+    return record === undefined ? null : { ...record };
+  }
+
+  public async createResearchMessage(
+    record: NutrientResearchMessageRecord,
+  ): Promise<void> {
+    this.researchMessages.set(record.id, this.cloneMessage(record));
+  }
+
+  public async listResearchMessagesBySession(
+    sessionId: string,
+  ): Promise<NutrientResearchMessageRecord[]> {
+    return [...this.researchMessages.values()]
+      .filter((record) => record.sessionId === sessionId)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map((record) => this.cloneMessage(record));
+  }
+
+  public async createDepositableBlock(
+    record: NutrientDepositableBlockRecord,
+  ): Promise<void> {
+    this.depositableBlocks.set(record.id, { ...record });
+  }
+
+  public async listDepositableBlocksBySession(
+    sessionId: string,
+  ): Promise<NutrientDepositableBlockRecord[]> {
+    return [...this.depositableBlocks.values()]
+      .filter((record) => record.sessionId === sessionId)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map((record) => ({ ...record }));
+  }
+
+  private cloneMessage(
+    record: NutrientResearchMessageRecord,
+  ): NutrientResearchMessageRecord {
+    return {
+      ...record,
+      trace: record.trace.map((event) => ({ ...event })),
+    };
   }
 }

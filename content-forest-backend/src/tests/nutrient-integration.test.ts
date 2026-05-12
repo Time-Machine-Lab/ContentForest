@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { initializeRuntimeFilesystem } from "../app/bootstrap/runtime-filesystem.js";
+import type { AgentPort } from "../agent/ports/agent-port.js";
+import type { AgentTask, AgentTaskResult } from "../agent/runtime/agent-task.js";
 import { LocalNutrientMarkdownContentAccessAdapter } from "../content-access/adapters/local-nutrient-markdown-content-access-adapter.js";
 import { NutrientController } from "../interface/http/nutrient-controller.js";
 import { NutrientService } from "../modules/nutrient/application/nutrient-service.js";
@@ -114,4 +116,112 @@ describe("Nutrient module integration", () => {
       nutrientStorage.close();
     }
   });
+
+  it("persists nutrient research sessions, messages and depositable blocks without creating formal nutrients", async () => {
+    const root = await createTempRoot();
+    const config = {
+      contentRootDir: join(root, "content"),
+      databasePath: join(root, "app.sqlite"),
+      port: 3001,
+    };
+    await initializeRuntimeFilesystem(config);
+
+    const seedStorage = new SqliteSeedStorageAdapter(config.databasePath);
+    const nutrientStorage = new SqliteNutrientStorageAdapter(config.databasePath);
+    const capturedTasks: AgentTask[] = [];
+    const service = new NutrientService({
+      storage: nutrientStorage,
+      seedStorage,
+      contentAccess: new LocalNutrientMarkdownContentAccessAdapter(
+        config.contentRootDir,
+      ),
+      agentPort: fakeResearchAgent(capturedTasks),
+      idGenerator: createIdGenerator(),
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const controller = new NutrientController(service);
+
+    try {
+      await seedStorage.createSeed({
+        id: "seed_integration",
+        title: "集成种子",
+        archiveState: SEED_ARCHIVE_STATES.active,
+        contentLocation: "seeds/seed_integration.md",
+        rootNodeId: "seed-node_seed_integration",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        archivedAt: null,
+      });
+
+      const sessionResult = await controller.createResearchSession({
+        seedId: "seed_integration",
+        title: "平台研究",
+      });
+      const session = sessionResult.body as { id: string };
+      const submitResult = await controller.submitResearchMessage(session.id, {
+        message: "研究小红书壁纸内容",
+      });
+      const messages = await controller.listResearchMessages(session.id);
+      const blocks = await controller.listDepositableBlocks(session.id);
+      const referable = await controller.listReferableContents("seed_integration");
+
+      expect(sessionResult.status).toBe(201);
+      expect(submitResult.status).toBe(201);
+      expect(capturedTasks).toHaveLength(1);
+      expect(capturedTasks[0]).toMatchObject({
+        type: "nutrient_research",
+        input: {
+          seedId: "seed_integration",
+          seedTitle: "集成种子",
+          message: "研究小红书壁纸内容",
+        },
+      });
+      expect(messages.body).toMatchObject([
+        { role: "user", content: "研究小红书壁纸内容" },
+        { role: "assistant", content: "找到一个可沉淀方向。" },
+      ]);
+      expect(blocks.body).toMatchObject([
+        {
+          title: "小红书壁纸情绪钩子",
+          markdown: "围绕情绪场景组织壁纸内容。",
+        },
+      ]);
+      expect(referable.body).toEqual([]);
+    } finally {
+      seedStorage.close();
+      nutrientStorage.close();
+    }
+  });
 });
+
+function fakeResearchAgent(capturedTasks: AgentTask[]): AgentPort {
+  return {
+    async runTask(task: AgentTask): Promise<AgentTaskResult> {
+      capturedTasks.push(task);
+      return {
+        ok: true,
+        taskId: "agent-task_research",
+        output: {
+          taskType: "nutrient_research",
+          content: {
+            type: "nutrient_research_result",
+            message: "找到一个可沉淀方向。",
+            depositableBlocks: [
+              {
+                title: "小红书壁纸情绪钩子",
+                markdown: "围绕情绪场景组织壁纸内容。",
+              },
+            ],
+          },
+        },
+        trace: [
+          {
+            type: "task_started",
+            at: "2026-01-01T00:00:00.000Z",
+            message: "started",
+          },
+        ],
+      };
+    },
+  };
+}

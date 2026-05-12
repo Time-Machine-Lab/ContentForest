@@ -8,10 +8,13 @@ import { NUTRIENT_ARCHIVE_STATES } from "../../modules/nutrient/domain/nutrient-
 import type {
   NutrientCardListFilter,
   NutrientCardRecord,
+  NutrientDepositableBlockRecord,
   NutrientContentListFilter,
   NutrientContentRecord,
   NutrientLibraryListFilter,
   NutrientLibraryRecord,
+  NutrientResearchMessageRecord,
+  NutrientResearchSessionRecord,
   NutrientStoragePort,
   ReferableNutrientContentRecord,
 } from "../ports/nutrient-storage-port.js";
@@ -52,6 +55,35 @@ interface NutrientCardRow {
   updated_at: string;
   settled_at: string | null;
   archived_at: string | null;
+}
+
+interface NutrientResearchSessionRow {
+  id: string;
+  seed_id: string;
+  nutrient_card_id: string | null;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface NutrientResearchMessageRow {
+  id: string;
+  session_id: string;
+  role: "user" | "assistant";
+  content: string;
+  agent_task_id: string | null;
+  trace_json: string;
+  failure_reason: string | null;
+  created_at: string;
+}
+
+interface NutrientDepositableBlockRow {
+  id: string;
+  session_id: string;
+  message_id: string;
+  title: string;
+  markdown: string;
+  created_at: string;
 }
 
 interface ReferableRow extends NutrientContentRow {
@@ -410,6 +442,152 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
     return rows.map((row) => this.toCardRecord(row));
   }
 
+  public async createResearchSession(
+    record: NutrientResearchSessionRecord,
+  ): Promise<void> {
+    this.database
+      .prepare(
+        `INSERT INTO nutrient_research_sessions (
+          id,
+          seed_id,
+          nutrient_card_id,
+          title,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        record.id,
+        record.seedId,
+        record.nutrientCardId,
+        record.title,
+        record.createdAt,
+        record.updatedAt,
+      );
+  }
+
+  public async findResearchSessionById(
+    sessionId: string,
+  ): Promise<NutrientResearchSessionRecord | null> {
+    const row = this.database
+      .prepare("SELECT * FROM nutrient_research_sessions WHERE id = ?")
+      .get(sessionId) as NutrientResearchSessionRow | undefined;
+    return row === undefined ? null : this.toResearchSessionRecord(row);
+  }
+
+  public async saveResearchSession(
+    record: NutrientResearchSessionRecord,
+  ): Promise<void> {
+    this.database
+      .prepare(
+        `UPDATE nutrient_research_sessions
+          SET seed_id = ?,
+              nutrient_card_id = ?,
+              title = ?,
+              updated_at = ?
+          WHERE id = ?`,
+      )
+      .run(
+        record.seedId,
+        record.nutrientCardId,
+        record.title,
+        record.updatedAt,
+        record.id,
+      );
+  }
+
+  public async findResearchSessionByCardId(
+    cardId: string,
+  ): Promise<NutrientResearchSessionRecord | null> {
+    const row = this.database
+      .prepare(
+        `SELECT * FROM nutrient_research_sessions
+          WHERE nutrient_card_id = ?
+          ORDER BY updated_at DESC
+          LIMIT 1`,
+      )
+      .get(cardId) as NutrientResearchSessionRow | undefined;
+    return row === undefined ? null : this.toResearchSessionRecord(row);
+  }
+
+  public async createResearchMessage(
+    record: NutrientResearchMessageRecord,
+  ): Promise<void> {
+    this.database
+      .prepare(
+        `INSERT INTO nutrient_research_messages (
+          id,
+          session_id,
+          role,
+          content,
+          agent_task_id,
+          trace_json,
+          failure_reason,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        record.id,
+        record.sessionId,
+        record.role,
+        record.content,
+        record.agentTaskId,
+        JSON.stringify(record.trace),
+        record.failureReason,
+        record.createdAt,
+      );
+  }
+
+  public async listResearchMessagesBySession(
+    sessionId: string,
+  ): Promise<NutrientResearchMessageRecord[]> {
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM nutrient_research_messages
+          WHERE session_id = ?
+          ORDER BY created_at ASC`,
+      )
+      .all(sessionId) as unknown as NutrientResearchMessageRow[];
+    return rows.map((row) => this.toResearchMessageRecord(row));
+  }
+
+  public async createDepositableBlock(
+    record: NutrientDepositableBlockRecord,
+  ): Promise<void> {
+    this.database
+      .prepare(
+        `INSERT INTO nutrient_depositable_blocks (
+          id,
+          session_id,
+          message_id,
+          title,
+          markdown,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        record.id,
+        record.sessionId,
+        record.messageId,
+        record.title,
+        record.markdown,
+        record.createdAt,
+      );
+  }
+
+  public async listDepositableBlocksBySession(
+    sessionId: string,
+  ): Promise<NutrientDepositableBlockRecord[]> {
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM nutrient_depositable_blocks
+          WHERE session_id = ?
+          ORDER BY created_at ASC`,
+      )
+      .all(sessionId) as unknown as NutrientDepositableBlockRow[];
+    return rows.map((row) => this.toDepositableBlockRecord(row));
+  }
+
   public close(): void {
     this.database.close();
   }
@@ -476,6 +654,47 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
 
       CREATE INDEX IF NOT EXISTS idx_nutrient_cards_seed_default_for_growth
         ON nutrient_cards (seed_id, default_for_growth);
+
+      CREATE TABLE IF NOT EXISTS nutrient_research_sessions (
+        id TEXT PRIMARY KEY,
+        seed_id TEXT NOT NULL,
+        nutrient_card_id TEXT,
+        title TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_nutrient_research_sessions_seed_updated_at
+        ON nutrient_research_sessions (seed_id, updated_at);
+
+      CREATE INDEX IF NOT EXISTS idx_nutrient_research_sessions_card_updated_at
+        ON nutrient_research_sessions (nutrient_card_id, updated_at);
+
+      CREATE TABLE IF NOT EXISTS nutrient_research_messages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+        content TEXT NOT NULL,
+        agent_task_id TEXT,
+        trace_json TEXT NOT NULL DEFAULT '[]',
+        failure_reason TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_nutrient_research_messages_session_created_at
+        ON nutrient_research_messages (session_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS nutrient_depositable_blocks (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        markdown TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_nutrient_depositable_blocks_session_created_at
+        ON nutrient_depositable_blocks (session_id, created_at);
     `);
   }
 
@@ -521,5 +740,60 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
       settledAt: row.settled_at,
       archivedAt: row.archived_at,
     };
+  }
+
+  private toResearchSessionRecord(
+    row: NutrientResearchSessionRow,
+  ): NutrientResearchSessionRecord {
+    return {
+      id: row.id,
+      seedId: row.seed_id,
+      nutrientCardId: row.nutrient_card_id,
+      title: row.title,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private toResearchMessageRecord(
+    row: NutrientResearchMessageRow,
+  ): NutrientResearchMessageRecord {
+    return {
+      id: row.id,
+      sessionId: row.session_id,
+      role: row.role,
+      content: row.content,
+      agentTaskId: row.agent_task_id,
+      trace: this.parseTrace(row.trace_json),
+      failureReason: row.failure_reason,
+      createdAt: row.created_at,
+    };
+  }
+
+  private toDepositableBlockRecord(
+    row: NutrientDepositableBlockRow,
+  ): NutrientDepositableBlockRecord {
+    return {
+      id: row.id,
+      sessionId: row.session_id,
+      messageId: row.message_id,
+      title: row.title,
+      markdown: row.markdown,
+      createdAt: row.created_at,
+    };
+  }
+
+  private parseTrace(value: string): Record<string, unknown>[] {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return Array.isArray(parsed)
+        ? parsed.filter(
+            (item): item is Record<string, unknown> =>
+              typeof item === "object" && item !== null && !Array.isArray(item),
+          )
+        : [];
+    } catch {
+      return [];
+    }
   }
 }

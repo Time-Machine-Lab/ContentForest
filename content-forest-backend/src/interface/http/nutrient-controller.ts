@@ -3,11 +3,13 @@ import type {
   CreateNutrientCardInput,
   CreateNutrientContentInput,
   CreateNutrientLibraryInput,
+  CreateNutrientResearchSessionInput,
   ListNutrientCardsInput,
   ListNutrientContentsInput,
   ListNutrientLibrariesInput,
   NutrientService,
   SettleNutrientCardInput,
+  SubmitNutrientResearchMessageInput,
   UpdateNutrientCardInput,
   UpdateNutrientContentInput,
   UpdateNutrientLibraryInput,
@@ -203,6 +205,52 @@ export class NutrientController {
     return {
       status: 200,
       body: await this.nutrientService.bindCardConversation(cardId, body),
+    };
+  }
+
+  public async createResearchSession(
+    body: CreateNutrientResearchSessionInput,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 201,
+      body: await this.nutrientService.createResearchSession(body),
+    };
+  }
+
+  public async getResearchSession(
+    sessionId: string,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.getResearchSession(sessionId),
+    };
+  }
+
+  public async listResearchMessages(
+    sessionId: string,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.listResearchMessages(sessionId),
+    };
+  }
+
+  public async submitResearchMessage(
+    sessionId: string,
+    body: SubmitNutrientResearchMessageInput,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 201,
+      body: await this.nutrientService.submitResearchMessage(sessionId, body),
+    };
+  }
+
+  public async listDepositableBlocks(
+    sessionId: string,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.listDepositableBlocks(sessionId),
     };
   }
 }

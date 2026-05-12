@@ -406,6 +406,100 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/nutrient-research-sessions:
+    post:
+      tags: [Nutrient]
+      summary: 创建营养研究会话
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNutrientResearchSessionRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NutrientResearchSessionDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/nutrient-research-sessions/{sessionId}:
+    get:
+      tags: [Nutrient]
+      summary: 查看营养研究会话详情
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: 研究会话详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NutrientResearchSessionDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/nutrient-research-sessions/{sessionId}/messages:
+    get:
+      tags: [Nutrient]
+      summary: 查询营养研究会话消息
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: 会话消息列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NutrientResearchMessage'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Nutrient]
+      summary: 提交用户研究消息并触发营养研究 Agent
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitNutrientResearchMessageRequest'
+      responses:
+        '201':
+          description: 用户消息和 Agent 回复已保存
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitNutrientResearchMessageResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/AgentFailure'
+  /api/nutrient-research-sessions/{sessionId}/depositable-blocks:
+    get:
+      tags: [Nutrient]
+      summary: 查询营养研究会话中的可沉淀营养块
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: 可沉淀营养块列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NutrientDepositableBlock'
+        '404':
+          $ref: '#/components/responses/NotFound'
 components:
   parameters:
     LibraryId:
@@ -422,6 +516,12 @@ components:
         type: string
     CardId:
       name: cardId
+      in: path
+      required: true
+      schema:
+        type: string
+    SessionId:
+      name: sessionId
       in: path
       required: true
       schema:
@@ -541,6 +641,113 @@ components:
         conversationId:
           type: string
           minLength: 1
+    CreateNutrientResearchSessionRequest:
+      type: object
+      required: [seedId]
+      properties:
+        seedId:
+          type: string
+        nutrientCardId:
+          type: string
+          nullable: true
+        title:
+          type: string
+    SubmitNutrientResearchMessageRequest:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          minLength: 1
+    NutrientResearchSessionSummary:
+      type: object
+      required: [id, seedId, nutrientCardId, title, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        seedId:
+          type: string
+        nutrientCardId:
+          type: string
+          nullable: true
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    NutrientResearchSessionDetail:
+      allOf:
+        - $ref: '#/components/schemas/NutrientResearchSessionSummary'
+        - type: object
+          required: [messages, depositableBlocks]
+          properties:
+            messages:
+              type: array
+              items:
+                $ref: '#/components/schemas/NutrientResearchMessage'
+            depositableBlocks:
+              type: array
+              items:
+                $ref: '#/components/schemas/NutrientDepositableBlock'
+    NutrientResearchMessage:
+      type: object
+      required: [id, sessionId, role, content, agentTaskId, trace, failureReason, createdAt]
+      properties:
+        id:
+          type: string
+        sessionId:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        agentTaskId:
+          type: string
+          nullable: true
+        trace:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        failureReason:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    NutrientDepositableBlock:
+      type: object
+      required: [id, sessionId, messageId, title, markdown, createdAt]
+      properties:
+        id:
+          type: string
+        sessionId:
+          type: string
+        messageId:
+          type: string
+        title:
+          type: string
+        markdown:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    SubmitNutrientResearchMessageResult:
+      type: object
+      required: [userMessage, assistantMessage, depositableBlocks]
+      properties:
+        userMessage:
+          $ref: '#/components/schemas/NutrientResearchMessage'
+        assistantMessage:
+          $ref: '#/components/schemas/NutrientResearchMessage'
+        depositableBlocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/NutrientDepositableBlock'
     NutrientLibrarySummary:
       type: object
       required: [id, name, description, scope, seedId, archiveState, createdAt, updatedAt]
@@ -706,6 +913,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     NotFound:
       description: 营养库、营养内容或种子不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    AgentFailure:
+      description: 营养研究 Agent 不可用或联网搜索失败
       content:
         application/json:
           schema:

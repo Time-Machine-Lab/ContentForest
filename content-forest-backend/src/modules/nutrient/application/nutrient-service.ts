@@ -1,3 +1,5 @@
+import type { AgentPort } from "../../../agent/ports/agent-port.js";
+import { validateNutrientResearchOutput } from "../../../agent/skills/nutrient-research-output.js";
 import type { NutrientMarkdownContentAccessPort } from "../../../content-access/ports/nutrient-markdown-content-access-port.js";
 import { ApplicationError } from "../../../shared/errors/application-error.js";
 import type { IdGenerator } from "../../../shared/utils/id-generator.js";
@@ -6,8 +8,11 @@ import type {
   NutrientCardRecord,
   NutrientContentRecord,
   NutrientCardListFilter,
+  NutrientDepositableBlockRecord,
   NutrientLibraryListFilter,
   NutrientLibraryRecord,
+  NutrientResearchMessageRecord,
+  NutrientResearchSessionRecord,
   NutrientStoragePort,
 } from "../../../storage/ports/nutrient-storage-port.js";
 import type { SeedStoragePort } from "../../../storage/ports/seed-storage-port.js";
@@ -19,11 +24,15 @@ import {
   type NutrientCardDetail,
   type NutrientCardStatus,
   type NutrientCardSummary,
+  type NutrientDepositableBlock,
   type NutrientContentDetail,
   type NutrientContentSummary,
   type NutrientLibraryDetail,
   type NutrientLibraryScope,
   type NutrientLibrarySummary,
+  type NutrientResearchMessage,
+  type NutrientResearchSessionDetail,
+  type NutrientResearchSessionSummary,
   type ReferableNutrientContent,
 } from "../domain/nutrient-types.js";
 
@@ -82,6 +91,22 @@ export interface BindNutrientCardConversationInput {
   conversationId: string;
 }
 
+export interface CreateNutrientResearchSessionInput {
+  seedId: string;
+  nutrientCardId?: string | null;
+  title?: string;
+}
+
+export interface SubmitNutrientResearchMessageInput {
+  message: string;
+}
+
+export interface SubmitNutrientResearchMessageResult {
+  userMessage: NutrientResearchMessage;
+  assistantMessage: NutrientResearchMessage;
+  depositableBlocks: NutrientDepositableBlock[];
+}
+
 export interface NutrientResourceRef {
   resourceType: "nutrient";
   resourceId: string;
@@ -96,6 +121,7 @@ export interface NutrientServiceDependencies {
   storage: NutrientStoragePort;
   contentAccess: NutrientMarkdownContentAccessPort;
   seedStorage: SeedStoragePort;
+  agentPort?: AgentPort;
   idGenerator?: IdGenerator;
   now?: () => Date;
 }
@@ -104,6 +130,7 @@ export class NutrientService {
   private readonly storage: NutrientStoragePort;
   private readonly contentAccess: NutrientMarkdownContentAccessPort;
   private readonly seedStorage: SeedStoragePort;
+  private readonly agentPort: AgentPort | undefined;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
 
@@ -111,6 +138,7 @@ export class NutrientService {
     this.storage = dependencies.storage;
     this.contentAccess = dependencies.contentAccess;
     this.seedStorage = dependencies.seedStorage;
+    this.agentPort = dependencies.agentPort;
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
   }
@@ -561,6 +589,143 @@ export class NutrientService {
     return this.getCard(cardId);
   }
 
+  public async createResearchSession(
+    input: CreateNutrientResearchSessionInput,
+  ): Promise<NutrientResearchSessionDetail> {
+    const seedId = await this.requireSeed(input.seedId);
+    const nutrientCardId = await this.resolveResearchCard(seedId, input.nutrientCardId);
+    if (nutrientCardId !== null) {
+      const existing = await this.storage.findResearchSessionByCardId(
+        nutrientCardId,
+      );
+      if (existing !== null) {
+        return this.getResearchSession(existing.id);
+      }
+    }
+    const timestamp = this.timestamp();
+    const session: NutrientResearchSessionRecord = {
+      id: this.idGenerator.nextId("nutrient-research-session"),
+      seedId,
+      nutrientCardId,
+      title:
+        input.title === undefined
+          ? ""
+          : this.normalizeOptionalText(input.title),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    await this.storage.createResearchSession(session);
+    if (nutrientCardId !== null) {
+      await this.bindCardConversation(nutrientCardId, {
+        conversationId: session.id,
+      });
+    }
+    return this.getResearchSession(session.id);
+  }
+
+  public async getResearchSession(
+    sessionId: string,
+  ): Promise<NutrientResearchSessionDetail> {
+    const session = await this.requireResearchSession(sessionId);
+    const messages = await this.listResearchMessages(session.id);
+    const depositableBlocks = await this.listDepositableBlocks(session.id);
+    return {
+      ...this.toResearchSessionSummary(session),
+      messages,
+      depositableBlocks,
+    };
+  }
+
+  public async listResearchMessages(
+    sessionId: string,
+  ): Promise<NutrientResearchMessage[]> {
+    const session = await this.requireResearchSession(sessionId);
+    const records = await this.storage.listResearchMessagesBySession(session.id);
+    return records.map((record) => this.toResearchMessage(record));
+  }
+
+  public async listDepositableBlocks(
+    sessionId: string,
+  ): Promise<NutrientDepositableBlock[]> {
+    const session = await this.requireResearchSession(sessionId);
+    const records = await this.storage.listDepositableBlocksBySession(session.id);
+    return records.map((record) => this.toDepositableBlock(record));
+  }
+
+  public async submitResearchMessage(
+    sessionId: string,
+    input: SubmitNutrientResearchMessageInput,
+  ): Promise<SubmitNutrientResearchMessageResult> {
+    const session = await this.requireResearchSession(sessionId);
+    const message = this.requireNonBlank(input.message, "研究消息不能为空");
+    const timestamp = this.timestamp();
+    const userMessageRecord: NutrientResearchMessageRecord = {
+      id: this.idGenerator.nextId("nutrient-research-message"),
+      sessionId: session.id,
+      role: "user",
+      content: message,
+      agentTaskId: null,
+      trace: [],
+      failureReason: null,
+      createdAt: timestamp,
+    };
+    await this.storage.createResearchMessage(userMessageRecord);
+
+    const agent = this.requireAgentPort();
+    const agentResult = await agent.runTask({
+      type: "nutrient_research",
+      input: await this.buildResearchAgentInput(session, message),
+      metadata: {
+        seedId: session.seedId,
+        nutrientCardId: session.nutrientCardId,
+        sessionId: session.id,
+      },
+    });
+
+    if (!agentResult.ok) {
+      const assistant = await this.saveAssistantResearchMessage({
+        session,
+        content: agentResult.error.message,
+        agentTaskId: agentResult.taskId,
+        trace: agentResult.trace.map((event) => ({ ...event })),
+        failureReason: agentResult.error.message,
+      });
+      throw new ApplicationError(
+        "AGENT_TASK_FAILED",
+        agentResult.error.message,
+        502,
+      );
+    }
+
+    const output = validateNutrientResearchOutput(agentResult.output.content);
+    const assistant = await this.saveAssistantResearchMessage({
+      session,
+      content: output.message,
+      agentTaskId: agentResult.taskId,
+      trace: agentResult.trace.map((event) => ({ ...event })),
+      failureReason: null,
+    });
+    const blocks: NutrientDepositableBlock[] = [];
+    for (const block of output.depositableBlocks) {
+      const record: NutrientDepositableBlockRecord = {
+        id: this.idGenerator.nextId("nutrient-depositable-block"),
+        sessionId: session.id,
+        messageId: assistant.id,
+        title: block.title,
+        markdown: block.markdown,
+        createdAt: this.timestamp(),
+      };
+      await this.storage.createDepositableBlock(record);
+      blocks.push(this.toDepositableBlock(record));
+    }
+    await this.touchResearchSession(session);
+    return {
+      userMessage: this.toResearchMessage(userMessageRecord),
+      assistantMessage: assistant,
+      depositableBlocks: blocks,
+    };
+  }
+
   public async listReferableContents(
     seedId: string,
   ): Promise<ReferableNutrientContent[]> {
@@ -696,6 +861,24 @@ export class NutrientService {
     return record;
   }
 
+  private async resolveResearchCard(
+    seedId: string,
+    nutrientCardId: string | null | undefined,
+  ): Promise<string | null> {
+    if (nutrientCardId === undefined || nutrientCardId === null) {
+      return null;
+    }
+    const card = await this.requireCard(nutrientCardId);
+    if (card.seedId !== seedId) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "营养研究会话不能绑定其他种子的营养卡片",
+        400,
+      );
+    }
+    return card.id;
+  }
+
   private async requireCard(cardId: string): Promise<NutrientCardRecord> {
     const normalized = this.requireNonBlank(cardId, "营养卡片不能为空");
     const record = await this.storage.findCardById(normalized);
@@ -703,6 +886,88 @@ export class NutrientService {
       throw new ApplicationError("NOT_FOUND", "营养卡片不存在", 404);
     }
     return record;
+  }
+
+  private async requireResearchSession(
+    sessionId: string,
+  ): Promise<NutrientResearchSessionRecord> {
+    const normalized = this.requireNonBlank(sessionId, "营养研究会话不能为空");
+    const record = await this.storage.findResearchSessionById(normalized);
+    if (record === null) {
+      throw new ApplicationError("NOT_FOUND", "营养研究会话不存在", 404);
+    }
+    return record;
+  }
+
+  private async buildResearchAgentInput(
+    session: NutrientResearchSessionRecord,
+    message: string,
+  ): Promise<Record<string, unknown>> {
+    const seed = await this.seedStorage.findSeedById(session.seedId);
+    const card =
+      session.nutrientCardId === null
+        ? null
+        : await this.storage.findCardById(session.nutrientCardId);
+    const recentMessages = (
+      await this.storage.listResearchMessagesBySession(session.id)
+    )
+      .slice(-8)
+      .map((item) => ({
+        role: item.role,
+        content: item.content,
+        createdAt: item.createdAt,
+      }));
+    return {
+      seedId: session.seedId,
+      seedTitle: seed?.title ?? "",
+      nutrientCardId: session.nutrientCardId,
+      nutrientCardTitle: card?.title ?? "",
+      sessionId: session.id,
+      message,
+      recentMessages,
+    };
+  }
+
+  private async saveAssistantResearchMessage(input: {
+    session: NutrientResearchSessionRecord;
+    content: string;
+    agentTaskId: string;
+    trace: Record<string, unknown>[];
+    failureReason: string | null;
+  }): Promise<NutrientResearchMessage> {
+    const record: NutrientResearchMessageRecord = {
+      id: this.idGenerator.nextId("nutrient-research-message"),
+      sessionId: input.session.id,
+      role: "assistant",
+      content: input.content,
+      agentTaskId: input.agentTaskId,
+      trace: input.trace,
+      failureReason: input.failureReason,
+      createdAt: this.timestamp(),
+    };
+    await this.storage.createResearchMessage(record);
+    await this.touchResearchSession(input.session);
+    return this.toResearchMessage(record);
+  }
+
+  private async touchResearchSession(
+    session: NutrientResearchSessionRecord,
+  ): Promise<void> {
+    await this.storage.saveResearchSession({
+      ...session,
+      updatedAt: this.timestamp(),
+    });
+  }
+
+  private requireAgentPort(): AgentPort {
+    if (this.agentPort === undefined) {
+      throw new ApplicationError(
+        "AGENT_TASK_FAILED",
+        "营养研究 Agent 入口尚未装配",
+        502,
+      );
+    }
+    return this.agentPort;
   }
 
   private async syncSettledContentFromCard(
@@ -869,6 +1134,47 @@ export class NutrientService {
     return {
       ...this.toCardSummary(record),
       markdown,
+    };
+  }
+
+  private toResearchSessionSummary(
+    record: NutrientResearchSessionRecord,
+  ): NutrientResearchSessionSummary {
+    return {
+      id: record.id,
+      seedId: record.seedId,
+      nutrientCardId: record.nutrientCardId,
+      title: record.title,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    };
+  }
+
+  private toResearchMessage(
+    record: NutrientResearchMessageRecord,
+  ): NutrientResearchMessage {
+    return {
+      id: record.id,
+      sessionId: record.sessionId,
+      role: record.role,
+      content: record.content,
+      agentTaskId: record.agentTaskId,
+      trace: record.trace.map((event) => ({ ...event })),
+      failureReason: record.failureReason,
+      createdAt: record.createdAt,
+    };
+  }
+
+  private toDepositableBlock(
+    record: NutrientDepositableBlockRecord,
+  ): NutrientDepositableBlock {
+    return {
+      id: record.id,
+      sessionId: record.sessionId,
+      messageId: record.messageId,
+      title: record.title,
+      markdown: record.markdown,
+      createdAt: record.createdAt,
     };
   }
 }
