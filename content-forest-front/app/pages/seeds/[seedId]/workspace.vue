@@ -10,7 +10,7 @@ import NutrientWorkbenchDialog from '../../../components/nutrient/NutrientWorkbe
 
 type NodeType = 'seed' | 'fruit'
 type NodeStatus = 'idle' | 'growing' | 'failed'
-type ResourceKind = 'nutrient' | 'gene'
+type ResourceKind = 'nutrient' | 'gene' | 'nutrient_card'
 
 interface TreeNode {
   id: string
@@ -133,6 +133,7 @@ const searchModeMenuOpen = ref(false)
 const growthDetailOpen = ref(false)
 const growthIntent = ref('')
 const referencedResources = ref<ResourceRef[]>([])
+const removedDefaultResourceKeys = ref<string[]>([])
 const growthInputEl = ref<HTMLTextAreaElement | null>(null)
 const selectedGeneratorId = ref('')
 const fruitCount = ref(3)
@@ -306,8 +307,10 @@ const resourceOptions = computed<ResourceRef[]>(() => {
         id: item.id,
         kind: 'nutrient' as const,
         label: item.title,
-        scope: item.library.scope === 'public' ? `公共营养库 · ${item.library.name}` : `种子专属营养库 · ${item.library.name}`,
-        description: '可作为本次枝化生长参考的营养内容',
+        scope: item.defaultForGrowth
+          ? `常驻营养 · ${item.library.name}`
+          : item.library.scope === 'public' ? `公共营养库 · ${item.library.name}` : `种子专属营养库 · ${item.library.name}`,
+        description: item.defaultForGrowth ? '默认带入，可在本次移除' : '可作为本次枝化生长参考的营养内容',
       })),
     ...resources.geneInsights
       .filter((item) => item.status === 'active')
@@ -331,8 +334,14 @@ const filteredResourceGroups = computed(() => [
   {
     kind: 'nutrient' as const,
     title: '营养',
-    subtitle: '创作素材与平台经验',
+    subtitle: '创作素材、常驻营养与平台经验',
     resources: filteredResourceOptions.value.filter((resource) => resource.kind === 'nutrient'),
+  },
+  {
+    kind: 'nutrient_card' as const,
+    title: '候选营养',
+    subtitle: '未沉淀卡片临时参考',
+    resources: filteredResourceOptions.value.filter((resource) => resource.kind === 'nutrient_card'),
   },
   {
     kind: 'gene' as const,
@@ -343,7 +352,7 @@ const filteredResourceGroups = computed(() => [
 ].filter((group) => group.resources.length > 0))
 const growthDetailResources = computed(() => referencedResources.value.map((resource) => ({
   ...resource,
-  kindLabel: resource.kind === 'gene' ? '基因' : '营养',
+  kindLabel: resource.kind === 'gene' ? '基因' : resource.kind === 'nutrient_card' ? '候选营养' : '营养',
 })))
 const selectedSearchModeOption = computed<GrowthSearchModeOption>(() => searchModeOptions.find((option) => option.value === selectedSearchMode.value) ?? defaultSearchModeOption)
 const selectedMutationIntensityOption = computed<GrowthMutationIntensityOption>(() => mutationIntensityOptions.find((option) => option.value === selectedMutationIntensity.value) ?? defaultMutationIntensityOption)
@@ -465,7 +474,11 @@ async function loadWorkspace(preferredNodeId = selectedNodeId.value) {
       selectedGeneratorId.value = nextSnapshot.resources.generators[0]?.id || ''
     }
 
-    referencedResources.value = referencedResources.value.filter((resource) => resourceOptions.value.some((item) => item.id === resource.id && item.kind === resource.kind))
+    referencedResources.value = referencedResources.value.filter((resource) => {
+      if (resource.kind === 'nutrient_card') return true
+      return resourceOptions.value.some((item) => item.id === resource.id && item.kind === resource.kind)
+    })
+    applyDefaultGrowthNutrients()
     await loadSelectedNodeDetail()
     if (shouldFitAfterLoad) {
       await nextTick()
@@ -1543,6 +1556,7 @@ function addResource(resource: ResourceRef) {
   if (!referencedResources.value.some((item) => item.id === resource.id && item.kind === resource.kind)) {
     referencedResources.value = [resource, ...referencedResources.value]
   }
+  removedDefaultResourceKeys.value = removedDefaultResourceKeys.value.filter((key) => key !== resourceKey(resource))
   growthIntent.value = removeActiveMention(growthIntent.value)
   resourcePopoverOpen.value = false
   resourceQuery.value = ''
@@ -1551,6 +1565,35 @@ function addResource(resource: ResourceRef) {
 
 function removeResource(resource: ResourceRef) {
   referencedResources.value = referencedResources.value.filter((item) => !(item.id === resource.id && item.kind === resource.kind))
+  if (resource.kind === 'nutrient') {
+    removedDefaultResourceKeys.value = [...new Set([...removedDefaultResourceKeys.value, resourceKey(resource)])]
+  }
+}
+
+function resourceKey(resource: Pick<ResourceRef, 'id' | 'kind'>) {
+  return `${resource.kind}:${resource.id}`
+}
+
+function applyDefaultGrowthNutrients() {
+  const defaultResources = resourceOptions.value.filter((resource) => {
+    if (resource.kind !== 'nutrient') return false
+    if (removedDefaultResourceKeys.value.includes(resourceKey(resource))) return false
+    const nutrient = snapshot.value?.resources.nutrients.find((item) => item.id === resource.id)
+    return nutrient?.defaultForGrowth === true
+  })
+  const missing = defaultResources.filter((resource) => !referencedResources.value.some((item) => item.id === resource.id && item.kind === resource.kind))
+  if (missing.length > 0) {
+    referencedResources.value = [...missing, ...referencedResources.value]
+  }
+}
+
+function handleNutrientWorkbenchReference(resource: ResourceRef) {
+  addResource(resource)
+  nutrientWorkbenchOpen.value = false
+}
+
+async function handleNutrientWorkbenchChanged() {
+  await loadWorkspace(selectedNode.value?.id)
 }
 
 function removeActiveMention(value: string) {
@@ -1654,6 +1697,9 @@ async function startGrowth() {
     const geneRefs = referencedResources.value
       .filter((resource) => resource.kind === 'gene')
       .map((resource) => ({ resourceType: 'gene' as const, resourceId: resource.id }))
+    const temporaryNutrientCardRefs = referencedResources.value
+      .filter((resource) => resource.kind === 'nutrient_card')
+      .map((resource) => ({ resourceType: 'nutrient_card' as const, resourceId: resource.id }))
     const payload = {
       seedId: seedId.value,
       sourceNodeRef: { nodeType: source.nodeType, nodeId: source.id },
@@ -1661,6 +1707,7 @@ async function startGrowth() {
       generatorId: selectedGeneratorId.value,
       fruitCount: fruitCount.value,
       nutrientRefs,
+      temporaryNutrientCardRefs,
       geneRefs,
       searchMode: selectedSearchMode.value,
       mutationIntensity: selectedMutationIntensity.value,
@@ -1821,8 +1868,22 @@ function applyFailedInput(failedInput: GrowthFailedInput) {
   selectedMutationIntensity.value = failedInput.pipelineParams?.mutationIntensity ?? selectedMutationIntensity.value
   referencedResources.value = [
     ...failedInput.nutrientRefs,
+    ...failedInput.temporaryNutrientCardRefs,
     ...failedInput.geneRefs,
-  ].map((ref) => resourceOptions.value.find((resource) => resource.id === ref.resourceId && resource.kind === ref.resourceType))
+  ].map((ref) => {
+    const matchedResource = resourceOptions.value.find((resource) => resource.id === ref.resourceId && resource.kind === ref.resourceType)
+    if (matchedResource) return matchedResource
+    if (ref.resourceType === 'nutrient_card') {
+      return {
+        id: ref.resourceId,
+        kind: 'nutrient_card' as const,
+        label: ref.resourceId,
+        scope: '未沉淀营养卡片',
+        description: '最近失败任务中的临时引用',
+      }
+    }
+    return null
+  })
     .filter((resource): resource is ResourceRef => Boolean(resource))
 }
 
@@ -1935,7 +1996,9 @@ function formatDateTime(value: string | null | undefined) {
       :open="nutrientWorkbenchOpen"
       :seed-id="seedId"
       :seed-title="snapshot?.seed.title"
+      @changed="handleNutrientWorkbenchChanged"
       @close="nutrientWorkbenchOpen = false"
+      @reference="handleNutrientWorkbenchReference"
     />
 
     <button
@@ -2563,7 +2626,7 @@ function formatDateTime(value: string | null | undefined) {
               type="button"
               @click="addResource(resource)"
             >
-              <span class="cf-resource-icon">{{ resource.kind === 'gene' ? '因' : '养' }}</span>
+              <span class="cf-resource-icon">{{ resource.kind === 'gene' ? '因' : resource.kind === 'nutrient_card' ? '候' : '养' }}</span>
               <span class="cf-resource-row-main">
                 <strong>{{ resource.label }}</strong>
                 <span class="cf-resource-meta">{{ resource.scope }}</span>
@@ -5365,6 +5428,12 @@ button:disabled {
   color: #ffe0b2;
 }
 
+.cf-mention.is-nutrient_card {
+  border-color: rgba(177, 128, 255, .28);
+  background: rgba(177, 128, 255, .12);
+  color: #dec9ff;
+}
+
 .cf-growth-footer {
   justify-content: space-between;
   padding: 0 10px 10px;
@@ -5432,6 +5501,12 @@ button:disabled {
   border-color: rgba(240, 195, 107, .24);
   background: rgba(240, 195, 107, .08);
   color: #ffe0b2;
+}
+
+.cf-ref-chip.is-nutrient_card {
+  border-color: rgba(177, 128, 255, .28);
+  background: rgba(177, 128, 255, .1);
+  color: #dec9ff;
 }
 
 .cf-send-button {
@@ -5545,6 +5620,12 @@ button:disabled {
   border-color: rgba(122, 167, 255, .24);
   background: rgba(122, 167, 255, .08);
   color: #b9ccff;
+}
+
+.cf-resource-group.is-nutrient_card .cf-resource-icon {
+  border-color: rgba(177, 128, 255, .24);
+  background: rgba(177, 128, 255, .08);
+  color: #dec9ff;
 }
 
 .cf-resource-row strong,

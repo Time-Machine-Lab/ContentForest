@@ -4,6 +4,8 @@ import { NutrientService } from "../modules/nutrient/application/nutrient-servic
 import {
   NUTRIENT_ARCHIVE_STATES,
   NUTRIENT_CARD_STATUSES,
+  NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES,
+  NUTRIENT_GAP_SUGGESTION_STATUSES,
   NUTRIENT_LIBRARY_SCOPES,
 } from "../modules/nutrient/domain/nutrient-types.js";
 import { SEED_ARCHIVE_STATES } from "../modules/seed/domain/seed-types.js";
@@ -383,5 +385,91 @@ describe("NutrientService", () => {
         { resourceType: "nutrient_card", resourceId: card.id },
       ]),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("creates, dedupes, lists, adopts and ignores nutrient gap suggestions", async () => {
+    const { service } = await createFixture();
+
+    const first = await service.createGapSuggestion({
+      seedId: "seed_1",
+      sourceType: NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.manual,
+      sourceId: "manual_1",
+      title: "补充小红书案例",
+      bodyMarkdown: "研究小红书壁纸爆款案例",
+    });
+    const duplicate = await service.createGapSuggestion({
+      seedId: "seed_1",
+      sourceType: NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.manual,
+      sourceId: "manual_1",
+      title: "补充小红书案例",
+      bodyMarkdown: "重复内容不会新建",
+    });
+    const second = await service.createGapSuggestion({
+      seedId: "seed_1",
+      sourceType: NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.growthInputGap,
+      sourceId: "growth-task_1",
+      title: "补充抖音资料",
+      bodyMarkdown: "研究抖音同类内容",
+    });
+
+    expect(first).toMatchObject({
+      status: NUTRIENT_GAP_SUGGESTION_STATUSES.pending,
+      title: "补充小红书案例",
+    });
+    expect(duplicate.id).toBe(first.id);
+    expect(await service.countPendingGapSuggestions("seed_1")).toBe(2);
+
+    const adopted = await service.adoptGapSuggestion(first.id);
+    const ignored = await service.ignoreGapSuggestion(second.id);
+
+    expect(adopted.suggestion).toMatchObject({
+      status: NUTRIENT_GAP_SUGGESTION_STATUSES.adopted,
+      adoptedCardId: adopted.nutrientCard.id,
+    });
+    expect(adopted.nutrientCard).toMatchObject({
+      seedId: "seed_1",
+      status: NUTRIENT_CARD_STATUSES.unsettled,
+      title: "补充小红书案例",
+      markdown: "研究小红书壁纸爆款案例",
+    });
+    expect(ignored.status).toBe(NUTRIENT_GAP_SUGGESTION_STATUSES.ignored);
+    expect(await service.listGapSuggestions("seed_1", {
+      status: NUTRIENT_GAP_SUGGESTION_STATUSES.pending,
+    })).toEqual([]);
+  });
+
+  it("creates lightweight suggestions from seed brief and growth signals", async () => {
+    const { service } = await createFixture();
+
+    const seedBriefSuggestions = await service.createSuggestionsFromSeedBrief(
+      "seed_1",
+      [
+        "# 简报",
+        "- 证据缺口：需要补充小红书壁纸账号案例",
+        "- 资料缺口：需要补充爆款封面结构",
+      ].join("\n"),
+    );
+    const growthSuggestion = await service.createSuggestionFromGrowthInput({
+      seedId: "seed_1",
+      userInput: "这次想做小红书情绪价值方向",
+      nutrientRefCount: 0,
+      temporaryNutrientCardRefCount: 0,
+      sourceId: "growth-task_1",
+    });
+    const ignoredBecauseNutrientExists =
+      await service.createSuggestionFromGrowthInput({
+        seedId: "seed_1",
+        userInput: "继续做小红书",
+        nutrientRefCount: 1,
+        temporaryNutrientCardRefCount: 0,
+        sourceId: "growth-task_2",
+      });
+
+    expect(seedBriefSuggestions).toHaveLength(2);
+    expect(growthSuggestion).toMatchObject({
+      sourceType: NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.growthInputGap,
+      title: "补充小红书资料",
+    });
+    expect(ignoredBecauseNutrientExists).toBeNull();
   });
 });

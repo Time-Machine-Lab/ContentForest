@@ -39,6 +39,7 @@ export interface SeedServiceDependencies {
   contentAccess: SeedMarkdownContentAccessPort;
   agentPort?: AgentPort;
   afterSeedCreated?: (seedId: string) => Promise<void>;
+  afterSeedBriefSaved?: (seedId: string, markdown: string) => Promise<void>;
   idGenerator?: IdGenerator;
   now?: () => Date;
 }
@@ -48,6 +49,9 @@ export class SeedService {
   private readonly contentAccess: SeedMarkdownContentAccessPort;
   private readonly agentPort: AgentPort | undefined;
   private readonly afterSeedCreated: ((seedId: string) => Promise<void>) | undefined;
+  private readonly afterSeedBriefSaved:
+    | ((seedId: string, markdown: string) => Promise<void>)
+    | undefined;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
 
@@ -56,6 +60,7 @@ export class SeedService {
     this.contentAccess = dependencies.contentAccess;
     this.agentPort = dependencies.agentPort;
     this.afterSeedCreated = dependencies.afterSeedCreated;
+    this.afterSeedBriefSaved = dependencies.afterSeedBriefSaved;
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
   }
@@ -111,6 +116,7 @@ export class SeedService {
       updatedAt: timestamp,
     };
     await this.storage.upsertSeedBrief(nextRecord);
+    await this.notifySeedBriefSaved(seed.id, markdown);
     return this.toBriefDetail(nextRecord, markdown);
   }
 
@@ -142,6 +148,7 @@ export class SeedService {
       updatedAt: this.timestamp(),
     };
     await this.storage.upsertSeedBrief(nextRecord);
+    await this.notifySeedBriefSaved(seedId, markdown);
     return this.toBriefDetail(nextRecord, markdown);
   }
 
@@ -330,6 +337,7 @@ export class SeedService {
         updatedAt: timestamp,
       };
       await this.storage.upsertSeedBrief(nextRecord);
+      await this.notifySeedBriefSaved(seedId, markdown);
       return this.toBriefDetail(nextRecord, markdown);
     }
 
@@ -345,7 +353,18 @@ export class SeedService {
       updatedAt: timestamp,
     };
     await this.storage.upsertSeedBrief(record);
+    await this.notifySeedBriefSaved(seedId, markdown);
     return this.toBriefDetail(record, markdown);
+  }
+
+  private async notifySeedBriefSaved(
+    seedId: string,
+    markdown: string,
+  ): Promise<void> {
+    if (this.afterSeedBriefSaved === undefined) {
+      return;
+    }
+    await this.afterSeedBriefSaved(seedId, markdown);
   }
 
   private requireNonBlank(value: string, message: string): string {

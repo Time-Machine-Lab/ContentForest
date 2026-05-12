@@ -11,6 +11,8 @@ import type {
   NutrientDepositableBlockRecord,
   NutrientLibraryListFilter,
   NutrientLibraryRecord,
+  NutrientGapSuggestionListFilter,
+  NutrientGapSuggestionRecord,
   NutrientResearchMessageRecord,
   NutrientResearchSessionRecord,
   NutrientStoragePort,
@@ -19,7 +21,10 @@ import type { SeedStoragePort } from "../../../storage/ports/seed-storage-port.j
 import {
   NUTRIENT_ARCHIVE_STATES,
   NUTRIENT_CARD_STATUSES,
+  NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES,
+  NUTRIENT_GAP_SUGGESTION_STATUSES,
   NUTRIENT_LIBRARY_SCOPES,
+  type AdoptNutrientGapSuggestionResult,
   type NutrientArchiveState,
   type NutrientCardDetail,
   type NutrientCardStatus,
@@ -27,6 +32,9 @@ import {
   type NutrientDepositableBlock,
   type NutrientContentDetail,
   type NutrientContentSummary,
+  type NutrientGapSuggestion,
+  type NutrientGapSuggestionSourceType,
+  type NutrientGapSuggestionStatus,
   type NutrientLibraryDetail,
   type NutrientLibraryScope,
   type NutrientLibrarySummary,
@@ -105,6 +113,37 @@ export interface SubmitNutrientResearchMessageResult {
   userMessage: NutrientResearchMessage;
   assistantMessage: NutrientResearchMessage;
   depositableBlocks: NutrientDepositableBlock[];
+}
+
+export interface CreateNutrientGapSuggestionInput {
+  seedId: string;
+  sourceType: NutrientGapSuggestionSourceType;
+  sourceId?: string | null;
+  title: string;
+  bodyMarkdown: string;
+}
+
+export interface ListNutrientGapSuggestionsInput {
+  status?: NutrientGapSuggestionStatus;
+}
+
+export interface GrowthInputGapSignal {
+  seedId: string;
+  userInput: string;
+  nutrientRefCount: number;
+  temporaryNutrientCardRefCount?: number;
+  sourceId?: string | null;
+}
+
+export interface FruitEliminationGapSignal {
+  seedId: string;
+  fruitId: string;
+}
+
+export interface GrowthFailureGapSignal {
+  seedId: string;
+  taskId: string;
+  failureReason: string;
 }
 
 export interface NutrientResourceRef {
@@ -726,6 +765,209 @@ export class NutrientService {
     };
   }
 
+  public async createGapSuggestion(
+    input: CreateNutrientGapSuggestionInput,
+  ): Promise<NutrientGapSuggestion> {
+    const seedId = await this.requireSeed(input.seedId);
+    const sourceType = this.requireGapSuggestionSourceType(input.sourceType);
+    const title = this.requireNonBlank(input.title, "营养汲取建议标题不能为空");
+    const bodyMarkdown = this.requireNonBlank(
+      input.bodyMarkdown,
+      "营养汲取建议内容不能为空",
+    );
+    const timestamp = this.timestamp();
+    const record: NutrientGapSuggestionRecord = {
+      id: this.idGenerator.nextId("nutrient-gap-suggestion"),
+      seedId,
+      status: NUTRIENT_GAP_SUGGESTION_STATUSES.pending,
+      sourceType,
+      sourceId: this.normalizeNullableText(input.sourceId),
+      title,
+      bodyMarkdown,
+      dedupeKey: this.buildGapSuggestionDedupeKey({
+        sourceType,
+        sourceId: input.sourceId,
+        title,
+      }),
+      adoptedCardId: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      resolvedAt: null,
+    };
+    const created = await this.storage.createGapSuggestion(record);
+    if (created) {
+      return this.toGapSuggestion(record);
+    }
+    const existing = (await this.storage.listGapSuggestionsBySeed(seedId))
+      .find((suggestion) => suggestion.dedupeKey === record.dedupeKey);
+    return this.toGapSuggestion(existing ?? record);
+  }
+
+  public async listGapSuggestions(
+    seedId: string,
+    input: ListNutrientGapSuggestionsInput = {},
+  ): Promise<NutrientGapSuggestion[]> {
+    const normalizedSeedId = await this.requireSeed(seedId);
+    const filter: NutrientGapSuggestionListFilter = {};
+    if (input.status !== undefined) {
+      filter.status = this.requireGapSuggestionStatus(input.status);
+    }
+    const records = await this.storage.listGapSuggestionsBySeed(
+      normalizedSeedId,
+      filter,
+    );
+    return records.map((record) => this.toGapSuggestion(record));
+  }
+
+  public async countPendingGapSuggestions(seedId: string): Promise<number> {
+    const normalizedSeedId = await this.requireSeed(seedId);
+    return this.storage.countGapSuggestionsBySeed(normalizedSeedId, {
+      status: NUTRIENT_GAP_SUGGESTION_STATUSES.pending,
+    });
+  }
+
+  public async adoptGapSuggestion(
+    suggestionId: string,
+  ): Promise<AdoptNutrientGapSuggestionResult> {
+    const suggestion = await this.requireGapSuggestion(suggestionId);
+    if (suggestion.status !== NUTRIENT_GAP_SUGGESTION_STATUSES.pending) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "只有待处理营养汲取建议可以采纳",
+        400,
+      );
+    }
+    const nutrientCard = await this.createCard(suggestion.seedId, {
+      title: suggestion.title,
+      markdown: suggestion.bodyMarkdown,
+    });
+    const timestamp = this.timestamp();
+    const updated: NutrientGapSuggestionRecord = {
+      ...suggestion,
+      status: NUTRIENT_GAP_SUGGESTION_STATUSES.adopted,
+      adoptedCardId: nutrientCard.id,
+      updatedAt: timestamp,
+      resolvedAt: timestamp,
+    };
+    await this.storage.saveGapSuggestion(updated);
+    return {
+      suggestion: this.toGapSuggestion(updated),
+      nutrientCard,
+    };
+  }
+
+  public async ignoreGapSuggestion(
+    suggestionId: string,
+  ): Promise<NutrientGapSuggestion> {
+    const suggestion = await this.requireGapSuggestion(suggestionId);
+    if (suggestion.status !== NUTRIENT_GAP_SUGGESTION_STATUSES.pending) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "只有待处理营养汲取建议可以忽略",
+        400,
+      );
+    }
+    const timestamp = this.timestamp();
+    const updated: NutrientGapSuggestionRecord = {
+      ...suggestion,
+      status: NUTRIENT_GAP_SUGGESTION_STATUSES.ignored,
+      updatedAt: timestamp,
+      resolvedAt: timestamp,
+    };
+    await this.storage.saveGapSuggestion(updated);
+    return this.toGapSuggestion(updated);
+  }
+
+  public async createSuggestionsFromSeedBrief(
+    seedId: string,
+    markdown: string,
+  ): Promise<NutrientGapSuggestion[]> {
+    const gaps = this.extractSeedBriefGapLines(markdown);
+    const created: NutrientGapSuggestion[] = [];
+    for (const gap of gaps) {
+      created.push(
+        await this.createGapSuggestion({
+          seedId,
+          sourceType: NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.seedBriefGap,
+          sourceId: "seed_brief",
+          title: this.shortTitle(`补充资料：${gap}`),
+          bodyMarkdown: [
+            "# 营养汲取建议",
+            "",
+            `建议补充与「${gap}」相关的资料、案例或平台表达规律。`,
+            "",
+            "## 研究输入",
+            gap,
+          ].join("\n"),
+        }),
+      );
+    }
+    return created;
+  }
+
+  public async createSuggestionFromGrowthInput(
+    input: GrowthInputGapSignal,
+  ): Promise<NutrientGapSuggestion | null> {
+    const totalRefs =
+      input.nutrientRefCount + (input.temporaryNutrientCardRefCount ?? 0);
+    const direction = this.extractPlatformOrDirection(input.userInput);
+    if (direction === null || totalRefs > 0) {
+      return null;
+    }
+    return this.createGapSuggestion({
+      seedId: input.seedId,
+      sourceType: NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.growthInputGap,
+      sourceId: input.sourceId,
+      title: this.shortTitle(`补充${direction}资料`),
+      bodyMarkdown: [
+        "# 营养汲取建议",
+        "",
+        `用户本次生长提到了「${direction}」，但没有带入相关营养资料。`,
+        "",
+        "## 研究输入",
+        input.userInput.trim(),
+      ].join("\n"),
+    });
+  }
+
+  public async createSuggestionFromFruitElimination(
+    input: FruitEliminationGapSignal,
+  ): Promise<NutrientGapSuggestion> {
+    return this.createGapSuggestion({
+      seedId: input.seedId,
+      sourceType: NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.fruitElimination,
+      sourceId: input.fruitId,
+      title: "补充淘汰原因资料",
+      bodyMarkdown: [
+        "# 营养汲取建议",
+        "",
+        "该果实被淘汰，建议补充平台语感、同类案例、失败原因或反面样本，帮助后续生长规避类似表达。",
+        "",
+        "## 关联果实",
+        input.fruitId,
+      ].join("\n"),
+    });
+  }
+
+  public async createSuggestionFromGrowthFailure(
+    input: GrowthFailureGapSignal,
+  ): Promise<NutrientGapSuggestion> {
+    return this.createGapSuggestion({
+      seedId: input.seedId,
+      sourceType: NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.growthFailure,
+      sourceId: input.taskId,
+      title: "补充生成失败资料",
+      bodyMarkdown: [
+        "# 营养汲取建议",
+        "",
+        "枝化生长没有成功生成果实，建议补充更明确的平台案例、表达规则或种子专属资料。",
+        "",
+        "## 失败原因",
+        input.failureReason,
+      ].join("\n"),
+    });
+  }
+
   public async listReferableContents(
     seedId: string,
   ): Promise<ReferableNutrientContent[]> {
@@ -899,6 +1141,20 @@ export class NutrientService {
     return record;
   }
 
+  private async requireGapSuggestion(
+    suggestionId: string,
+  ): Promise<NutrientGapSuggestionRecord> {
+    const normalized = this.requireNonBlank(
+      suggestionId,
+      "营养汲取建议不能为空",
+    );
+    const record = await this.storage.findGapSuggestionById(normalized);
+    if (record === null) {
+      throw new ApplicationError("NOT_FOUND", "营养汲取建议不存在", 404);
+    }
+    return record;
+  }
+
   private async buildResearchAgentInput(
     session: NutrientResearchSessionRecord,
     message: string,
@@ -1039,6 +1295,42 @@ export class NutrientService {
     return value;
   }
 
+  private requireGapSuggestionStatus(
+    value: NutrientGapSuggestionStatus,
+  ): NutrientGapSuggestionStatus {
+    if (
+      value !== NUTRIENT_GAP_SUGGESTION_STATUSES.pending &&
+      value !== NUTRIENT_GAP_SUGGESTION_STATUSES.adopted &&
+      value !== NUTRIENT_GAP_SUGGESTION_STATUSES.ignored
+    ) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "营养汲取建议状态不正确",
+        400,
+      );
+    }
+    return value;
+  }
+
+  private requireGapSuggestionSourceType(
+    value: NutrientGapSuggestionSourceType,
+  ): NutrientGapSuggestionSourceType {
+    if (
+      value !== NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.seedBriefGap &&
+      value !== NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.growthInputGap &&
+      value !== NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.fruitElimination &&
+      value !== NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.growthFailure &&
+      value !== NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.manual
+    ) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "营养汲取建议来源不正确",
+        400,
+      );
+    }
+    return value;
+  }
+
   private requireNonBlank(value: string, message: string): string {
     const normalized = value.trim();
     if (normalized.length === 0) {
@@ -1061,6 +1353,57 @@ export class NutrientService {
 
   private timestamp(): string {
     return this.now().toISOString();
+  }
+
+  private buildGapSuggestionDedupeKey(input: {
+    sourceType: NutrientGapSuggestionSourceType;
+    sourceId?: string | null;
+    title: string;
+  }): string {
+    return [
+      input.sourceType,
+      this.normalizeNullableText(input.sourceId) ?? "none",
+      input.title.trim().replace(/\s+/g, " ").toLowerCase(),
+    ].join(":");
+  }
+
+  private extractSeedBriefGapLines(markdown: string): string[] {
+    const lines = markdown
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^[-*#>\s]+/, "").trim())
+      .filter((line) => line.length > 0)
+      .filter((line) => /缺口|证据|资料|案例|待补充|需要补充/.test(line));
+    return [...new Set(lines)].slice(0, 5);
+  }
+
+  private extractPlatformOrDirection(value: string): string | null {
+    const normalized = value.trim();
+    if (normalized.length === 0) {
+      return null;
+    }
+    const known = [
+      "小红书",
+      "抖音",
+      "视频号",
+      "B站",
+      "微博",
+      "知乎",
+      "公众号",
+      "Twitter",
+      "X",
+      "TikTok",
+      "YouTube",
+    ].find((platform) => normalized.toLowerCase().includes(platform.toLowerCase()));
+    if (known !== undefined) {
+      return known;
+    }
+    const directionMatch = normalized.match(/([\p{Script=Han}A-Za-z0-9]{2,18})(方向|赛道|平台|账号|爆款|案例)/u);
+    return directionMatch?.[0] ?? null;
+  }
+
+  private shortTitle(value: string): string {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    return Array.from(normalized).slice(0, 24).join("");
   }
 
   private toLibrarySummary(record: NutrientLibraryRecord): NutrientLibrarySummary {
@@ -1175,6 +1518,24 @@ export class NutrientService {
       title: record.title,
       markdown: record.markdown,
       createdAt: record.createdAt,
+    };
+  }
+
+  private toGapSuggestion(
+    record: NutrientGapSuggestionRecord,
+  ): NutrientGapSuggestion {
+    return {
+      id: record.id,
+      seedId: record.seedId,
+      status: record.status,
+      sourceType: record.sourceType,
+      sourceId: record.sourceId,
+      title: record.title,
+      bodyMarkdown: record.bodyMarkdown,
+      adoptedCardId: record.adoptedCardId,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      resolvedAt: record.resolvedAt,
     };
   }
 }

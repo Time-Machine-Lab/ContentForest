@@ -8,7 +8,10 @@ import type {
 } from "../../gene/domain/gene-types.js";
 import type { SelectableGenerator } from "../../generator/domain/generator-types.js";
 import type { GrowthSourceStatus } from "../../growth/domain/growth-types.js";
-import type { ReferableNutrientContent } from "../../nutrient/domain/nutrient-types.js";
+import type {
+  NutrientGapSuggestion,
+  ReferableNutrientContent,
+} from "../../nutrient/domain/nutrient-types.js";
 import type { SeedArchiveState } from "../../seed/domain/seed-types.js";
 
 export type WorkspaceNodeType = "seed" | "fruit";
@@ -82,6 +85,20 @@ export interface WorkspaceResources {
   generators: SelectableGenerator[];
   nutrients: ReferableNutrientContent[];
   geneInsights: GeneInsightSummary[];
+}
+
+export type WorkspaceNutrientGapSuggestionSummary = NutrientGapSuggestion;
+
+export interface WorkspaceNutrientSuggestionHub {
+  seedId: string;
+  pendingSuggestions: WorkspaceNutrientGapSuggestionSummary[];
+  stats: {
+    pendingSuggestionCount: number;
+  };
+  actions: {
+    canReviewSuggestions: boolean;
+    canOpenNutrientWorkbench: boolean;
+  };
 }
 
 export interface WorkspaceGeneLibrarySummary {
@@ -160,5 +177,6 @@ export interface WorkspaceSnapshot {
   nodes: WorkspaceNode[];
   edges: WorkspaceEdge[];
   resources: WorkspaceResources;
+  nutrientSuggestionHub: WorkspaceNutrientSuggestionHub;
   geneExtractionHub: WorkspaceGeneExtractionHub;
 }

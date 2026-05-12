@@ -50,3 +50,17 @@ test('nutrient workbench marks missing suggestion queue as backend dependency', 
   assert.equal(nutrientTypes.includes('依赖后端更新'), true)
   assert.equal(nutrientTypes.includes('枝化生长缺口建议队列'), true)
 })
+
+test('nutrient workbench exposes card lifecycle actions and dependency restore state', () => {
+  const dialog = readProjectFile('app/components/nutrient/NutrientWorkbenchDialog.vue')
+
+  assert.equal(dialog.includes('settleSelectedCard'), true)
+  assert.equal(dialog.includes('archiveSelectedCard'), true)
+  assert.equal(dialog.includes('toggleDefaultForGrowth'), true)
+  assert.equal(dialog.includes('referenceSelectedCard'), true)
+  assert.equal(dialog.includes('回档营养卡片依赖后端更新'), true)
+  assert.equal(dialog.includes("changed: []"), true)
+  assert.equal(dialog.includes("emit('reference'"), true)
+  assert.equal(dialog.includes("kind: 'nutrient_card'"), true)
+  assert.equal(dialog.includes("kind: 'nutrient'"), true)
+})

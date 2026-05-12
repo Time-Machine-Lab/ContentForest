@@ -4,6 +4,7 @@ import type {
   CreateNutrientContentInput,
   CreateNutrientLibraryInput,
   CreateNutrientResearchSessionInput,
+  ListNutrientGapSuggestionsInput,
   ListNutrientCardsInput,
   ListNutrientContentsInput,
   ListNutrientLibrariesInput,
@@ -147,6 +148,34 @@ export class NutrientController {
     return {
       status: 200,
       body: await this.nutrientService.listCards(seedId, query),
+    };
+  }
+
+  public async listGapSuggestions(
+    seedId: string,
+    query: ListNutrientGapSuggestionsInput = {},
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.listGapSuggestions(seedId, query),
+    };
+  }
+
+  public async adoptGapSuggestion(
+    suggestionId: string,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.adoptGapSuggestion(suggestionId),
+    };
+  }
+
+  public async ignoreGapSuggestion(
+    suggestionId: string,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.ignoreGapSuggestion(suggestionId),
     };
   }
 

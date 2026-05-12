@@ -80,6 +80,21 @@ export interface GeneUsageTrackingPort {
   ): Promise<unknown>;
 }
 
+export interface GrowthNutrientGapSuggestionPort {
+  createSuggestionFromGrowthInput(input: {
+    seedId: string;
+    userInput: string;
+    nutrientRefCount: number;
+    temporaryNutrientCardRefCount: number;
+    sourceId: string | null;
+  }): Promise<unknown>;
+  createSuggestionFromGrowthFailure(input: {
+    seedId: string;
+    taskId: string;
+    failureReason: string;
+  }): Promise<unknown>;
+}
+
 export interface GrowthServiceDependencies {
   storage: GrowthStoragePort;
   seedStorage: SeedStoragePort;
@@ -89,6 +104,7 @@ export interface GrowthServiceDependencies {
   agentPort?: AgentPort;
   referenceAuthorization?: GrowthReferenceAuthorizationPort;
   geneUsageTracking?: GeneUsageTrackingPort;
+  nutrientGapSuggestions?: GrowthNutrientGapSuggestionPort;
   idGenerator?: IdGenerator;
   now?: () => Date;
   scheduleTaskExecution?: GrowthTaskExecutionScheduler;
@@ -106,6 +122,9 @@ export class GrowthService {
   private readonly agentPort: AgentPort | undefined;
   private readonly referenceAuthorization: GrowthReferenceAuthorizationPort;
   private readonly geneUsageTracking: GeneUsageTrackingPort | undefined;
+  private readonly nutrientGapSuggestions:
+    | GrowthNutrientGapSuggestionPort
+    | undefined;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
   private readonly scheduleTaskExecution: GrowthTaskExecutionScheduler;
@@ -122,6 +141,7 @@ export class GrowthService {
     this.referenceAuthorization =
       dependencies.referenceAuthorization ?? new PassThroughGrowthReferenceAuthorization();
     this.geneUsageTracking = dependencies.geneUsageTracking;
+    this.nutrientGapSuggestions = dependencies.nutrientGapSuggestions;
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
     this.scheduleTaskExecution =
@@ -139,6 +159,7 @@ export class GrowthService {
     const taskId = this.idGenerator.nextId("growth-task");
     const timestamp = this.timestamp();
     const baseAgentInput = await this.buildBaseAgentInput(taskId, normalized);
+    await this.createGrowthInputGapSuggestion(taskId, normalized);
     const task: GrowthTaskRecord = {
       id: taskId,
       ...normalized,
@@ -506,8 +527,50 @@ export class GrowthService {
       await this.storage.upsertFailedInput(
         this.toFailedInput(finishedTask, finishedTask.failureReason ?? fallbackFailureReason),
       );
+      await this.createGrowthFailureGapSuggestion(
+        finishedTask,
+        finishedTask.failureReason ?? fallbackFailureReason,
+      );
     }
     return finishedTask;
+  }
+
+  private async createGrowthInputGapSuggestion(
+    taskId: string,
+    input: GrowthTaskInput,
+  ): Promise<void> {
+    if (this.nutrientGapSuggestions === undefined) {
+      return;
+    }
+    try {
+      await this.nutrientGapSuggestions.createSuggestionFromGrowthInput({
+        seedId: input.seedId,
+        userInput: input.userInput,
+        nutrientRefCount: input.nutrientRefs.length,
+        temporaryNutrientCardRefCount: input.temporaryNutrientCardRefs.length,
+        sourceId: taskId,
+      });
+    } catch {
+      // Nutrient suggestions are assistive hints; they must not block growth.
+    }
+  }
+
+  private async createGrowthFailureGapSuggestion(
+    task: GrowthTaskRecord,
+    failureReason: string,
+  ): Promise<void> {
+    if (this.nutrientGapSuggestions === undefined) {
+      return;
+    }
+    try {
+      await this.nutrientGapSuggestions.createSuggestionFromGrowthFailure({
+        seedId: task.seedId,
+        taskId: task.id,
+        failureReason,
+      });
+    } catch {
+      // Nutrient suggestions are assistive hints; they must not block settlement.
+    }
   }
 
   private async recordGeneUsagesForTask(task: GrowthTaskRecord): Promise<void> {

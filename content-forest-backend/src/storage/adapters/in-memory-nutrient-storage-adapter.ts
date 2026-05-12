@@ -8,6 +8,8 @@ import type {
   NutrientDepositableBlockRecord,
   NutrientContentListFilter,
   NutrientContentRecord,
+  NutrientGapSuggestionListFilter,
+  NutrientGapSuggestionRecord,
   NutrientLibraryListFilter,
   NutrientLibraryRecord,
   NutrientResearchMessageRecord,
@@ -23,6 +25,7 @@ export class InMemoryNutrientStorageAdapter implements NutrientStoragePort {
   private readonly researchSessions = new Map<string, NutrientResearchSessionRecord>();
   private readonly researchMessages = new Map<string, NutrientResearchMessageRecord>();
   private readonly depositableBlocks = new Map<string, NutrientDepositableBlockRecord>();
+  private readonly gapSuggestions = new Map<string, NutrientGapSuggestionRecord>();
 
   public async createLibrary(record: NutrientLibraryRecord): Promise<void> {
     this.libraries.set(record.id, { ...record });
@@ -229,6 +232,50 @@ export class InMemoryNutrientStorageAdapter implements NutrientStoragePort {
       .filter((record) => record.sessionId === sessionId)
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
       .map((record) => ({ ...record }));
+  }
+
+  public async createGapSuggestion(
+    record: NutrientGapSuggestionRecord,
+  ): Promise<boolean> {
+    const duplicate = [...this.gapSuggestions.values()].some(
+      (item) => item.seedId === record.seedId && item.dedupeKey === record.dedupeKey,
+    );
+    if (duplicate) {
+      return false;
+    }
+    this.gapSuggestions.set(record.id, { ...record });
+    return true;
+  }
+
+  public async findGapSuggestionById(
+    suggestionId: string,
+  ): Promise<NutrientGapSuggestionRecord | null> {
+    const record = this.gapSuggestions.get(suggestionId);
+    return record === undefined ? null : { ...record };
+  }
+
+  public async saveGapSuggestion(
+    record: NutrientGapSuggestionRecord,
+  ): Promise<void> {
+    this.gapSuggestions.set(record.id, { ...record });
+  }
+
+  public async listGapSuggestionsBySeed(
+    seedId: string,
+    filter: NutrientGapSuggestionListFilter = {},
+  ): Promise<NutrientGapSuggestionRecord[]> {
+    return [...this.gapSuggestions.values()]
+      .filter((record) => record.seedId === seedId)
+      .filter((record) => filter.status === undefined || record.status === filter.status)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map((record) => ({ ...record }));
+  }
+
+  public async countGapSuggestionsBySeed(
+    seedId: string,
+    filter: NutrientGapSuggestionListFilter = {},
+  ): Promise<number> {
+    return (await this.listGapSuggestionsBySeed(seedId, filter)).length;
   }
 
   private cloneMessage(

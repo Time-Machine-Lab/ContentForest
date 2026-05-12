@@ -10,6 +10,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
+  changed: []
+  reference: [payload: {
+    id: string
+    kind: 'nutrient' | 'nutrient_card'
+    label: string
+    scope: string
+    description: string
+  }]
 }>()
 
 const runtimeConfig = useRuntimeConfig()
@@ -31,7 +39,9 @@ const cards = ref<NutrientCardSummary[]>([])
 const selectedCard = ref<NutrientCardDetail | null>(null)
 const cardsLoading = ref(false)
 const detailLoading = ref(false)
+const operationLoading = ref('')
 const workbenchError = ref('')
+const settleLibraryId = ref('')
 
 const suggestionDependencies = computed(() => NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES.filter((item) => item.status === '依赖后端更新'))
 const settledCardsCount = computed(() => cards.value.filter((card) => card.status === 'settled').length)
@@ -70,6 +80,21 @@ async function loadCards() {
   }
 }
 
+async function ensureSettleLibraryId() {
+  if (settleLibraryId.value) return settleLibraryId.value
+  const libraries = await nutrientApi.listLibraries({
+    scope: 'seed_scoped',
+    archiveState: 'active',
+    seedId: props.seedId,
+  })
+  const library = libraries.find((item) => item.seedId === props.seedId)
+  if (!library) {
+    throw new Error('需要先创建当前种子的专属营养库')
+  }
+  settleLibraryId.value = library.id
+  return library.id
+}
+
 async function selectCard(cardId: string) {
   localState.selectedCardId = cardId
   detailLoading.value = true
@@ -84,6 +109,95 @@ async function selectCard(cardId: string) {
   finally {
     detailLoading.value = false
   }
+}
+
+async function refreshSelectedCard(cardId = localState.selectedCardId) {
+  if (!cardId) return
+  const detail = await nutrientApi.getCard(cardId)
+  selectedCard.value = detail
+  cards.value = cards.value.map((card) => card.id === detail.id ? detail : card)
+}
+
+async function settleSelectedCard() {
+  if (!selectedCard.value || selectedCard.value.status !== 'unsettled') return
+  operationLoading.value = 'settle'
+  workbenchError.value = ''
+  try {
+    const libraryId = await ensureSettleLibraryId()
+    const updated = await nutrientApi.settleCard(selectedCard.value.id, { libraryId })
+    selectedCard.value = updated
+    await loadCards()
+    emit('changed')
+  }
+  catch (error) {
+    workbenchError.value = errorMessage(error)
+  }
+  finally {
+    operationLoading.value = ''
+  }
+}
+
+async function archiveSelectedCard() {
+  if (!selectedCard.value || selectedCard.value.status === 'archived') return
+  operationLoading.value = 'archive'
+  workbenchError.value = ''
+  try {
+    const updated = await nutrientApi.archiveCard(selectedCard.value.id)
+    selectedCard.value = updated
+    await loadCards()
+    emit('changed')
+  }
+  catch (error) {
+    workbenchError.value = errorMessage(error)
+  }
+  finally {
+    operationLoading.value = ''
+  }
+}
+
+async function toggleDefaultForGrowth() {
+  if (!selectedCard.value || selectedCard.value.status !== 'settled') return
+  operationLoading.value = 'default'
+  workbenchError.value = ''
+  try {
+    if (selectedCard.value.defaultForGrowth) {
+      await nutrientApi.clearDefaultForGrowth(selectedCard.value.id)
+    }
+    else {
+      await nutrientApi.setDefaultForGrowth(selectedCard.value.id)
+    }
+    await refreshSelectedCard()
+    emit('changed')
+  }
+  catch (error) {
+    workbenchError.value = errorMessage(error)
+  }
+  finally {
+    operationLoading.value = ''
+  }
+}
+
+function referenceSelectedCard() {
+  const card = selectedCard.value
+  if (!card || card.status === 'archived') return
+  if (card.status === 'unsettled') {
+    emit('reference', {
+      id: card.id,
+      kind: 'nutrient_card',
+      label: card.title,
+      scope: '未沉淀营养卡片',
+      description: '本次枝化生长临时参考',
+    })
+    return
+  }
+  if (!card.settledContentId) return
+  emit('reference', {
+    id: card.settledContentId,
+    kind: 'nutrient',
+    label: card.title,
+    scope: '已沉淀营养',
+    description: card.defaultForGrowth ? '常驻营养，可本次移除' : '正式营养内容',
+  })
 }
 
 function statusLabel(status: NutrientCardStatus) {
@@ -185,6 +299,43 @@ function errorMessage(error: unknown) {
                   </div>
                   <button type="button" @click="activePane = 'cards'">查看卡片</button>
                 </header>
+                <div class="cf-nutrient-card-actions" aria-label="营养卡片操作">
+                  <button
+                    v-if="selectedCard.status === 'unsettled'"
+                    type="button"
+                    :disabled="Boolean(operationLoading)"
+                    @click="settleSelectedCard"
+                  >
+                    {{ operationLoading === 'settle' ? '沉淀中' : '沉淀' }}
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="selectedCard.status === 'archived'"
+                    @click="referenceSelectedCard"
+                  >
+                    {{ selectedCard.status === 'unsettled' ? '临时引用' : '引用' }}
+                  </button>
+                  <button
+                    v-if="selectedCard.status === 'settled'"
+                    type="button"
+                    :class="{ 'is-active': selectedCard.defaultForGrowth }"
+                    :disabled="Boolean(operationLoading)"
+                    @click="toggleDefaultForGrowth"
+                  >
+                    {{ selectedCard.defaultForGrowth ? '取消常驻' : '常驻营养' }}
+                  </button>
+                  <button
+                    v-if="selectedCard.status !== 'archived'"
+                    type="button"
+                    :disabled="Boolean(operationLoading)"
+                    @click="archiveSelectedCard"
+                  >
+                    {{ operationLoading === 'archive' ? '归档中' : '归档' }}
+                  </button>
+                  <button v-else type="button" disabled title="依赖后端更新">回档</button>
+                </div>
+                <p v-if="selectedCard.status === 'archived'" class="cf-nutrient-dependency-note">回档营养卡片依赖后端更新</p>
+                <p v-if="selectedCard.conversationId" class="cf-nutrient-conversation-note">会话 {{ selectedCard.conversationId }}</p>
                 <MarkdownViewer :markdown="selectedCard.markdown" />
               </article>
               <div v-else class="cf-nutrient-workbench-empty">
@@ -491,6 +642,42 @@ function errorMessage(error: unknown) {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.cf-nutrient-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.cf-nutrient-card-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, .11);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .05);
+  color: #eef2ff;
+  cursor: pointer;
+}
+
+.cf-nutrient-card-actions button:hover:not(:disabled),
+.cf-nutrient-card-actions button.is-active {
+  border-color: rgba(94, 215, 197, .36);
+  background: rgba(94, 215, 197, .12);
+  color: #c8fff4;
+}
+
+.cf-nutrient-card-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+}
+
+.cf-nutrient-dependency-note,
+.cf-nutrient-conversation-note {
+  margin: -4px 0 12px;
+  color: rgba(210, 218, 242, .62);
+  font-size: 12px;
 }
 
 .cf-nutrient-card-preview h3 {

@@ -20,9 +20,13 @@ import {
 import type {
   NutrientArchiveState,
   NutrientCardStatus,
+  NutrientGapSuggestionStatus,
   NutrientLibraryScope,
 } from "../modules/nutrient/domain/nutrient-types.js";
-import { NUTRIENT_CARD_STATUSES } from "../modules/nutrient/domain/nutrient-types.js";
+import {
+  NUTRIENT_CARD_STATUSES,
+  NUTRIENT_GAP_SUGGESTION_STATUSES,
+} from "../modules/nutrient/domain/nutrient-types.js";
 
 await loadLocalEnvFile();
 const app = await bootstrapApp();
@@ -228,6 +232,42 @@ async function handleApiRequest(
     const result = await app.nutrientController.createCard(
       decodeURIComponent(seedNutrientCardsMatch[1] ?? ""),
       toCreateNutrientCardInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const seedGapSuggestionsMatch = pathname.match(
+    /^\/api\/seeds\/([^/]+)\/nutrient-gap-suggestions$/,
+  );
+  if (seedGapSuggestionsMatch && method === "GET") {
+    const result = await app.nutrientController.listGapSuggestions(
+      decodeURIComponent(seedGapSuggestionsMatch[1] ?? ""),
+      {
+        status: toNutrientGapSuggestionStatus(url.searchParams.get("status")),
+      },
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const gapSuggestionAdoptMatch = pathname.match(
+    /^\/api\/nutrient-gap-suggestions\/([^/]+)\/adopt$/,
+  );
+  if (gapSuggestionAdoptMatch && method === "POST") {
+    const result = await app.nutrientController.adoptGapSuggestion(
+      decodeURIComponent(gapSuggestionAdoptMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const gapSuggestionIgnoreMatch = pathname.match(
+    /^\/api\/nutrient-gap-suggestions\/([^/]+)\/ignore$/,
+  );
+  if (gapSuggestionIgnoreMatch && method === "POST") {
+    const result = await app.nutrientController.ignoreGapSuggestion(
+      decodeURIComponent(gapSuggestionIgnoreMatch[1] ?? ""),
     );
     sendJson(response, result.status, result.body);
     return true;
@@ -1183,6 +1223,26 @@ function toNutrientCardStatus(
     value !== NUTRIENT_CARD_STATUSES.archived
   ) {
     throw new ApplicationError("VALIDATION_ERROR", "营养卡片状态不正确", 400);
+  }
+  return value;
+}
+
+function toNutrientGapSuggestionStatus(
+  value: string | null,
+): NutrientGapSuggestionStatus | undefined {
+  if (value === null || value.length === 0) {
+    return undefined;
+  }
+  if (
+    value !== NUTRIENT_GAP_SUGGESTION_STATUSES.pending &&
+    value !== NUTRIENT_GAP_SUGGESTION_STATUSES.adopted &&
+    value !== NUTRIENT_GAP_SUGGESTION_STATUSES.ignored
+  ) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "营养汲取建议状态不正确",
+      400,
+    );
   }
   return value;
 }

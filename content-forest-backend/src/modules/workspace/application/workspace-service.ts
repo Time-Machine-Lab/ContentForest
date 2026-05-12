@@ -19,6 +19,7 @@ import type {
   WorkspaceGeneExtractionHub,
   WorkspaceNode,
   WorkspaceNodeRef,
+  WorkspaceNutrientSuggestionHub,
   WorkspaceResources,
   WorkspaceSeedBriefSummary,
   WorkspaceSeedSummary,
@@ -85,6 +86,7 @@ export class WorkspaceService {
       nodes,
       edges,
       resources: await this.getResources(seed.id),
+      nutrientSuggestionHub: await this.getNutrientSuggestionHub(seed.id),
       geneExtractionHub: await this.getGeneExtractionHub(seed.id),
     };
   }
@@ -168,6 +170,25 @@ export class WorkspaceService {
       generators,
       nutrients,
       geneInsights,
+    };
+  }
+
+  private async getNutrientSuggestionHub(
+    seedId: string,
+  ): Promise<WorkspaceNutrientSuggestionHub> {
+    const pendingSuggestions = await this.nutrientService.listGapSuggestions(seedId, {
+      status: "pending",
+    });
+    return {
+      seedId,
+      pendingSuggestions,
+      stats: {
+        pendingSuggestionCount: pendingSuggestions.length,
+      },
+      actions: {
+        canReviewSuggestions: pendingSuggestions.length > 0,
+        canOpenNutrientWorkbench: true,
+      },
     };
   }
 

@@ -276,6 +276,58 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/seeds/{seedId}/nutrient-gap-suggestions:
+    get:
+      tags: [Nutrient]
+      summary: 查询种子下的营养汲取建议
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+        - $ref: '#/components/parameters/NutrientGapSuggestionStatusQuery'
+      responses:
+        '200':
+          description: 营养汲取建议列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NutrientGapSuggestion'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/nutrient-gap-suggestions/{suggestionId}/adopt:
+    post:
+      tags: [Nutrient]
+      summary: 采纳营养汲取建议并创建未沉淀营养卡片
+      parameters:
+        - $ref: '#/components/parameters/SuggestionId'
+      responses:
+        '200':
+          description: 采纳成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdoptNutrientGapSuggestionResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/nutrient-gap-suggestions/{suggestionId}/ignore:
+    post:
+      tags: [Nutrient]
+      summary: 忽略营养汲取建议
+      parameters:
+        - $ref: '#/components/parameters/SuggestionId'
+      responses:
+        '200':
+          description: 忽略成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NutrientGapSuggestion'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/nutrient-cards/{cardId}:
     get:
       tags: [Nutrient]
@@ -526,6 +578,12 @@ components:
       required: true
       schema:
         type: string
+    SuggestionId:
+      name: suggestionId
+      in: path
+      required: true
+      schema:
+        type: string
     SeedId:
       name: seedId
       in: path
@@ -559,6 +617,13 @@ components:
       schema:
         type: string
         enum: [unsettled, settled, archived]
+    NutrientGapSuggestionStatusQuery:
+      name: status
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [pending, adopted, ignored]
   schemas:
     CreateNutrientLibraryRequest:
       type: object
@@ -748,6 +813,58 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/NutrientDepositableBlock'
+    NutrientGapSuggestion:
+      type: object
+      required:
+        - id
+        - seedId
+        - status
+        - sourceType
+        - sourceId
+        - title
+        - bodyMarkdown
+        - adoptedCardId
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        seedId:
+          type: string
+        status:
+          type: string
+          enum: [pending, adopted, ignored]
+        sourceType:
+          type: string
+          enum: [seed_brief_gap, growth_input_gap, fruit_elimination, growth_failure, manual]
+        sourceId:
+          type: string
+          nullable: true
+        title:
+          type: string
+        bodyMarkdown:
+          type: string
+        adoptedCardId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+    AdoptNutrientGapSuggestionResult:
+      type: object
+      required: [suggestion, nutrientCard]
+      properties:
+        suggestion:
+          $ref: '#/components/schemas/NutrientGapSuggestion'
+        nutrientCard:
+          $ref: '#/components/schemas/NutrientCardDetail'
     NutrientLibrarySummary:
       type: object
       required: [id, name, description, scope, seedId, archiveState, createdAt, updatedAt]

@@ -2,6 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import type {
   NutrientArchiveState,
   NutrientCardStatus,
+  NutrientGapSuggestionSourceType,
+  NutrientGapSuggestionStatus,
   NutrientLibraryScope,
 } from "../../modules/nutrient/domain/nutrient-types.js";
 import { NUTRIENT_ARCHIVE_STATES } from "../../modules/nutrient/domain/nutrient-types.js";
@@ -11,6 +13,8 @@ import type {
   NutrientDepositableBlockRecord,
   NutrientContentListFilter,
   NutrientContentRecord,
+  NutrientGapSuggestionListFilter,
+  NutrientGapSuggestionRecord,
   NutrientLibraryListFilter,
   NutrientLibraryRecord,
   NutrientResearchMessageRecord,
@@ -84,6 +88,21 @@ interface NutrientDepositableBlockRow {
   title: string;
   markdown: string;
   created_at: string;
+}
+
+interface NutrientGapSuggestionRow {
+  id: string;
+  seed_id: string;
+  status: NutrientGapSuggestionStatus;
+  source_type: NutrientGapSuggestionSourceType;
+  source_id: string | null;
+  title: string;
+  body_markdown: string;
+  dedupe_key: string;
+  adopted_card_id: string | null;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
 }
 
 interface ReferableRow extends NutrientContentRow {
@@ -588,6 +607,116 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
     return rows.map((row) => this.toDepositableBlockRecord(row));
   }
 
+  public async createGapSuggestion(
+    record: NutrientGapSuggestionRecord,
+  ): Promise<boolean> {
+    const result = this.database
+      .prepare(
+        `INSERT OR IGNORE INTO nutrient_gap_suggestions (
+          id,
+          seed_id,
+          status,
+          source_type,
+          source_id,
+          title,
+          body_markdown,
+          dedupe_key,
+          adopted_card_id,
+          created_at,
+          updated_at,
+          resolved_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        record.id,
+        record.seedId,
+        record.status,
+        record.sourceType,
+        record.sourceId,
+        record.title,
+        record.bodyMarkdown,
+        record.dedupeKey,
+        record.adoptedCardId,
+        record.createdAt,
+        record.updatedAt,
+        record.resolvedAt,
+      );
+    return result.changes > 0;
+  }
+
+  public async findGapSuggestionById(
+    suggestionId: string,
+  ): Promise<NutrientGapSuggestionRecord | null> {
+    const row = this.database
+      .prepare("SELECT * FROM nutrient_gap_suggestions WHERE id = ?")
+      .get(suggestionId) as NutrientGapSuggestionRow | undefined;
+    return row === undefined ? null : this.toGapSuggestionRecord(row);
+  }
+
+  public async saveGapSuggestion(
+    record: NutrientGapSuggestionRecord,
+  ): Promise<void> {
+    this.database
+      .prepare(
+        `UPDATE nutrient_gap_suggestions
+          SET status = ?,
+              title = ?,
+              body_markdown = ?,
+              adopted_card_id = ?,
+              updated_at = ?,
+              resolved_at = ?
+          WHERE id = ?`,
+      )
+      .run(
+        record.status,
+        record.title,
+        record.bodyMarkdown,
+        record.adoptedCardId,
+        record.updatedAt,
+        record.resolvedAt,
+        record.id,
+      );
+  }
+
+  public async listGapSuggestionsBySeed(
+    seedId: string,
+    filter: NutrientGapSuggestionListFilter = {},
+  ): Promise<NutrientGapSuggestionRecord[]> {
+    const clauses = ["seed_id = ?"];
+    const params = [seedId];
+    if (filter.status !== undefined) {
+      clauses.push("status = ?");
+      params.push(filter.status);
+    }
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM nutrient_gap_suggestions
+          WHERE ${clauses.join(" AND ")}
+          ORDER BY updated_at DESC`,
+      )
+      .all(...params) as unknown as NutrientGapSuggestionRow[];
+    return rows.map((row) => this.toGapSuggestionRecord(row));
+  }
+
+  public async countGapSuggestionsBySeed(
+    seedId: string,
+    filter: NutrientGapSuggestionListFilter = {},
+  ): Promise<number> {
+    const clauses = ["seed_id = ?"];
+    const params = [seedId];
+    if (filter.status !== undefined) {
+      clauses.push("status = ?");
+      params.push(filter.status);
+    }
+    const row = this.database
+      .prepare(
+        `SELECT COUNT(*) AS count FROM nutrient_gap_suggestions
+          WHERE ${clauses.join(" AND ")}`,
+      )
+      .get(...params) as { count: number } | undefined;
+    return row?.count ?? 0;
+  }
+
   public close(): void {
     this.database.close();
   }
@@ -695,6 +824,27 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
 
       CREATE INDEX IF NOT EXISTS idx_nutrient_depositable_blocks_session_created_at
         ON nutrient_depositable_blocks (session_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS nutrient_gap_suggestions (
+        id TEXT PRIMARY KEY,
+        seed_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'adopted', 'ignored')),
+        source_type TEXT NOT NULL CHECK (source_type IN ('seed_brief_gap', 'growth_input_gap', 'fruit_elimination', 'growth_failure', 'manual')),
+        source_id TEXT,
+        title TEXT NOT NULL,
+        body_markdown TEXT NOT NULL,
+        dedupe_key TEXT NOT NULL,
+        adopted_card_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        resolved_at TEXT
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_nutrient_gap_suggestions_seed_dedupe
+        ON nutrient_gap_suggestions (seed_id, dedupe_key);
+
+      CREATE INDEX IF NOT EXISTS idx_nutrient_gap_suggestions_seed_status_updated_at
+        ON nutrient_gap_suggestions (seed_id, status, updated_at);
     `);
   }
 
@@ -780,6 +930,25 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
       title: row.title,
       markdown: row.markdown,
       createdAt: row.created_at,
+    };
+  }
+
+  private toGapSuggestionRecord(
+    row: NutrientGapSuggestionRow,
+  ): NutrientGapSuggestionRecord {
+    return {
+      id: row.id,
+      seedId: row.seed_id,
+      status: row.status,
+      sourceType: row.source_type,
+      sourceId: row.source_id,
+      title: row.title,
+      bodyMarkdown: row.body_markdown,
+      dedupeKey: row.dedupe_key,
+      adoptedCardId: row.adopted_card_id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      resolvedAt: row.resolved_at,
     };
   }
 

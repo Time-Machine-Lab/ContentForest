@@ -10,6 +10,7 @@
 -- - 营养库和营养内容不提供硬删除语义；归档通过 archive_state 表达。
 -- - 公共营养库 seed_id 必须为空；种子专属营养库 seed_id 必须非空，且作用域创建后不可变。
 -- - 营养卡片是种子级候选资料，不能属于公共营养库；沉淀后通过 settled_content_id 关联正式营养内容。
+-- - 营养汲取建议是种子级缺口提醒，采纳后只创建未沉淀营养卡片，不自动沉淀为正式营养。
 
 CREATE TABLE IF NOT EXISTS nutrient_libraries (
   id TEXT PRIMARY KEY,
@@ -112,3 +113,24 @@ CREATE TABLE IF NOT EXISTS nutrient_depositable_blocks (
 
 CREATE INDEX IF NOT EXISTS idx_nutrient_depositable_blocks_session_created_at
   ON nutrient_depositable_blocks (session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS nutrient_gap_suggestions (
+  id TEXT PRIMARY KEY,
+  seed_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'adopted', 'ignored')),
+  source_type TEXT NOT NULL CHECK (source_type IN ('seed_brief_gap', 'growth_input_gap', 'fruit_elimination', 'growth_failure', 'manual')),
+  source_id TEXT,
+  title TEXT NOT NULL,
+  body_markdown TEXT NOT NULL,
+  dedupe_key TEXT NOT NULL,
+  adopted_card_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  resolved_at TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_nutrient_gap_suggestions_seed_dedupe
+  ON nutrient_gap_suggestions (seed_id, dedupe_key);
+
+CREATE INDEX IF NOT EXISTS idx_nutrient_gap_suggestions_seed_status_updated_at
+  ON nutrient_gap_suggestions (seed_id, status, updated_at);

@@ -89,6 +89,7 @@ export interface ReferableWorkspaceNutrient {
   title: string
   archiveState: WorkspaceArchiveState
   contentLocation: string
+  defaultForGrowth: boolean
   createdAt: string
   updatedAt: string
   archivedAt?: string | null

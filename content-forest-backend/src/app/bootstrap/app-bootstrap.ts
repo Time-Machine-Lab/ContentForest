@@ -188,12 +188,6 @@ export async function bootstrapApp(
     feedbackStorage,
     agentPort: agentRuntime,
   });
-  const seedService = new SeedService({
-    storage: seedStorage,
-    contentAccess: seedContentAccess,
-    agentPort: agentRuntime,
-    afterSeedCreated: (seedId) => geneService.prepareSeedGeneLibrary(seedId).then(() => undefined),
-  });
   const generatorService = new GeneratorService({
     storage: generatorStorage,
     contentAccess: generatorContentAccess,
@@ -204,6 +198,14 @@ export async function bootstrapApp(
     seedStorage,
     agentPort: agentRuntime,
   });
+  const seedService = new SeedService({
+    storage: seedStorage,
+    contentAccess: seedContentAccess,
+    agentPort: agentRuntime,
+    afterSeedCreated: (seedId) => geneService.prepareSeedGeneLibrary(seedId).then(() => undefined),
+    afterSeedBriefSaved: (seedId, markdown) =>
+      nutrientService.createSuggestionsFromSeedBrief(seedId, markdown).then(() => undefined),
+  });
   const fruitService = new FruitService({
     storage: fruitStorage,
     contentAccess: fruitContentAccess,
@@ -211,12 +213,19 @@ export async function bootstrapApp(
       if (selectionState !== "selected" && selectionState !== "eliminated") {
         return Promise.resolve();
       }
-      return geneService
+      const geneReminder = geneService
         .createReminderFromFruitEvidence(seedId, {
           fruitId,
           action: selectionState,
-        })
-        .then(() => undefined);
+        });
+      const nutrientSuggestion =
+        selectionState === "eliminated"
+          ? nutrientService.createSuggestionFromFruitElimination({
+              seedId,
+              fruitId,
+            })
+          : Promise.resolve();
+      return Promise.all([geneReminder, nutrientSuggestion]).then(() => undefined);
     },
   });
   const growthService = new GrowthService({
@@ -227,6 +236,7 @@ export async function bootstrapApp(
     fruitService,
     agentPort: agentRuntime,
     geneUsageTracking: geneService,
+    nutrientGapSuggestions: nutrientService,
     referenceAuthorization: {
       async authorize(scope) {
         await nutrientService.assertNutrientRefsReferable(

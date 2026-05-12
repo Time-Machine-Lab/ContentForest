@@ -12,6 +12,10 @@ import {
   GROWTH_SEARCH_MODES,
 } from "../modules/growth/domain/growth-types.js";
 import { NutrientService } from "../modules/nutrient/application/nutrient-service.js";
+import {
+  NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES,
+  NUTRIENT_GAP_SUGGESTION_STATUSES,
+} from "../modules/nutrient/domain/nutrient-types.js";
 import { SeedService } from "../modules/seed/application/seed-service.js";
 import { WorkspaceService } from "../modules/workspace/application/workspace-service.js";
 import type { IdGenerator } from "../shared/utils/id-generator.js";
@@ -65,6 +69,7 @@ async function createFixture(): Promise<{
   seedService: SeedService;
   fruitService: FruitService;
   geneService: GeneService;
+  nutrientService: NutrientService;
   growthStorage: InMemoryGrowthStorageAdapter;
   geneStorage: InMemoryGeneStorageAdapter;
   generatorStorage: InMemoryGeneratorStorageAdapter;
@@ -180,6 +185,7 @@ async function createFixture(): Promise<{
     seedService,
     fruitService,
     geneService,
+    nutrientService,
     growthStorage,
     geneStorage,
     generatorStorage,
@@ -458,6 +464,46 @@ describe("WorkspaceService", () => {
       canReviewSuggestions: false,
       canOpenGeneLibrary: true,
     });
+  });
+
+  it("aggregates pending nutrient gap suggestions for the workspace", async () => {
+    const { workspaceService, nutrientService } = await createFixture();
+    const pending = await nutrientService.createGapSuggestion({
+      seedId: "seed_1",
+      sourceType: NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.growthInputGap,
+      sourceId: "growth-task_1",
+      title: "补充小红书资料",
+      bodyMarkdown: "工作区可以展示的待处理建议",
+    });
+    const ignored = await nutrientService.createGapSuggestion({
+      seedId: "seed_1",
+      sourceType: NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES.manual,
+      sourceId: "manual_1",
+      title: "已忽略建议",
+      bodyMarkdown: "不应出现在待处理摘要",
+    });
+    await nutrientService.ignoreGapSuggestion(ignored.id);
+
+    const snapshot = await workspaceService.getWorkspaceSnapshot("seed_1");
+
+    expect(snapshot.nutrientSuggestionHub).toMatchObject({
+      seedId: "seed_1",
+      pendingSuggestions: [
+        {
+          id: pending.id,
+          status: NUTRIENT_GAP_SUGGESTION_STATUSES.pending,
+          title: "补充小红书资料",
+        },
+      ],
+      stats: {
+        pendingSuggestionCount: 1,
+      },
+      actions: {
+        canReviewSuggestions: true,
+        canOpenNutrientWorkbench: true,
+      },
+    });
+    expect(JSON.stringify(snapshot.nutrientSuggestionHub)).not.toContain("已忽略建议");
   });
 
   it("aggregates seed brief summary without markdown body", async () => {

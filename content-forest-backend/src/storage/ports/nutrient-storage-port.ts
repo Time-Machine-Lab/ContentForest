@@ -1,6 +1,8 @@
 import type {
   NutrientArchiveState,
   NutrientCardStatus,
+  NutrientGapSuggestionSourceType,
+  NutrientGapSuggestionStatus,
   NutrientLibraryScope,
   NutrientResearchMessageRole,
 } from "../../modules/nutrient/domain/nutrient-types.js";
@@ -72,6 +74,21 @@ export interface NutrientDepositableBlockRecord {
   createdAt: string;
 }
 
+export interface NutrientGapSuggestionRecord {
+  id: string;
+  seedId: string;
+  status: NutrientGapSuggestionStatus;
+  sourceType: NutrientGapSuggestionSourceType;
+  sourceId: string | null;
+  title: string;
+  bodyMarkdown: string;
+  dedupeKey: string;
+  adoptedCardId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+}
+
 export interface NutrientLibraryListFilter {
   scope?: NutrientLibraryScope;
   archiveState?: NutrientArchiveState;
@@ -84,6 +101,10 @@ export interface NutrientContentListFilter {
 
 export interface NutrientCardListFilter {
   status?: NutrientCardStatus;
+}
+
+export interface NutrientGapSuggestionListFilter {
+  status?: NutrientGapSuggestionStatus;
 }
 
 export interface ReferableNutrientContentRecord {
@@ -137,4 +158,18 @@ export interface NutrientStoragePort {
   listDepositableBlocksBySession(
     sessionId: string,
   ): Promise<NutrientDepositableBlockRecord[]>;
+
+  createGapSuggestion(record: NutrientGapSuggestionRecord): Promise<boolean>;
+  findGapSuggestionById(
+    suggestionId: string,
+  ): Promise<NutrientGapSuggestionRecord | null>;
+  saveGapSuggestion(record: NutrientGapSuggestionRecord): Promise<void>;
+  listGapSuggestionsBySeed(
+    seedId: string,
+    filter?: NutrientGapSuggestionListFilter,
+  ): Promise<NutrientGapSuggestionRecord[]>;
+  countGapSuggestionsBySeed(
+    seedId: string,
+    filter?: NutrientGapSuggestionListFilter,
+  ): Promise<number>;
 }

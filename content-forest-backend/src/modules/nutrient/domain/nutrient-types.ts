@@ -23,6 +23,26 @@ export const NUTRIENT_CARD_STATUSES = {
 export type NutrientCardStatus =
   (typeof NUTRIENT_CARD_STATUSES)[keyof typeof NUTRIENT_CARD_STATUSES];
 
+export const NUTRIENT_GAP_SUGGESTION_STATUSES = {
+  pending: "pending",
+  adopted: "adopted",
+  ignored: "ignored",
+} as const;
+
+export type NutrientGapSuggestionStatus =
+  (typeof NUTRIENT_GAP_SUGGESTION_STATUSES)[keyof typeof NUTRIENT_GAP_SUGGESTION_STATUSES];
+
+export const NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES = {
+  seedBriefGap: "seed_brief_gap",
+  growthInputGap: "growth_input_gap",
+  fruitElimination: "fruit_elimination",
+  growthFailure: "growth_failure",
+  manual: "manual",
+} as const;
+
+export type NutrientGapSuggestionSourceType =
+  (typeof NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES)[keyof typeof NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES];
+
 export interface NutrientLibrarySummary {
   id: string;
   name: string;
@@ -107,6 +127,25 @@ export interface NutrientResearchSessionSummary {
 export interface NutrientResearchSessionDetail extends NutrientResearchSessionSummary {
   messages: NutrientResearchMessage[];
   depositableBlocks: NutrientDepositableBlock[];
+}
+
+export interface NutrientGapSuggestion {
+  id: string;
+  seedId: string;
+  status: NutrientGapSuggestionStatus;
+  sourceType: NutrientGapSuggestionSourceType;
+  sourceId: string | null;
+  title: string;
+  bodyMarkdown: string;
+  adoptedCardId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+}
+
+export interface AdoptNutrientGapSuggestionResult {
+  suggestion: NutrientGapSuggestion;
+  nutrientCard: NutrientCardDetail;
 }
 
 export interface ReferableNutrientContent extends NutrientContentSummary {

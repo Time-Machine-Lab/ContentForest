@@ -30,6 +30,34 @@ test('workspace referenced resources can be removed before growth payload mappin
   assert.equal(workspacePage.includes(".filter((resource) => resource.kind === 'gene')"), true)
 })
 
+test('workspace submits nutrient card temporary refs and restores failed input refs', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+  const growthTypes = readProjectFile('src/modules/growth/types.ts')
+
+  assert.equal(growthTypes.includes("GrowthTemporaryResourceType = 'nutrient_card'"), true)
+  assert.equal(growthTypes.includes('temporaryNutrientCardRefs'), true)
+  assert.equal(workspacePage.includes('temporaryNutrientCardRefs'), true)
+  assert.equal(workspacePage.includes(".filter((resource) => resource.kind === 'nutrient_card')"), true)
+  assert.equal(workspacePage.includes("resourceType: 'nutrient_card' as const"), true)
+  assert.equal(workspacePage.includes("...failedInput.temporaryNutrientCardRefs"), true)
+  assert.equal(workspacePage.includes("description: '最近失败任务中的临时引用'"), true)
+})
+
+test('workspace applies default nutrients and accepts workbench references', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+
+  assert.equal(workspacePage.includes('applyDefaultGrowthNutrients'), true)
+  assert.equal(workspacePage.includes('removedDefaultResourceKeys'), true)
+  assert.equal(workspacePage.includes("item.defaultForGrowth"), true)
+  assert.equal(workspacePage.includes('handleNutrientWorkbenchReference'), true)
+  assert.equal(workspacePage.includes('handleNutrientWorkbenchChanged'), true)
+  assert.equal(workspacePage.includes('@reference="handleNutrientWorkbenchReference"'), true)
+  assert.equal(workspacePage.includes('@changed="handleNutrientWorkbenchChanged"'), true)
+  assert.equal(workspacePage.includes("resource.kind === 'nutrient_card' ? '候'"), true)
+  assert.equal(workspacePage.includes('.cf-mention.is-nutrient_card'), true)
+  assert.equal(workspacePage.includes('.cf-ref-chip.is-nutrient_card'), true)
+})
+
 test('workspace has one backend-driven gene extraction dialog launched from a bubble', () => {
   const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
 
