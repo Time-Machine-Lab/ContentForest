@@ -574,14 +574,14 @@ describe("GrowthService", () => {
         expect.objectContaining({
           parentId: "pipeline:generation",
           attemptId: completed.attempts[0]?.id,
-          label: "生成第 1 个果实",
-          status: GROWTH_PATH_STEP_STATUSES.completed,
+          detail: expect.any(String),
         }),
-        expect.objectContaining({
-          parentId: `attempt:${completed.attempts[0]?.id}`,
-          label: "生成文案",
-          detail: "使用生成器产出正文草稿",
-        }),
+      ]),
+    );
+    expect(completed.pathGraph).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: expect.stringMatching(/^attempt:/) }),
+        expect.objectContaining({ parentId: `attempt:${completed.attempts[0]?.id}` }),
       ]),
     );
     expect(completed.pathGraph).not.toEqual(

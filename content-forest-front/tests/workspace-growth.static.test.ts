@@ -139,6 +139,8 @@ test('workspace filters engineering trace from growth path graph', () => {
   assert.equal(workspacePage.includes('ENGINEERING_PATH_STEP_EVENT_PATTERNS'), true)
   assert.equal(workspacePage.includes('ENGINEERING_PATH_STEP_LABEL_PATTERNS'), true)
   assert.equal(workspacePage.includes("step.id.startsWith('trace:')"), true)
+  assert.equal(workspacePage.includes("step.id.startsWith('attempt:')"), true)
+  assert.equal(workspacePage.includes('生成第\\s*\\d+\\s*个果实'), true)
   assert.equal(workspacePage.includes('task_started'), true)
   assert.equal(workspacePage.includes('skill_called'), true)
   assert.equal(workspacePage.includes('tool_called'), true)

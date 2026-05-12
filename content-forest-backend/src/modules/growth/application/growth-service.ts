@@ -1100,18 +1100,9 @@ export class GrowthService {
       this.createPathStep("pipeline:generation", "使用生成器", generationStatus, task.updatedAt),
       this.createPathStep("pipeline:wrap", "封装候选果实", wrapStatus, task.finishedAt ?? task.updatedAt),
     ];
-    const attemptSteps = attempts.flatMap((attempt) => [
-      this.createPathStep(
-        `attempt:${attempt.id}`,
-        `生成第 ${attempt.attemptIndex} 个果实`,
-        this.mapAttemptStatusToPathStatus(attempt.status),
-        attempt.updatedAt,
-        "pipeline:generation",
-        attempt.id,
-        attempt.mutationPlan.direction,
-      ),
-      ...this.extractAttemptUserProgressSteps(attempt),
-    ]);
+    const attemptSteps = attempts.flatMap((attempt) =>
+      this.extractAttemptUserProgressSteps(attempt, "pipeline:generation"),
+    );
     return [...baseSteps, ...attemptSteps];
   }
 
@@ -1161,21 +1152,10 @@ export class GrowthService {
     return GROWTH_PATH_STEP_STATUSES.pending;
   }
 
-  private mapAttemptStatusToPathStatus(
-    status: GrowthAttemptRecord["status"],
-  ): GrowthPathStep["status"] {
-    switch (status) {
-      case GROWTH_ATTEMPT_STATUSES.succeeded:
-        return GROWTH_PATH_STEP_STATUSES.completed;
-      case GROWTH_ATTEMPT_STATUSES.failed:
-        return GROWTH_PATH_STEP_STATUSES.failed;
-      case GROWTH_ATTEMPT_STATUSES.running:
-      default:
-        return GROWTH_PATH_STEP_STATUSES.running;
-    }
-  }
-
-  private extractAttemptUserProgressSteps(attempt: GrowthAttemptRecord): GrowthPathStep[] {
+  private extractAttemptUserProgressSteps(
+    attempt: GrowthAttemptRecord,
+    fallbackParentId: string,
+  ): GrowthPathStep[] {
     const trace = Array.isArray(attempt.agentOutput.trace)
       ? attempt.agentOutput.trace
       : [];
@@ -1192,8 +1172,10 @@ export class GrowthService {
           this.readOptionalString(event.message) ??
           "更新生成进度";
         const at = typeof event.at === "string" ? event.at : attempt.updatedAt;
-        const parentId = this.readOptionalString(metadata.parentStepId) ??
-          `attempt:${attempt.id}`;
+        const requestedParentId = this.readOptionalString(metadata.parentStepId);
+        const parentId = requestedParentId?.startsWith("attempt:")
+          ? fallbackParentId
+          : requestedParentId ?? fallbackParentId;
         return this.createPathStep(
           `progress:${attempt.id}:${stepId}`,
           label,

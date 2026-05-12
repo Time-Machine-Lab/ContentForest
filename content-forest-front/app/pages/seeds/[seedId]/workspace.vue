@@ -417,6 +417,8 @@ const ENGINEERING_PATH_STEP_LABEL_PATTERNS = [
 function isUserVisiblePathStep(step: GrowthPathStep) {
   const text = `${step.id} ${step.label} ${step.detail ?? ''}`.toLowerCase()
   if (step.id.startsWith('trace:')) return false
+  if (step.id.startsWith('attempt:')) return false
+  if (/^生成第\s*\d+\s*个果实$/.test(step.label)) return false
   if (ENGINEERING_PATH_STEP_EVENT_PATTERNS.some((pattern) => text.includes(pattern))) return false
   return !ENGINEERING_PATH_STEP_LABEL_PATTERNS.some((pattern) => pattern.test(step.label))
 }
