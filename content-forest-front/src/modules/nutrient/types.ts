@@ -2,6 +2,7 @@ export type NutrientArchiveState = 'active' | 'archived'
 export type NutrientCardStatus = 'unsettled' | 'settled' | 'archived'
 export type NutrientLibraryScope = 'public' | 'seed_scoped'
 export type NutrientResearchMessageRole = 'user' | 'assistant'
+export type NutrientResearchSessionStatus = 'idle' | 'loading' | 'ready' | 'submitting' | 'failed'
 
 export interface CreateNutrientLibraryRequest {
   name: string
@@ -124,6 +125,12 @@ export interface NutrientDepositableBlock {
   createdAt: string
 }
 
+export interface NutrientResearchTemplate {
+  id: string
+  title: string
+  prompt: string
+}
+
 export interface NutrientResearchSessionSummary {
   id: string
   seedId: string
@@ -175,6 +182,8 @@ export interface NutrientWorkbenchState {
   activePane: NutrientWorkbenchPane
   selectedCardId: string
   composingMessage: string
+  activeSessionId: string
+  sessionStatus: NutrientResearchSessionStatus
 }
 
 export interface NutrientWorkbenchBackendDependency {
@@ -196,8 +205,13 @@ export const NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES: NutrientWorkbenchBackendDe
   },
   {
     name: '枝化生长缺口建议队列',
+    status: 'available',
+    note: '已对齐 docs/api/nutrient.yaml 中的 nutrient-gap-suggestions 系列接口',
+  },
+  {
+    name: '可沉淀营养块合并与忽略',
     status: '依赖后端更新',
-    note: '当前缺少种子级建议列表、采纳、忽略接口；前端仅保留建议区 UI 容器',
+    note: '当前缺少可沉淀块级别的合并、忽略接口；前端先通过编辑当前卡片或本地隐藏完成交互',
   },
 ]
 

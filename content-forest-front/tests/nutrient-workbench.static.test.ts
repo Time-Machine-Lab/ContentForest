@@ -48,7 +48,7 @@ test('nutrient workbench marks missing suggestion queue as backend dependency', 
 
   assert.equal(nutrientTypes.includes('NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES'), true)
   assert.equal(nutrientTypes.includes('依赖后端更新'), true)
-  assert.equal(nutrientTypes.includes('枝化生长缺口建议队列'), true)
+  assert.equal(nutrientTypes.includes('可沉淀营养块合并与忽略'), true)
 })
 
 test('nutrient workbench exposes card lifecycle actions and dependency restore state', () => {
@@ -63,4 +63,45 @@ test('nutrient workbench exposes card lifecycle actions and dependency restore s
   assert.equal(dialog.includes("emit('reference'"), true)
   assert.equal(dialog.includes("kind: 'nutrient_card'"), true)
   assert.equal(dialog.includes("kind: 'nutrient'"), true)
+})
+
+test('nutrient research chat loads sessions and submits messages', () => {
+  const dialog = readProjectFile('app/components/nutrient/NutrientWorkbenchDialog.vue')
+
+  assert.equal(dialog.includes('loadResearchSession'), true)
+  assert.equal(dialog.includes('createResearchSession'), true)
+  assert.equal(dialog.includes('bindCardConversation'), true)
+  assert.equal(dialog.includes('submitResearchMessage'), true)
+  assert.equal(dialog.includes('submitResearchMessage(session.id, { message })'), true)
+  assert.equal(dialog.includes('retryLastResearchMessage'), true)
+  assert.equal(dialog.includes('@keydown.enter="submitComposerKeyboard"'), true)
+  assert.equal(dialog.includes('cf-nutrient-message-list'), true)
+  assert.equal(dialog.includes('cf-nutrient-message'), true)
+  assert.equal(dialog.includes('cf-nutrient-chat-empty'), true)
+})
+
+test('nutrient research chat renders depositable blocks with actions', () => {
+  const dialog = readProjectFile('app/components/nutrient/NutrientWorkbenchDialog.vue')
+
+  assert.equal(dialog.includes('visibleDepositableBlocks'), true)
+  assert.equal(dialog.includes('cf-nutrient-depositable-block'), true)
+  assert.equal(dialog.includes('createCardFromBlock'), true)
+  assert.equal(dialog.includes('mergeBlockIntoSelectedCard'), true)
+  assert.equal(dialog.includes('ignoreDepositableBlock'), true)
+  assert.equal(dialog.includes('生成卡片'), true)
+  assert.equal(dialog.includes('合并到当前卡片'), true)
+  assert.equal(dialog.includes('忽略'), true)
+})
+
+test('nutrient research chat exposes editable research templates', () => {
+  const dialog = readProjectFile('app/components/nutrient/NutrientWorkbenchDialog.vue')
+
+  assert.equal(dialog.includes('researchTemplates'), true)
+  assert.equal(dialog.includes('爆款表达'), true)
+  assert.equal(dialog.includes('标题封面'), true)
+  assert.equal(dialog.includes('竞品打法'), true)
+  assert.equal(dialog.includes('痛点语言'), true)
+  assert.equal(dialog.includes('避雷点'), true)
+  assert.equal(dialog.includes('趋势变化'), true)
+  assert.equal(dialog.includes('applyResearchTemplate'), true)
 })

@@ -24,6 +24,8 @@ export type {
   NutrientResearchMessageRole,
   NutrientResearchSessionDetail,
   NutrientResearchSessionSummary,
+  NutrientResearchSessionStatus,
+  NutrientResearchTemplate,
   NutrientWorkbenchBackendDependency,
   NutrientWorkbenchPane,
   NutrientWorkbenchState,
