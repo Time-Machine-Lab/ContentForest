@@ -15,8 +15,12 @@ import {
 } from "../modules/growth/application/growth-service.js";
 import {
   GROWTH_ATTEMPT_STATUSES,
+  GROWTH_MUTATION_INTENSITIES,
+  GROWTH_PATH_STEP_STATUSES,
+  GROWTH_SEARCH_MODES,
   GROWTH_TASK_STATUSES,
   type GrowthAuthorizationScope,
+  type GrowthMutationPlan,
 } from "../modules/growth/domain/growth-types.js";
 import { SEED_ARCHIVE_STATES } from "../modules/seed/domain/seed-types.js";
 import { ApplicationError } from "../shared/errors/application-error.js";
@@ -41,6 +45,18 @@ function createNow(): () => Date {
   return () => {
     counter += 1;
     return new Date(`2026-01-01T00:00:${String(counter).padStart(2, "0")}.000Z`);
+  };
+}
+
+function testMutationPlan(direction = "测试突变方向"): GrowthMutationPlan {
+  return {
+    direction,
+    intent: "测试突变意图",
+    intensity: GROWTH_MUTATION_INTENSITIES.balanced,
+    hypothesis: "测试突变假设",
+    inherit: [],
+    avoid: [],
+    evidenceSummary: "测试证据摘要",
   };
 }
 
@@ -86,6 +102,44 @@ function successAgent(capturedTasks: AgentTask[] = []): AgentPort {
           },
         },
         trace: [],
+      };
+    },
+  };
+}
+
+function tracedAgent(capturedTasks: AgentTask[] = []): AgentPort {
+  return {
+    async runTask(task: AgentTask): Promise<AgentTaskResult> {
+      capturedTasks.push(task);
+      return {
+        ok: true,
+        taskId: task.taskId ?? `agent_${capturedTasks.length}`,
+        output: {
+          taskType: "growth",
+          content: {
+            markdown: `# 路径图果实 ${capturedTasks.length}`,
+          },
+        },
+        trace: [
+          {
+            type: "skill_progress",
+            at: "2026-01-01T00:00:20.000Z",
+            message: "Branch growth context loaded",
+            metadata: { stage: "context_loaded" },
+          },
+          {
+            type: "skill_progress",
+            at: "2026-01-01T00:00:21.000Z",
+            message: "Content evolution strategy prepared",
+            metadata: { stage: "strategy_prepared" },
+          },
+          {
+            type: "output_validated",
+            at: "2026-01-01T00:00:22.000Z",
+            message: "Candidate output validated",
+            metadata: { stage: "candidate_validated" },
+          },
+        ],
       };
     },
   };
@@ -334,6 +388,168 @@ describe("GrowthService", () => {
       isGrowing: false,
       taskId: null,
     });
+  });
+
+  it("assembles round growth briefs and degrades when the seed master brief is missing", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const { service, seedStorage, scheduler } = await createFixture(
+      successAgent(capturedTasks),
+    );
+
+    const first = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      userInput: "补充本轮创作想法",
+      generatorId: "generator_1",
+      fruitCount: 1,
+    });
+    expect(first.task.agentInput).toMatchObject({
+      roundGrowthBrief: {
+        seed: {
+          hasMasterBrief: false,
+          masterBriefContentLocation: null,
+        },
+        userInput: "补充本轮创作想法",
+      },
+    });
+    await scheduler.runAll();
+    expect(capturedTasks[0]?.input).toMatchObject({
+      roundGrowthBrief: {
+        seed: { hasMasterBrief: false },
+        userInput: "补充本轮创作想法",
+      },
+    });
+
+    await seedStorage.upsertSeedBrief({
+      id: "seed-brief_1",
+      seedId: "seed_1",
+      contentLocation: "seeds/seed_1/brief.md",
+      createdAt: "2026-01-01T00:01:00.000Z",
+      updatedAt: "2026-01-01T00:01:00.000Z",
+    });
+
+    const second = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 1,
+    });
+    expect(second.task.agentInput).toMatchObject({
+      roundGrowthBrief: {
+        seed: {
+          hasMasterBrief: true,
+          masterBriefContentLocation: "seeds/seed_1/brief.md",
+        },
+      },
+    });
+  });
+
+  it("resolves explicit and recommended search mode and mutation intensity", async () => {
+    const recommendedFixture = await createFixture();
+    const recommended = await recommendedFixture.service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 1,
+    });
+    expect(recommended.task.pipelineParams).toMatchObject({
+      searchMode: GROWTH_SEARCH_MODES.broadExploration,
+      mutationIntensity: GROWTH_MUTATION_INTENSITIES.aggressive,
+    });
+    expect(recommended.task.pipelineParams.recommendationReason).toContain("系统推荐");
+
+    const explicitFixture = await createFixture();
+    const explicit = await explicitFixture.service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 1,
+      searchMode: GROWTH_SEARCH_MODES.localVariation,
+      mutationIntensity: GROWTH_MUTATION_INTENSITIES.conservative,
+    });
+    expect(explicit.task.pipelineParams).toMatchObject({
+      searchMode: GROWTH_SEARCH_MODES.localVariation,
+      mutationIntensity: GROWTH_MUTATION_INTENSITIES.conservative,
+    });
+  });
+
+  it("creates differentiated dynamic mutation plans per attempt", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const { service, scheduler } = await createFixture(successAgent(capturedTasks));
+
+    const result = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      userInput: "做成真实经验分享",
+      generatorId: "generator_1",
+      fruitCount: 3,
+      nutrientRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
+      geneRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
+      mutationIntensity: GROWTH_MUTATION_INTENSITIES.balanced,
+    });
+
+    await scheduler.runAll();
+    const completed = await service.getGrowthTask(result.task.id);
+    const plans = completed.attempts.map((attempt) => attempt.mutationPlan);
+
+    expect(new Set(plans.map((plan) => plan.direction)).size).toBe(3);
+    expect(plans[0]?.direction).toContain("真实经验分享");
+    expect(plans.every((plan) => plan.intensity === GROWTH_MUTATION_INTENSITIES.balanced)).toBe(true);
+    expect(capturedTasks[0]?.input).toMatchObject({
+      mutationPlan: plans[0],
+      searchMode: GROWTH_SEARCH_MODES.broadExploration,
+    });
+  });
+
+  it("returns pipeline path graph with fixed stages and Agent trace substeps", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const { service, scheduler } = await createFixture(tracedAgent(capturedTasks));
+
+    const result = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 1,
+    });
+
+    expect(result.task.pathGraph).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "pipeline:input",
+          status: GROWTH_PATH_STEP_STATUSES.completed,
+        }),
+        expect.objectContaining({
+          id: "pipeline:generation",
+          status: GROWTH_PATH_STEP_STATUSES.running,
+        }),
+        expect.objectContaining({
+          id: "pipeline:wrap",
+          status: GROWTH_PATH_STEP_STATUSES.pending,
+        }),
+      ]),
+    );
+
+    await scheduler.runAll();
+    const completed = await service.getGrowthTask(result.task.id);
+
+    expect(completed.pathGraph).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "pipeline:wrap",
+          status: GROWTH_PATH_STEP_STATUSES.completed,
+        }),
+        expect.objectContaining({
+          parentId: "pipeline:generation",
+          attemptId: completed.attempts[0]?.id,
+          status: GROWTH_PATH_STEP_STATUSES.completed,
+        }),
+        expect.objectContaining({
+          parentId: `attempt:${completed.attempts[0]?.id}`,
+          label: "Content evolution strategy prepared",
+          detail: "strategy_prepared",
+        }),
+      ]),
+    );
   });
 
   it("lands structured candidate_fruit output through FruitService", async () => {
@@ -660,6 +876,7 @@ describe("GrowthService", () => {
       fruitId: "fruit_orphan_1",
       failureReason: null,
       agentOutput: {},
+      mutationPlan: testMutationPlan("中断恢复成功方向"),
       createdAt: "2026-01-01T00:00:10.000Z",
       updatedAt: "2026-01-01T00:00:11.000Z",
     });
@@ -672,6 +889,7 @@ describe("GrowthService", () => {
       fruitId: null,
       failureReason: null,
       agentOutput: {},
+      mutationPlan: testMutationPlan("中断恢复运行方向"),
       createdAt: "2026-01-01T00:00:12.000Z",
       updatedAt: "2026-01-01T00:00:12.000Z",
     });
@@ -708,6 +926,7 @@ describe("GrowthService", () => {
       fruitId: null,
       failureReason: null,
       agentOutput: {},
+      mutationPlan: testMutationPlan("中断失败方向"),
       createdAt: "2026-01-01T00:00:10.000Z",
       updatedAt: "2026-01-01T00:00:10.000Z",
     });

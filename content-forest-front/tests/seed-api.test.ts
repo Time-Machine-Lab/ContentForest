@@ -17,6 +17,10 @@ test('seed api client uses documented seed endpoints', async () => {
   await api.archiveSeed('seed 1')
   await api.restoreSeed('seed 1')
   await api.getSeedRootNode('seed 1')
+  await api.generateSeedBrief('seed 1')
+  await api.getSeedBrief('seed 1')
+  await api.updateSeedBrief('seed 1', { markdown: 'Brief' })
+  await api.refreshSeedBrief('seed 1')
 
   assert.deepEqual(calls.map((call) => call.url), [
     '/api/seeds',
@@ -27,12 +31,19 @@ test('seed api client uses documented seed endpoints', async () => {
     '/api/seeds/seed%201/archive',
     '/api/seeds/seed%201/restore',
     '/api/seeds/seed%201/root-node',
+    '/api/seeds/seed%201/brief',
+    '/api/seeds/seed%201/brief',
+    '/api/seeds/seed%201/brief',
+    '/api/seeds/seed%201/brief/refresh',
   ])
 
   assert.equal(calls[3]?.options?.method, 'POST')
   assert.equal(calls[4]?.options?.method, 'PATCH')
   assert.equal(calls[5]?.options?.method, 'POST')
   assert.equal(calls[6]?.options?.method, 'POST')
+  assert.equal(calls[8]?.options?.method, 'POST')
+  assert.equal(calls[10]?.options?.method, 'PATCH')
+  assert.equal(calls[11]?.options?.method, 'POST')
 })
 
 test('seed api client joins optional api base without changing documented paths', async () => {

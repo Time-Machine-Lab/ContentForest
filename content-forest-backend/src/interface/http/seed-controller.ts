@@ -1,6 +1,7 @@
 import type {
   CreateSeedInput,
   SeedService,
+  UpdateSeedBriefInput,
   UpdateSeedInput,
 } from "../../modules/seed/application/seed-service.js";
 
@@ -44,6 +45,37 @@ export class SeedController {
     };
   }
 
+  public async generateSeedBrief(seedId: string): Promise<HttpResult<unknown>> {
+    return {
+      status: 201,
+      body: await this.seedService.generateSeedBrief(seedId),
+    };
+  }
+
+  public async getSeedBrief(seedId: string): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.seedService.getSeedBrief(seedId),
+    };
+  }
+
+  public async updateSeedBrief(
+    seedId: string,
+    body: UpdateSeedBriefInput,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.seedService.updateSeedBrief(seedId, body),
+    };
+  }
+
+  public async refreshSeedBrief(seedId: string): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.seedService.refreshSeedBrief(seedId),
+    };
+  }
+
   public async updateSeed(
     seedId: string,
     body: UpdateSeedInput,
@@ -82,4 +114,3 @@ export class SeedController {
     };
   }
 }
-

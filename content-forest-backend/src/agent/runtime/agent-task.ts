@@ -1,4 +1,4 @@
-export const AGENT_TASK_TYPES = ["growth", "gene_extraction"] as const;
+export const AGENT_TASK_TYPES = ["growth", "gene_extraction", "seed_brief"] as const;
 
 export type AgentTaskType = typeof AGENT_TASK_TYPES[number];
 

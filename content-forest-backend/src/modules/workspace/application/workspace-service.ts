@@ -20,6 +20,7 @@ import type {
   WorkspaceNode,
   WorkspaceNodeRef,
   WorkspaceResources,
+  WorkspaceSeedBriefSummary,
   WorkspaceSeedSummary,
   WorkspaceSnapshot,
 } from "../domain/workspace-types.js";
@@ -80,6 +81,7 @@ export class WorkspaceService {
     return {
       seed,
       workspaceReadOnly: seed.archiveState === SEED_ARCHIVE_STATES.archived,
+      seedBrief: await this.getSeedBriefSummary(seed.id),
       nodes,
       edges,
       resources: await this.getResources(seed.id),
@@ -249,6 +251,19 @@ export class WorkspaceService {
       createdAt: seed.createdAt,
       updatedAt: seed.updatedAt,
       archivedAt: seed.archivedAt,
+    };
+  }
+
+  private async getSeedBriefSummary(
+    seedId: string,
+  ): Promise<WorkspaceSeedBriefSummary> {
+    const summary = await this.seedService.getSeedBriefSummary(seedId);
+    return {
+      seedId: summary.seedId,
+      hasBrief: summary.hasBrief,
+      id: summary.id,
+      contentLocation: summary.contentLocation,
+      updatedAt: summary.updatedAt,
     };
   }
 

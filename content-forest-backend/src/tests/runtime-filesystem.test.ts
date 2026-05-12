@@ -127,6 +127,26 @@ describe("LocalSeedMarkdownContentAccessAdapter", () => {
     await expect(adapter.readSeedMarkdown(contentLocation)).resolves.toBe("# Seed");
   });
 
+  it("stores seed brief markdown beside the seed content", async () => {
+    const root = await createTempRoot();
+    const config = {
+      contentRootDir: join(root, "content"),
+      databasePath: join(root, "app.sqlite"),
+      port: 3001,
+    };
+    await initializeRuntimeFilesystem(config);
+    const adapter = new LocalSeedMarkdownContentAccessAdapter(config.contentRootDir);
+
+    const contentLocation = await adapter.createSeedBriefMarkdown({
+      seedId: "seed_1",
+      markdown: "# Seed Brief",
+    });
+
+    expect(contentLocation).toBe("seeds/seed_1.brief.md");
+    expect(contentLocation).not.toMatch(/^[a-zA-Z]:[\\/]/);
+    await expect(adapter.readSeedMarkdown(contentLocation)).resolves.toBe("# Seed Brief");
+  });
+
   it("rejects absolute content locations", async () => {
     const root = await createTempRoot();
     const config = {

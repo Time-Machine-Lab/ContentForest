@@ -149,6 +149,82 @@ paths:
                 $ref: '#/components/schemas/GrowthEligibility'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/seeds/{seedId}/brief:
+    post:
+      tags: [Seed]
+      summary: 手动生成种子主简报
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      responses:
+        '201':
+          description: 主简报生成成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedBriefDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/AgentFailure'
+    get:
+      tags: [Seed]
+      summary: 查看种子主简报
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      responses:
+        '200':
+          description: 主简报详情；尚未生成时返回 null
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SeedBriefDetail'
+                  - type: 'null'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Seed]
+      summary: 编辑种子主简报 Markdown 正文
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSeedBriefRequest'
+      responses:
+        '200':
+          description: 主简报编辑成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedBriefDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/seeds/{seedId}/brief/refresh:
+    post:
+      tags: [Seed]
+      summary: 刷新覆盖种子主简报
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      responses:
+        '200':
+          description: 主简报刷新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedBriefDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/AgentFailure'
 components:
   parameters:
     SeedId:
@@ -237,6 +313,43 @@ components:
         reason:
           type: string
           nullable: true
+    SeedBriefSummary:
+      type: object
+      required: [seedId, hasBrief, id, contentLocation, createdAt, updatedAt]
+      properties:
+        seedId:
+          type: string
+        hasBrief:
+          type: boolean
+        id:
+          type: string
+          nullable: true
+        contentLocation:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+    SeedBriefDetail:
+      allOf:
+        - $ref: '#/components/schemas/SeedBriefSummary'
+        - type: object
+          required: [markdown]
+          properties:
+            markdown:
+              type: string
+    UpdateSeedBriefRequest:
+      type: object
+      required: [markdown]
+      properties:
+        markdown:
+          type: string
+          minLength: 1
     ErrorResponse:
       type: object
       required: [code, message]
@@ -254,6 +367,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     NotFound:
       description: 种子不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    AgentFailure:
+      description: Agent 侧种子主简报能力不可用或返回不可落地结果
       content:
         application/json:
           schema:

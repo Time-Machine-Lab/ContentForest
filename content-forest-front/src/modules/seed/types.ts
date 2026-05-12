@@ -25,6 +25,23 @@ export interface SeedDetail extends SeedSummary {
   markdown: string
 }
 
+export interface SeedBriefSummary {
+  seedId: string
+  hasBrief: boolean
+  id: string | null
+  contentLocation: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export interface SeedBriefDetail extends SeedBriefSummary {
+  markdown: string
+}
+
+export interface UpdateSeedBriefRequest {
+  markdown: string
+}
+
 export interface SeedRootNode {
   seedId: string
   nodeId: string

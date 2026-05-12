@@ -82,6 +82,7 @@ export class BranchGrowthSkill implements SkillContract {
         generator,
         resources,
         strategy,
+        taskInput: input.context.input,
         userInput: readOptionalString(input.context.input.userInput),
       }),
       validationOptions: {
@@ -97,6 +98,7 @@ export class BranchGrowthSkill implements SkillContract {
         skillName: this.name,
         algorithmVersion: strategy.algorithmVersion,
         explorationSlot: strategy.explorationSlot,
+        mutationPlan: input.context.input.mutationPlan ?? null,
       },
     };
   }
@@ -127,6 +129,10 @@ export class BranchGrowthSkill implements SkillContract {
             },
             resources: input.resources,
             strategy: input.strategy,
+            roundGrowthBrief: input.execution.context.input.roundGrowthBrief ?? {},
+            searchMode: input.execution.context.input.searchMode ?? null,
+            mutationIntensity: input.execution.context.input.mutationIntensity ?? null,
+            mutationPlan: input.execution.context.input.mutationPlan ?? {},
             userInput: readOptionalString(input.execution.context.input.userInput),
             detailParams: input.execution.context.input.detailParams ?? {},
           },
@@ -158,6 +164,7 @@ export class BranchGrowthSkill implements SkillContract {
             generator: input.generator,
             resources: input.resources,
             strategy: input.strategy,
+            taskInput: input.execution.context.input,
             userInput: readOptionalString(input.execution.context.input.userInput),
           }),
         },
@@ -192,11 +199,24 @@ function buildPromptContext(input: {
   generator: Record<string, unknown>;
   resources: Record<string, unknown>;
   strategy: ContentEvolutionStrategy;
+  taskInput: Record<string, unknown>;
   userInput: string;
 }): string {
   return [
     "## 内容进化算法版本",
     input.strategy.algorithmVersion,
+    "## 本轮生长简报",
+    JSON.stringify(sanitizeContext(readRecord(input.taskInput.roundGrowthBrief)), null, 2),
+    "## 管线搜索参数",
+    JSON.stringify(
+      {
+        searchMode: input.taskInput.searchMode ?? null,
+        mutationIntensity: input.taskInput.mutationIntensity ?? null,
+        mutationPlan: input.taskInput.mutationPlan ?? null,
+      },
+      null,
+      2,
+    ),
     "## 本次生长策略",
     JSON.stringify(input.strategy, null, 2),
     "## 生成器方法论",
@@ -291,6 +311,12 @@ function normalizeRefs(
 
 function readOptionalString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 function sanitizeContext(value: Record<string, unknown>): Record<string, unknown> {

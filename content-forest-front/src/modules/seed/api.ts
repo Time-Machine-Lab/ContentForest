@@ -1,8 +1,10 @@
 import type {
   CreateSeedRequest,
+  SeedBriefDetail,
   SeedDetail,
   SeedRootNode,
   SeedSummary,
+  UpdateSeedBriefRequest,
   UpdateSeedRequest,
 } from './types'
 
@@ -10,7 +12,7 @@ type HttpMethod = 'GET' | 'POST' | 'PATCH'
 
 export interface SeedFetchOptions {
   method?: HttpMethod
-  body?: BodyInit | CreateSeedRequest | UpdateSeedRequest | null
+  body?: BodyInit | CreateSeedRequest | UpdateSeedRequest | UpdateSeedBriefRequest | null
 }
 
 export type SeedFetcher = <T>(url: string, options?: SeedFetchOptions) => Promise<T>
@@ -55,6 +57,25 @@ export function createSeedApi(fetcher: SeedFetcher, baseUrl = '') {
     },
     getSeedRootNode(seedId: string) {
       return fetcher<SeedRootNode>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/root-node`))
+    },
+    generateSeedBrief(seedId: string) {
+      return fetcher<SeedBriefDetail>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/brief`), {
+        method: 'POST',
+      })
+    },
+    getSeedBrief(seedId: string) {
+      return fetcher<SeedBriefDetail | null>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/brief`))
+    },
+    updateSeedBrief(seedId: string, payload: UpdateSeedBriefRequest) {
+      return fetcher<SeedBriefDetail>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/brief`), {
+        method: 'PATCH',
+        body: payload,
+      })
+    },
+    refreshSeedBrief(seedId: string) {
+      return fetcher<SeedBriefDetail>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/brief/refresh`), {
+        method: 'POST',
+      })
     },
   }
 }

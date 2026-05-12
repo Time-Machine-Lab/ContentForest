@@ -34,12 +34,14 @@ components:
   schemas:
     WorkspaceSnapshot:
       type: object
-      required: [seed, workspaceReadOnly, nodes, edges, resources, geneExtractionHub]
+      required: [seed, workspaceReadOnly, seedBrief, nodes, edges, resources, geneExtractionHub]
       properties:
         seed:
           $ref: '#/components/schemas/WorkspaceSeedSummary'
         workspaceReadOnly:
           type: boolean
+        seedBrief:
+          $ref: '#/components/schemas/WorkspaceSeedBriefSummary'
         nodes:
           type: array
           items:
@@ -74,6 +76,24 @@ components:
           type: string
           format: date-time
         archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+    WorkspaceSeedBriefSummary:
+      type: object
+      required: [seedId, hasBrief, id, contentLocation, updatedAt]
+      properties:
+        seedId:
+          type: string
+        hasBrief:
+          type: boolean
+        id:
+          type: string
+          nullable: true
+        contentLocation:
+          type: string
+          nullable: true
+        updatedAt:
           type: string
           format: date-time
           nullable: true

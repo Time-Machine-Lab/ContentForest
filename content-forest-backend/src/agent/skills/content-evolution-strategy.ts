@@ -84,7 +84,9 @@ export function buildContentEvolutionStrategy(input: {
     readRecord(input.taskInput.target).totalFruitCount,
     readPositiveInteger(readRecord(input.taskInput.target).fruitCount, 1),
   );
-  const slot = EXPLORATION_SLOTS[(attemptIndex - 1) % EXPLORATION_SLOTS.length] ??
+  const slot =
+    buildExplorationSlotFromMutationPlan(input.taskInput.mutationPlan, attemptIndex) ??
+    EXPLORATION_SLOTS[(attemptIndex - 1) % EXPLORATION_SLOTS.length] ??
     EXPLORATION_SLOTS[0];
   const evidenceCards = buildEvidenceCards(input.source, input.resources);
   const geneCards = evidenceCards.filter((card) => card.sourceType === "gene");
@@ -111,6 +113,27 @@ export function buildContentEvolutionStrategy(input: {
     avoidedGeneUses: geneCards
       .filter((card) => /避免|规避|negative|失败|反向/i.test(card.excerpt))
       .map((card) => `规避基因 ${card.resourceId ?? card.title}：${card.excerpt}`),
+  };
+}
+
+function buildExplorationSlotFromMutationPlan(
+  value: unknown,
+  attemptIndex: number,
+): ContentEvolutionExplorationSlot | null {
+  const plan = readRecord(value);
+  const direction = readString(plan.direction);
+  if (direction.length === 0) {
+    return null;
+  }
+  const intent = readString(plan.intent);
+  const hypothesis = readString(plan.hypothesis);
+  return {
+    key: `dynamic-mutation-${attemptIndex}`,
+    name: direction,
+    hypothesis: hypothesis || intent || "验证动态突变计划是否能形成更有效表达。",
+    mutationDirection: direction,
+    successCriteria:
+      intent || "内容必须保留种子核心，并与同批次其他 attempt 形成可比较差异。",
   };
 }
 

@@ -23,3 +23,13 @@ CREATE TABLE IF NOT EXISTS seeds (
 CREATE INDEX IF NOT EXISTS idx_seeds_archive_state_updated_at
   ON seeds (archive_state, updated_at);
 
+CREATE TABLE IF NOT EXISTS seed_briefs (
+  id TEXT PRIMARY KEY,
+  seed_id TEXT NOT NULL UNIQUE,
+  content_location TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_seed_briefs_seed_id_updated_at
+  ON seed_briefs (seed_id, updated_at);

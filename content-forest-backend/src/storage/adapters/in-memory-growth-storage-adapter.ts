@@ -117,6 +117,7 @@ export class InMemoryGrowthStorageAdapter implements GrowthStoragePort {
       nutrientRefs: cloneGrowthResourceRefs(record.nutrientRefs),
       geneRefs: cloneGrowthResourceRefs(record.geneRefs),
       detailParams: { ...record.detailParams },
+      pipelineParams: { ...record.pipelineParams },
       authorizationScope: this.cloneAuthorizationScope(record.authorizationScope),
       agentInput: { ...record.agentInput },
       successfulFruitIds: [...record.successfulFruitIds],
@@ -127,6 +128,11 @@ export class InMemoryGrowthStorageAdapter implements GrowthStoragePort {
     return {
       ...record,
       agentOutput: { ...record.agentOutput },
+      mutationPlan: {
+        ...record.mutationPlan,
+        inherit: [...record.mutationPlan.inherit],
+        avoid: [...record.mutationPlan.avoid],
+      },
     };
   }
 
@@ -144,6 +150,7 @@ export class InMemoryGrowthStorageAdapter implements GrowthStoragePort {
       nutrientRefs: cloneGrowthResourceRefs(record.nutrientRefs),
       geneRefs: cloneGrowthResourceRefs(record.geneRefs),
       detailParams: { ...record.detailParams },
+      pipelineParams: { ...record.pipelineParams },
     };
   }
 

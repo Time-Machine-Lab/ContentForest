@@ -3,13 +3,17 @@ import {
 } from "../../../shared/errors/application-error.js";
 import type { IdGenerator } from "../../../shared/utils/id-generator.js";
 import { RandomIdGenerator } from "../../../shared/utils/id-generator.js";
+import type { AgentPort } from "../../../agent/ports/agent-port.js";
 import type { SeedMarkdownContentAccessPort } from "../../../content-access/ports/seed-markdown-content-access-port.js";
 import type {
+  SeedBriefRecord,
   SeedRecord,
   SeedStoragePort,
 } from "../../../storage/ports/seed-storage-port.js";
 import {
   SEED_ARCHIVE_STATES,
+  type SeedBriefDetail,
+  type SeedBriefSummary,
   type SeedDetail,
   type SeedGrowthEligibility,
   type SeedRootNode,
@@ -26,9 +30,14 @@ export interface UpdateSeedInput {
   markdown?: string;
 }
 
+export interface UpdateSeedBriefInput {
+  markdown: string;
+}
+
 export interface SeedServiceDependencies {
   storage: SeedStoragePort;
   contentAccess: SeedMarkdownContentAccessPort;
+  agentPort?: AgentPort;
   afterSeedCreated?: (seedId: string) => Promise<void>;
   idGenerator?: IdGenerator;
   now?: () => Date;
@@ -37,6 +46,7 @@ export interface SeedServiceDependencies {
 export class SeedService {
   private readonly storage: SeedStoragePort;
   private readonly contentAccess: SeedMarkdownContentAccessPort;
+  private readonly agentPort: AgentPort | undefined;
   private readonly afterSeedCreated: ((seedId: string) => Promise<void>) | undefined;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
@@ -44,6 +54,7 @@ export class SeedService {
   public constructor(dependencies: SeedServiceDependencies) {
     this.storage = dependencies.storage;
     this.contentAccess = dependencies.contentAccess;
+    this.agentPort = dependencies.agentPort;
     this.afterSeedCreated = dependencies.afterSeedCreated;
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
@@ -81,6 +92,57 @@ export class SeedService {
     const record = await this.requireSeed(seedId);
     const markdown = await this.contentAccess.readSeedMarkdown(record.contentLocation);
     return this.toDetail(record, markdown);
+  }
+
+  public async generateSeedBrief(seedId: string): Promise<SeedBriefDetail> {
+    const seed = await this.getSeed(seedId);
+    const markdown = await this.generateBriefMarkdown(seed);
+    return this.saveGeneratedBrief(seed.id, markdown);
+  }
+
+  public async refreshSeedBrief(seedId: string): Promise<SeedBriefDetail> {
+    const existing = await this.requireSeedBrief(seedId);
+    const seed = await this.getSeed(seedId);
+    const markdown = await this.generateBriefMarkdown(seed);
+    const timestamp = this.timestamp();
+    await this.contentAccess.updateSeedMarkdown(existing.contentLocation, markdown);
+    const nextRecord: SeedBriefRecord = {
+      ...existing,
+      updatedAt: timestamp,
+    };
+    await this.storage.upsertSeedBrief(nextRecord);
+    return this.toBriefDetail(nextRecord, markdown);
+  }
+
+  public async getSeedBrief(seedId: string): Promise<SeedBriefDetail | null> {
+    await this.requireSeed(seedId);
+    const record = await this.storage.findSeedBriefBySeedId(seedId);
+    if (record === null) {
+      return null;
+    }
+    const markdown = await this.contentAccess.readSeedMarkdown(record.contentLocation);
+    return this.toBriefDetail(record, markdown);
+  }
+
+  public async getSeedBriefSummary(seedId: string): Promise<SeedBriefSummary> {
+    await this.requireSeed(seedId);
+    const record = await this.storage.findSeedBriefBySeedId(seedId);
+    return this.toBriefSummary(seedId, record);
+  }
+
+  public async updateSeedBrief(
+    seedId: string,
+    input: UpdateSeedBriefInput,
+  ): Promise<SeedBriefDetail> {
+    const record = await this.requireSeedBrief(seedId);
+    const markdown = this.requireNonBlank(input.markdown, "种子主简报 Markdown 不能为空");
+    await this.contentAccess.updateSeedMarkdown(record.contentLocation, markdown);
+    const nextRecord: SeedBriefRecord = {
+      ...record,
+      updatedAt: this.timestamp(),
+    };
+    await this.storage.upsertSeedBrief(nextRecord);
+    return this.toBriefDetail(nextRecord, markdown);
   }
 
   public async updateSeed(seedId: string, input: UpdateSeedInput): Promise<SeedDetail> {
@@ -200,6 +262,92 @@ export class SeedService {
     return record;
   }
 
+  private async requireSeedBrief(seedId: string): Promise<SeedBriefRecord> {
+    await this.requireSeed(seedId);
+    const record = await this.storage.findSeedBriefBySeedId(seedId);
+    if (record === null) {
+      throw new ApplicationError("NOT_FOUND", "种子主简报尚未生成", 404);
+    }
+    return record;
+  }
+
+  private async generateBriefMarkdown(seed: SeedDetail): Promise<string> {
+    if (this.agentPort === undefined) {
+      throw new ApplicationError(
+        "AGENT_TASK_FAILED",
+        "种子主简报生成能力不可用",
+        502,
+      );
+    }
+    const result = await this.agentPort.runTask({
+      type: "seed_brief",
+      input: {
+        seedId: seed.id,
+        seedTitle: seed.title,
+        seedMarkdown: seed.markdown,
+      },
+    });
+    if (!result.ok) {
+      throw new ApplicationError(
+        "AGENT_TASK_FAILED",
+        result.error.message,
+        502,
+      );
+    }
+    const markdown = this.readBriefMarkdownFromAgentOutput(result.output.content);
+    return this.requireNonBlank(markdown, "种子主简报生成结果为空");
+  }
+
+  private readBriefMarkdownFromAgentOutput(content: unknown): string {
+    if (typeof content === "string") {
+      return content;
+    }
+    if (
+      typeof content === "object" &&
+      content !== null &&
+      !Array.isArray(content) &&
+      typeof (content as { markdown?: unknown }).markdown === "string"
+    ) {
+      return (content as { markdown: string }).markdown;
+    }
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "种子主简报生成结果不可落地",
+      502,
+    );
+  }
+
+  private async saveGeneratedBrief(
+    seedId: string,
+    markdown: string,
+  ): Promise<SeedBriefDetail> {
+    const existing = await this.storage.findSeedBriefBySeedId(seedId);
+    const timestamp = this.timestamp();
+    if (existing !== null) {
+      await this.contentAccess.updateSeedMarkdown(existing.contentLocation, markdown);
+      const nextRecord: SeedBriefRecord = {
+        ...existing,
+        updatedAt: timestamp,
+      };
+      await this.storage.upsertSeedBrief(nextRecord);
+      return this.toBriefDetail(nextRecord, markdown);
+    }
+
+    const contentLocation = await this.contentAccess.createSeedBriefMarkdown({
+      seedId,
+      markdown,
+    });
+    const record: SeedBriefRecord = {
+      id: this.idGenerator.nextId("seed-brief"),
+      seedId,
+      contentLocation,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    await this.storage.upsertSeedBrief(record);
+    return this.toBriefDetail(record, markdown);
+  }
+
   private requireNonBlank(value: string, message: string): string {
     const normalized = value.trim();
     if (normalized.length === 0) {
@@ -232,6 +380,40 @@ export class SeedService {
   private toDetail(record: SeedRecord, markdown: string): SeedDetail {
     return {
       ...this.toSummary(record),
+      markdown,
+    };
+  }
+
+  private toBriefSummary(
+    seedId: string,
+    record: SeedBriefRecord | null,
+  ): SeedBriefSummary {
+    if (record === null) {
+      return {
+        seedId,
+        hasBrief: false,
+        id: null,
+        contentLocation: null,
+        createdAt: null,
+        updatedAt: null,
+      };
+    }
+    return {
+      seedId: record.seedId,
+      hasBrief: true,
+      id: record.id,
+      contentLocation: record.contentLocation,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    };
+  }
+
+  private toBriefDetail(
+    record: SeedBriefRecord,
+    markdown: string,
+  ): SeedBriefDetail {
+    return {
+      ...this.toBriefSummary(record.seedId, record),
       markdown,
     };
   }

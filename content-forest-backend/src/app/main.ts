@@ -7,8 +7,14 @@ import {
   isApplicationError,
 } from "../shared/errors/application-error.js";
 import type {
+  GrowthMutationIntensity,
   GrowthResourceRef,
+  GrowthSearchMode,
   GrowthSourceNodeRef,
+} from "../modules/growth/domain/growth-types.js";
+import {
+  GROWTH_MUTATION_INTENSITIES,
+  GROWTH_SEARCH_MODES,
 } from "../modules/growth/domain/growth-types.js";
 import type {
   NutrientArchiveState,
@@ -672,6 +678,41 @@ async function handleApiRequest(
     return true;
   }
 
+  const seedBriefRefreshMatch = pathname.match(/^\/api\/seeds\/([^/]+)\/brief\/refresh$/);
+  if (seedBriefRefreshMatch && method === "POST") {
+    const result = await app.seedController.refreshSeedBrief(
+      decodeURIComponent(seedBriefRefreshMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const seedBriefMatch = pathname.match(/^\/api\/seeds\/([^/]+)\/brief$/);
+  if (seedBriefMatch && method === "POST") {
+    const result = await app.seedController.generateSeedBrief(
+      decodeURIComponent(seedBriefMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  if (seedBriefMatch && method === "GET") {
+    const result = await app.seedController.getSeedBrief(
+      decodeURIComponent(seedBriefMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  if (seedBriefMatch && method === "PATCH") {
+    const result = await app.seedController.updateSeedBrief(
+      decodeURIComponent(seedBriefMatch[1] ?? ""),
+      toUpdateSeedBriefInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
   const seedMatch = pathname.match(/^\/api\/seeds\/([^/]+)$/);
   if (seedMatch && method === "GET") {
     const result = await app.seedController.getSeed(decodeURIComponent(seedMatch[1] ?? ""));
@@ -1092,6 +1133,8 @@ function toStartGrowthTaskInput(body: Record<string, unknown>): {
   nutrientRefs?: GrowthResourceRef[];
   geneRefs?: GrowthResourceRef[];
   detailParams?: Record<string, unknown>;
+  searchMode?: GrowthSearchMode;
+  mutationIntensity?: GrowthMutationIntensity;
 } {
   if (
     typeof body.seedId !== "string" ||
@@ -1114,7 +1157,39 @@ function toStartGrowthTaskInput(body: Record<string, unknown>): {
     nutrientRefs: toGrowthResourceRefs(body.nutrientRefs, "nutrient"),
     geneRefs: toGrowthResourceRefs(body.geneRefs, "gene"),
     detailParams: toOptionalRecord(body.detailParams),
+    searchMode: toGrowthSearchMode(body.searchMode),
+    mutationIntensity: toGrowthMutationIntensity(body.mutationIntensity),
   };
+}
+
+function toGrowthSearchMode(value: unknown): GrowthSearchMode | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (
+    typeof value === "string" &&
+    Object.values(GROWTH_SEARCH_MODES).includes(value as GrowthSearchMode)
+  ) {
+    return value as GrowthSearchMode;
+  }
+  throw new ApplicationError("VALIDATION_ERROR", "搜索模式不正确", 400);
+}
+
+function toGrowthMutationIntensity(
+  value: unknown,
+): GrowthMutationIntensity | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (
+    typeof value === "string" &&
+    Object.values(GROWTH_MUTATION_INTENSITIES).includes(
+      value as GrowthMutationIntensity,
+    )
+  ) {
+    return value as GrowthMutationIntensity;
+  }
+  throw new ApplicationError("VALIDATION_ERROR", "突变激进程度不正确", 400);
 }
 
 function toGrowthSourceNodeRef(
@@ -1206,6 +1281,21 @@ function toUpdateSeedInput(body: Record<string, unknown>): {
   }
 
   return input;
+}
+
+function toUpdateSeedBriefInput(body: Record<string, unknown>): {
+  markdown: string;
+} {
+  if (typeof body.markdown !== "string") {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "种子主简报 Markdown 正文必须是字符串",
+      400,
+    );
+  }
+  return {
+    markdown: body.markdown,
+  };
 }
 
 function toUpdateFruitContentInput(body: Record<string, unknown>): {

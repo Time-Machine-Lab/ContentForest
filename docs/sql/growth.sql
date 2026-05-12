@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS growth_tasks (
   nutrient_refs_json TEXT NOT NULL DEFAULT '[]',
   gene_refs_json TEXT NOT NULL DEFAULT '[]',
   detail_params_json TEXT NOT NULL DEFAULT '{}',
+  search_mode TEXT NOT NULL DEFAULT 'broad_exploration' CHECK (search_mode IN ('broad_exploration', 'directional_strengthening', 'local_variation', 'negative_feedback_avoidance')),
+  mutation_intensity TEXT NOT NULL DEFAULT 'balanced' CHECK (mutation_intensity IN ('conservative', 'balanced', 'aggressive')),
+  pipeline_recommendation_reason TEXT NOT NULL DEFAULT '',
   authorization_refs_json TEXT NOT NULL DEFAULT '[]',
   agent_input_json TEXT NOT NULL DEFAULT '{}',
   successful_fruit_ids_json TEXT NOT NULL DEFAULT '[]',
@@ -48,6 +51,7 @@ CREATE TABLE IF NOT EXISTS growth_attempts (
   fruit_id TEXT,
   failure_reason TEXT,
   agent_output_json TEXT NOT NULL DEFAULT '{}',
+  mutation_plan_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE (task_id, attempt_index)
@@ -78,6 +82,8 @@ CREATE TABLE IF NOT EXISTS growth_failed_inputs (
   nutrient_refs_json TEXT NOT NULL DEFAULT '[]',
   gene_refs_json TEXT NOT NULL DEFAULT '[]',
   detail_params_json TEXT NOT NULL DEFAULT '{}',
+  search_mode TEXT NOT NULL DEFAULT 'broad_exploration' CHECK (search_mode IN ('broad_exploration', 'directional_strengthening', 'local_variation', 'negative_feedback_avoidance')),
+  mutation_intensity TEXT NOT NULL DEFAULT 'balanced' CHECK (mutation_intensity IN ('conservative', 'balanced', 'aggressive')),
   failure_reason TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (source_node_type, source_node_id)

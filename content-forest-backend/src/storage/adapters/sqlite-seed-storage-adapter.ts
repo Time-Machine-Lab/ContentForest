@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import type {
+  SeedBriefRecord,
   SeedRecord,
   SeedStoragePort,
 } from "../ports/seed-storage-port.js";
@@ -14,6 +15,14 @@ interface SeedRow {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+}
+
+interface SeedBriefRow {
+  id: string;
+  seed_id: string;
+  content_location: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export class SqliteSeedStorageAdapter implements SeedStoragePort {
@@ -92,6 +101,38 @@ export class SqliteSeedStorageAdapter implements SeedStoragePort {
       );
   }
 
+  public async upsertSeedBrief(record: SeedBriefRecord): Promise<void> {
+    this.database
+      .prepare(
+        `INSERT INTO seed_briefs (
+          id,
+          seed_id,
+          content_location,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(seed_id) DO UPDATE SET
+          content_location = excluded.content_location,
+          updated_at = excluded.updated_at`,
+      )
+      .run(
+        record.id,
+        record.seedId,
+        record.contentLocation,
+        record.createdAt,
+        record.updatedAt,
+      );
+  }
+
+  public async findSeedBriefBySeedId(
+    seedId: string,
+  ): Promise<SeedBriefRecord | null> {
+    const row = this.database
+      .prepare("SELECT * FROM seed_briefs WHERE seed_id = ?")
+      .get(seedId) as SeedBriefRow | undefined;
+    return row === undefined ? null : this.toBriefRecord(row);
+  }
+
   public close(): void {
     this.database.close();
   }
@@ -112,6 +153,17 @@ export class SqliteSeedStorageAdapter implements SeedStoragePort {
 
       CREATE INDEX IF NOT EXISTS idx_seeds_archive_state_updated_at
         ON seeds (archive_state, updated_at);
+
+      CREATE TABLE IF NOT EXISTS seed_briefs (
+        id TEXT PRIMARY KEY,
+        seed_id TEXT NOT NULL UNIQUE,
+        content_location TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_seed_briefs_seed_id_updated_at
+        ON seed_briefs (seed_id, updated_at);
     `);
   }
 
@@ -125,6 +177,16 @@ export class SqliteSeedStorageAdapter implements SeedStoragePort {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       archivedAt: row.archived_at,
+    };
+  }
+
+  private toBriefRecord(row: SeedBriefRow): SeedBriefRecord {
+    return {
+      id: row.id,
+      seedId: row.seed_id,
+      contentLocation: row.content_location,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
     };
   }
 }

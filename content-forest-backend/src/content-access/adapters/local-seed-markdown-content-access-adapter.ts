@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import type {
+  CreateSeedBriefMarkdownInput,
   CreateSeedMarkdownInput,
   SeedMarkdownContentAccessPort,
 } from "../ports/seed-markdown-content-access-port.js";
@@ -17,6 +18,14 @@ export class LocalSeedMarkdownContentAccessAdapter
 
   public async createSeedMarkdown(input: CreateSeedMarkdownInput): Promise<string> {
     const contentLocation = `seeds/${this.safeFileName(input.seedId)}.md`;
+    await this.write(contentLocation, input.markdown);
+    return contentLocation;
+  }
+
+  public async createSeedBriefMarkdown(
+    input: CreateSeedBriefMarkdownInput,
+  ): Promise<string> {
+    const contentLocation = `seeds/${this.safeFileName(input.seedId)}.brief.md`;
     await this.write(contentLocation, input.markdown);
     return contentLocation;
   }

@@ -21,6 +21,19 @@ export interface SeedDetail extends SeedSummary {
   markdown: string;
 }
 
+export interface SeedBriefSummary {
+  seedId: string;
+  hasBrief: boolean;
+  id: string | null;
+  contentLocation: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface SeedBriefDetail extends SeedBriefSummary {
+  markdown: string | null;
+}
+
 export interface SeedRootNode {
   seedId: string;
   nodeId: string;
@@ -34,4 +47,3 @@ export interface SeedGrowthEligibility {
   workspaceReadOnly: boolean;
   reason: string | null;
 }
-

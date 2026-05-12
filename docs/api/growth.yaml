@@ -165,9 +165,85 @@ components:
         detailParams:
           type: object
           additionalProperties: true
+        searchMode:
+          $ref: '#/components/schemas/GrowthSearchMode'
+        mutationIntensity:
+          $ref: '#/components/schemas/GrowthMutationIntensity'
+    GrowthSearchMode:
+      type: string
+      enum:
+        - broad_exploration
+        - directional_strengthening
+        - local_variation
+        - negative_feedback_avoidance
+      description: 本轮内容解空间搜索模式。缺省时由系统推荐。
+    GrowthMutationIntensity:
+      type: string
+      enum:
+        - conservative
+        - balanced
+        - aggressive
+      description: 语义化突变激进程度，不要求用户输入数字突变率。
+    GrowthPipelineParams:
+      type: object
+      required: [searchMode, mutationIntensity, recommendationReason]
+      properties:
+        searchMode:
+          $ref: '#/components/schemas/GrowthSearchMode'
+        mutationIntensity:
+          $ref: '#/components/schemas/GrowthMutationIntensity'
+        recommendationReason:
+          type: string
+          description: 用户缺省参数时系统推荐的简要理由。
+    GrowthMutationPlan:
+      type: object
+      required: [direction, intent, intensity, hypothesis]
+      properties:
+        direction:
+          type: string
+        intent:
+          type: string
+        intensity:
+          $ref: '#/components/schemas/GrowthMutationIntensity'
+        hypothesis:
+          type: string
+        inherit:
+          type: array
+          items:
+            type: string
+        avoid:
+          type: array
+          items:
+            type: string
+        evidenceSummary:
+          type: string
+    GrowthPathStep:
+      type: object
+      required: [id, label, status]
+      properties:
+        id:
+          type: string
+        parentId:
+          type: string
+          nullable: true
+        attemptId:
+          type: string
+          nullable: true
+        label:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        detail:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
     GrowthAttempt:
       type: object
-      required: [id, taskId, attemptIndex, status, fruitId, failureReason, createdAt, updatedAt]
+      required: [id, taskId, attemptIndex, status, fruitId, failureReason, createdAt, updatedAt, mutationPlan]
       properties:
         id:
           type: string
@@ -193,6 +269,8 @@ components:
         updatedAt:
           type: string
           format: date-time
+        mutationPlan:
+          $ref: '#/components/schemas/GrowthMutationPlan'
     GrowthTaskDetail:
       type: object
       required:
@@ -205,6 +283,8 @@ components:
         - nutrientRefs
         - geneRefs
         - successfulFruitIds
+        - pipelineParams
+        - pathGraph
         - failureReason
         - attempts
         - createdAt
@@ -237,6 +317,12 @@ components:
           type: array
           items:
             type: string
+        pipelineParams:
+          $ref: '#/components/schemas/GrowthPipelineParams'
+        pathGraph:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthPathStep'
         failureReason:
           type: string
           nullable: true
@@ -282,6 +368,7 @@ components:
         - fruitCount
         - nutrientRefs
         - geneRefs
+        - pipelineParams
         - failureReason
         - updatedAt
       properties:
@@ -308,6 +395,8 @@ components:
         detailParams:
           type: object
           additionalProperties: true
+        pipelineParams:
+          $ref: '#/components/schemas/GrowthPipelineParams'
         failureReason:
           type: string
         updatedAt:

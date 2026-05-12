@@ -1,8 +1,15 @@
 import { DatabaseSync } from "node:sqlite";
+import {
+  GROWTH_MUTATION_INTENSITIES,
+  GROWTH_SEARCH_MODES,
+} from "../../modules/growth/domain/growth-types.js";
 import type {
   GrowthAttemptStatus,
   GrowthAuthorizationScope,
+  GrowthMutationIntensity,
+  GrowthMutationPlan,
   GrowthResourceRef,
+  GrowthSearchMode,
   GrowthSourceNodeRef,
   GrowthTaskStatus,
 } from "../../modules/growth/domain/growth-types.js";
@@ -26,6 +33,9 @@ interface GrowthTaskRow {
   nutrient_refs_json: string;
   gene_refs_json: string;
   detail_params_json: string;
+  search_mode: GrowthSearchMode;
+  mutation_intensity: GrowthMutationIntensity;
+  pipeline_recommendation_reason: string;
   authorization_refs_json: string;
   agent_input_json: string;
   successful_fruit_ids_json: string;
@@ -44,6 +54,7 @@ interface GrowthAttemptRow {
   fruit_id: string | null;
   failure_reason: string | null;
   agent_output_json: string;
+  mutation_plan_json: string;
   created_at: string;
   updated_at: string;
 }
@@ -66,6 +77,8 @@ interface GrowthFailedInputRow {
   nutrient_refs_json: string;
   gene_refs_json: string;
   detail_params_json: string;
+  search_mode: GrowthSearchMode;
+  mutation_intensity: GrowthMutationIntensity;
   failure_reason: string;
   updated_at: string;
 }
@@ -93,6 +106,9 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
           nutrient_refs_json,
           gene_refs_json,
           detail_params_json,
+          search_mode,
+          mutation_intensity,
+          pipeline_recommendation_reason,
           authorization_refs_json,
           agent_input_json,
           successful_fruit_ids_json,
@@ -100,7 +116,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
           created_at,
           updated_at,
           finished_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
@@ -114,6 +130,9 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         JSON.stringify(record.nutrientRefs),
         JSON.stringify(record.geneRefs),
         JSON.stringify(record.detailParams),
+        record.pipelineParams.searchMode,
+        record.pipelineParams.mutationIntensity,
+        record.pipelineParams.recommendationReason,
         JSON.stringify(record.authorizationScope),
         JSON.stringify(record.agentInput),
         JSON.stringify(record.successfulFruitIds),
@@ -153,6 +172,9 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
               nutrient_refs_json = ?,
               gene_refs_json = ?,
               detail_params_json = ?,
+              search_mode = ?,
+              mutation_intensity = ?,
+              pipeline_recommendation_reason = ?,
               authorization_refs_json = ?,
               agent_input_json = ?,
               successful_fruit_ids_json = ?,
@@ -169,6 +191,9 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         JSON.stringify(record.nutrientRefs),
         JSON.stringify(record.geneRefs),
         JSON.stringify(record.detailParams),
+        record.pipelineParams.searchMode,
+        record.pipelineParams.mutationIntensity,
+        record.pipelineParams.recommendationReason,
         JSON.stringify(record.authorizationScope),
         JSON.stringify(record.agentInput),
         JSON.stringify(record.successfulFruitIds),
@@ -191,9 +216,10 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
           fruit_id,
           failure_reason,
           agent_output_json,
+          mutation_plan_json,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
@@ -204,6 +230,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         record.fruitId,
         record.failureReason,
         JSON.stringify(record.agentOutput),
+        JSON.stringify(record.mutationPlan),
         record.createdAt,
         record.updatedAt,
       );
@@ -218,6 +245,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
               fruit_id = ?,
               failure_reason = ?,
               agent_output_json = ?,
+              mutation_plan_json = ?,
               updated_at = ?
           WHERE id = ?`,
       )
@@ -227,6 +255,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         record.fruitId,
         record.failureReason,
         JSON.stringify(record.agentOutput),
+        JSON.stringify(record.mutationPlan),
         record.updatedAt,
         record.id,
       );
@@ -324,9 +353,11 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
           nutrient_refs_json,
           gene_refs_json,
           detail_params_json,
+          search_mode,
+          mutation_intensity,
           failure_reason,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(source_node_type, source_node_id) DO UPDATE SET
           task_id = excluded.task_id,
           seed_id = excluded.seed_id,
@@ -336,6 +367,8 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
           nutrient_refs_json = excluded.nutrient_refs_json,
           gene_refs_json = excluded.gene_refs_json,
           detail_params_json = excluded.detail_params_json,
+          search_mode = excluded.search_mode,
+          mutation_intensity = excluded.mutation_intensity,
           failure_reason = excluded.failure_reason,
           updated_at = excluded.updated_at`,
       )
@@ -350,6 +383,8 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         JSON.stringify(record.nutrientRefs),
         JSON.stringify(record.geneRefs),
         JSON.stringify(record.detailParams),
+        record.pipelineParams.searchMode,
+        record.pipelineParams.mutationIntensity,
         record.failureReason,
         record.updatedAt,
       );
@@ -398,6 +433,9 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         nutrient_refs_json TEXT NOT NULL DEFAULT '[]',
         gene_refs_json TEXT NOT NULL DEFAULT '[]',
         detail_params_json TEXT NOT NULL DEFAULT '{}',
+        search_mode TEXT NOT NULL DEFAULT 'broad_exploration' CHECK (search_mode IN ('broad_exploration', 'directional_strengthening', 'local_variation', 'negative_feedback_avoidance')),
+        mutation_intensity TEXT NOT NULL DEFAULT 'balanced' CHECK (mutation_intensity IN ('conservative', 'balanced', 'aggressive')),
+        pipeline_recommendation_reason TEXT NOT NULL DEFAULT '',
         authorization_refs_json TEXT NOT NULL DEFAULT '[]',
         agent_input_json TEXT NOT NULL DEFAULT '{}',
         successful_fruit_ids_json TEXT NOT NULL DEFAULT '[]',
@@ -422,6 +460,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         fruit_id TEXT,
         failure_reason TEXT,
         agent_output_json TEXT NOT NULL DEFAULT '{}',
+        mutation_plan_json TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         UNIQUE (task_id, attempt_index)
@@ -452,6 +491,8 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         nutrient_refs_json TEXT NOT NULL DEFAULT '[]',
         gene_refs_json TEXT NOT NULL DEFAULT '[]',
         detail_params_json TEXT NOT NULL DEFAULT '{}',
+        search_mode TEXT NOT NULL DEFAULT 'broad_exploration',
+        mutation_intensity TEXT NOT NULL DEFAULT 'balanced',
         failure_reason TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (source_node_type, source_node_id)
@@ -460,6 +501,50 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       CREATE INDEX IF NOT EXISTS idx_growth_failed_inputs_seed_updated_at
         ON growth_failed_inputs (seed_id, updated_at);
     `);
+    this.ensureColumn(
+      "growth_tasks",
+      "search_mode",
+      "TEXT NOT NULL DEFAULT 'broad_exploration'",
+    );
+    this.ensureColumn(
+      "growth_tasks",
+      "mutation_intensity",
+      "TEXT NOT NULL DEFAULT 'balanced'",
+    );
+    this.ensureColumn(
+      "growth_tasks",
+      "pipeline_recommendation_reason",
+      "TEXT NOT NULL DEFAULT ''",
+    );
+    this.ensureColumn(
+      "growth_attempts",
+      "mutation_plan_json",
+      "TEXT NOT NULL DEFAULT '{}'",
+    );
+    this.ensureColumn(
+      "growth_failed_inputs",
+      "search_mode",
+      "TEXT NOT NULL DEFAULT 'broad_exploration'",
+    );
+    this.ensureColumn(
+      "growth_failed_inputs",
+      "mutation_intensity",
+      "TEXT NOT NULL DEFAULT 'balanced'",
+    );
+  }
+
+  private ensureColumn(
+    tableName: string,
+    columnName: string,
+    definition: string,
+  ): void {
+    const rows = this.database
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all() as unknown as Array<{ name: string }>;
+    if (rows.some((row) => row.name === columnName)) {
+      return;
+    }
+    this.database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
   }
 
   private toTaskRecord(row: GrowthTaskRow): GrowthTaskRecord {
@@ -478,6 +563,11 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       nutrientRefs: this.parseResourceRefs(row.nutrient_refs_json),
       geneRefs: this.parseResourceRefs(row.gene_refs_json),
       detailParams: this.parseRecord(row.detail_params_json),
+      pipelineParams: {
+        searchMode: this.parseSearchMode(row.search_mode),
+        mutationIntensity: this.parseMutationIntensity(row.mutation_intensity),
+        recommendationReason: row.pipeline_recommendation_reason,
+      },
       authorizationScope: this.parseAuthorizationScope(
         row.authorization_refs_json,
         row.seed_id,
@@ -503,6 +593,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       fruitId: row.fruit_id,
       failureReason: row.failure_reason,
       agentOutput: this.parseRecord(row.agent_output_json),
+      mutationPlan: this.parseMutationPlan(row.mutation_plan_json),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -533,6 +624,11 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       nutrientRefs: this.parseResourceRefs(row.nutrient_refs_json),
       geneRefs: this.parseResourceRefs(row.gene_refs_json),
       detailParams: this.parseRecord(row.detail_params_json),
+      pipelineParams: {
+        searchMode: this.parseSearchMode(row.search_mode),
+        mutationIntensity: this.parseMutationIntensity(row.mutation_intensity),
+        recommendationReason: "Recovered from latest failed growth input.",
+      },
       failureReason: row.failure_reason,
       updatedAt: row.updated_at,
     };
@@ -597,6 +693,45 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
     } catch {
       return {};
     }
+  }
+
+  private parseSearchMode(value: string): GrowthSearchMode {
+    return Object.values(GROWTH_SEARCH_MODES).includes(value as GrowthSearchMode)
+      ? value as GrowthSearchMode
+      : GROWTH_SEARCH_MODES.broadExploration;
+  }
+
+  private parseMutationIntensity(value: string): GrowthMutationIntensity {
+    return Object.values(GROWTH_MUTATION_INTENSITIES).includes(
+      value as GrowthMutationIntensity,
+    )
+      ? value as GrowthMutationIntensity
+      : GROWTH_MUTATION_INTENSITIES.balanced;
+  }
+
+  private parseMutationPlan(value: string): GrowthMutationPlan {
+    const parsed = this.parseRecord(value);
+    const inherit = Array.isArray(parsed.inherit)
+      ? parsed.inherit.filter((item): item is string => typeof item === "string")
+      : [];
+    const avoid = Array.isArray(parsed.avoid)
+      ? parsed.avoid.filter((item): item is string => typeof item === "string")
+      : [];
+    return {
+      direction:
+        typeof parsed.direction === "string" ? parsed.direction : "默认延展方向",
+      intent:
+        typeof parsed.intent === "string" ? parsed.intent : "延续来源节点并生成可验证内容",
+      intensity: this.parseMutationIntensity(
+        typeof parsed.intensity === "string" ? parsed.intensity : "",
+      ),
+      hypothesis:
+        typeof parsed.hypothesis === "string" ? parsed.hypothesis : "验证新的表达路线",
+      inherit,
+      avoid,
+      evidenceSummary:
+        typeof parsed.evidenceSummary === "string" ? parsed.evidenceSummary : "",
+    };
   }
 
   private isSourceNodeRef(value: unknown): value is GrowthSourceNodeRef {

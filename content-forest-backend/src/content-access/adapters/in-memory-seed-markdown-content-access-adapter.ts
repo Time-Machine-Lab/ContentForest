@@ -1,4 +1,5 @@
 import type {
+  CreateSeedBriefMarkdownInput,
   CreateSeedMarkdownInput,
   SeedMarkdownContentAccessPort,
 } from "../ports/seed-markdown-content-access-port.js";
@@ -11,6 +12,14 @@ export class InMemorySeedMarkdownContentAccessAdapter
 
   public async createSeedMarkdown(input: CreateSeedMarkdownInput): Promise<string> {
     const location = `seeds/${input.seedId}.md`;
+    this.markdownByLocation.set(location, input.markdown);
+    return location;
+  }
+
+  public async createSeedBriefMarkdown(
+    input: CreateSeedBriefMarkdownInput,
+  ): Promise<string> {
+    const location = `seeds/${input.seedId}.brief.md`;
     this.markdownByLocation.set(location, input.markdown);
     return location;
   }

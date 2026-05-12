@@ -11,10 +11,19 @@ export interface SeedRecord {
   archivedAt: string | null;
 }
 
+export interface SeedBriefRecord {
+  id: string;
+  seedId: string;
+  contentLocation: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SeedStoragePort {
   createSeed(record: SeedRecord): Promise<void>;
   findSeedById(seedId: string): Promise<SeedRecord | null>;
   listSeedsByArchiveState(archiveState: SeedArchiveState): Promise<SeedRecord[]>;
   saveSeed(record: SeedRecord): Promise<void>;
+  upsertSeedBrief(record: SeedBriefRecord): Promise<void>;
+  findSeedBriefBySeedId(seedId: string): Promise<SeedBriefRecord | null>;
 }
-

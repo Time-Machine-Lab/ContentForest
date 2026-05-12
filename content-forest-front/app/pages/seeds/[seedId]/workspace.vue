@@ -4,7 +4,7 @@ import { createFeedbackApi, type FeedbackHistory, type FeedbackSnapshot } from '
 import { createGeneApi, type GeneEvidenceSource, type GeneSuggestion } from '../../../../src/modules/gene'
 import { createGrowthApi, type GrowthFailedInput, type GrowthNodeType, type GrowthTaskDetail } from '../../../../src/modules/growth'
 import { createPublicationApi, type PublicationRecord } from '../../../../src/modules/publication'
-import { createSeedApi } from '../../../../src/modules/seed'
+import { createSeedApi, type SeedBriefDetail } from '../../../../src/modules/seed'
 import { createWorkspaceApi, type WorkspaceNode, type WorkspaceNodeRef, type WorkspaceSnapshot } from '../../../../src/modules/workspace'
 
 type NodeType = 'seed' | 'fruit'
@@ -96,6 +96,15 @@ const workspaceLoading = ref(false)
 const workspaceError = ref('')
 const detailLoading = ref(false)
 const detailError = ref('')
+const seedBriefPanelOpen = ref(false)
+const seedBriefDetail = ref<SeedBriefDetail | null>(null)
+const seedBriefDraft = ref('')
+const seedBriefLoading = ref(false)
+const seedBriefGenerating = ref(false)
+const seedBriefSaving = ref(false)
+const seedBriefRefreshing = ref(false)
+const seedBriefEditing = ref(false)
+const seedBriefError = ref('')
 const selectionLoading = ref(false)
 const growthLoading = ref(false)
 const growthError = ref('')
@@ -116,7 +125,7 @@ const mutationRate = ref(18)
 const fruitCountOptions = [1, 2, 3, 4, 5, 6]
 const geneHubDialogOpen = ref(false)
 const geneActionLoading = ref('')
-const geneReminderActionLoading = reactive<Record<string, 'extract' | 'ignore'>>({})
+const geneReminderActionLoading = reactive<Record<string, 'extract' | 'ignore' | undefined>>({})
 const geneActionError = ref('')
 const geneReasonComposerIds = ref<string[]>([])
 const geneExtractionReasonDrafts = reactive<Record<string, string>>({})
@@ -204,6 +213,21 @@ const geneHubStatusText = computed(() => {
   if (hasGeneHubWork.value) return `${geneHubStats.value.pendingReminderCount} 提醒 / ${geneHubStats.value.pendingSuggestionCount} 建议`
   return `${geneHubStats.value.referableInsightCount} 可引用经验`
 })
+const seedBriefSummary = computed(() => snapshot.value?.seedBrief ?? {
+  seedId: seedId.value,
+  hasBrief: false,
+  id: null,
+  contentLocation: null,
+  updatedAt: null,
+})
+const seedBriefStatusText = computed(() => {
+  if (seedBriefGenerating.value) return '生成中'
+  if (seedBriefRefreshing.value) return '刷新中'
+  if (seedBriefSaving.value) return '保存中'
+  if (seedBriefSummary.value.hasBrief) return `更新于 ${formatDateTime(seedBriefSummary.value.updatedAt)}`
+  return '尚未生成'
+})
+const canEditSeedBrief = computed(() => Boolean(seedBriefDetail.value?.hasBrief && !seedBriefLoading.value && !seedBriefGenerating.value))
 const branchEdges = computed(() => {
   const visibleIds = new Set(visibleNodes.value.map((node) => node.id))
   const snapshotEdges = snapshot.value?.edges.map((edge, index) => ({
@@ -318,6 +342,11 @@ async function loadWorkspace(preferredNodeId = selectedNodeId.value) {
   try {
     const nextSnapshot = await workspaceApi.getSeedWorkspace(seedId.value)
     snapshot.value = nextSnapshot
+    if (!nextSnapshot.seedBrief.hasBrief || seedBriefDetail.value?.seedId !== nextSnapshot.seed.id) {
+      seedBriefDetail.value = null
+      seedBriefDraft.value = ''
+      seedBriefEditing.value = false
+    }
     nodes.value = layoutVisibleTreeNodes(mergeRunningPlaceholders(mapSnapshotNodes(nextSnapshot), nodes.value))
 
     const routeNodeId = typeof route.query.node === 'string' ? route.query.node : ''
@@ -650,6 +679,103 @@ function resetPublicationPanel() {
   feedbackDialogOpen.value = false
   activeFeedbackPublicationId.value = ''
   editingFeedbackSnapshot.value = null
+}
+
+async function openSeedBriefPanel() {
+  seedBriefPanelOpen.value = true
+  seedBriefError.value = ''
+  if (seedBriefSummary.value.hasBrief && !seedBriefDetail.value) {
+    await loadSeedBrief()
+  }
+}
+
+function closeSeedBriefPanel() {
+  seedBriefPanelOpen.value = false
+  seedBriefEditing.value = false
+  seedBriefError.value = ''
+}
+
+function applySeedBriefDetail(detail: SeedBriefDetail | null) {
+  seedBriefDetail.value = detail
+  seedBriefDraft.value = detail?.markdown ?? ''
+  seedBriefEditing.value = false
+}
+
+async function loadSeedBrief() {
+  if (!seedId.value || seedBriefLoading.value) return
+  seedBriefLoading.value = true
+  seedBriefError.value = ''
+
+  try {
+    applySeedBriefDetail(await seedApi.getSeedBrief(seedId.value))
+  } catch (error) {
+    seedBriefError.value = errorMessage(error)
+  } finally {
+    seedBriefLoading.value = false
+  }
+}
+
+async function generateSeedBrief() {
+  if (!seedId.value || seedBriefGenerating.value) return
+  seedBriefGenerating.value = true
+  seedBriefError.value = ''
+
+  try {
+    applySeedBriefDetail(await seedApi.generateSeedBrief(seedId.value))
+    await loadWorkspace(selectedNodeId.value)
+  } catch (error) {
+    seedBriefError.value = errorMessage(error)
+  } finally {
+    seedBriefGenerating.value = false
+  }
+}
+
+async function refreshSeedBrief() {
+  if (!seedId.value || seedBriefRefreshing.value) return
+  seedBriefRefreshing.value = true
+  seedBriefError.value = ''
+
+  try {
+    applySeedBriefDetail(await seedApi.refreshSeedBrief(seedId.value))
+    await loadWorkspace(selectedNodeId.value)
+  } catch (error) {
+    seedBriefError.value = errorMessage(error)
+  } finally {
+    seedBriefRefreshing.value = false
+  }
+}
+
+function startSeedBriefEditing() {
+  seedBriefDraft.value = seedBriefDetail.value?.markdown ?? ''
+  seedBriefEditing.value = true
+  seedBriefError.value = ''
+}
+
+function cancelSeedBriefEditing() {
+  seedBriefDraft.value = seedBriefDetail.value?.markdown ?? ''
+  seedBriefEditing.value = false
+  seedBriefError.value = ''
+}
+
+async function saveSeedBrief() {
+  if (!seedId.value || seedBriefSaving.value) return
+  const markdown = seedBriefDraft.value.trim()
+  if (!markdown) {
+    seedBriefError.value = '种子主简报不能为空'
+    return
+  }
+
+  seedBriefSaving.value = true
+  seedBriefError.value = ''
+
+  try {
+    applySeedBriefDetail(await seedApi.updateSeedBrief(seedId.value, { markdown }))
+    await loadWorkspace(selectedNodeId.value)
+  } catch (error) {
+    seedBriefError.value = errorMessage(error)
+  } finally {
+    seedBriefSaving.value = false
+  }
 }
 
 async function loadPublicationRecords(fruitId: string) {
@@ -1069,7 +1195,7 @@ async function startGeneExtraction(reminderId: string) {
       reason: geneExtractionReasonDrafts[reminderId]?.trim() || undefined,
       evidenceSources: reminder.evidenceSources,
     })
-    delete geneExtractionReasonDrafts[reminderId]
+    geneExtractionReasonDrafts[reminderId] = ''
     cancelGeneReasonComposer(reminderId)
     await loadWorkspace(selectedNodeId.value)
     if (!activeGeneSuggestion.value && result.suggestions[0]) {
@@ -1080,7 +1206,7 @@ async function startGeneExtraction(reminderId: string) {
     const reminderStillPending = geneHub.value?.pendingReminders.some((item) => item.id === reminderId) ?? false
     geneActionError.value = reminderStillPending ? errorMessage(error) : ''
   } finally {
-    delete geneReminderActionLoading[reminderId]
+    geneReminderActionLoading[reminderId] = undefined
     stopGeneExtractionPolling(reminderId)
   }
 }
@@ -1102,14 +1228,14 @@ function scheduleGeneExtractionPoll(reminderId: string) {
       await loadWorkspace(selectedNodeId.value)
       const reminder = geneHub.value?.pendingReminders.find((item) => item.id === reminderId) ?? null
       if (reminder === null) {
-        delete geneReminderActionLoading[reminderId]
-        delete geneExtractionReasonDrafts[reminderId]
+        geneReminderActionLoading[reminderId] = undefined
+        geneExtractionReasonDrafts[reminderId] = ''
         cancelGeneReasonComposer(reminderId)
         stopGeneExtractionPolling(reminderId)
         return
       }
       if (attempts >= GENE_EXTRACTION_MAX_POLL_ATTEMPTS) {
-        delete geneReminderActionLoading[reminderId]
+        geneReminderActionLoading[reminderId] = undefined
         stopGeneExtractionPolling(reminderId)
         geneActionError.value = '基因汲取仍在处理，请稍后重新打开工作区查看结果'
         return
@@ -1148,7 +1274,7 @@ async function ignoreGeneReminder(reminderId: string) {
   } catch (error) {
     geneActionError.value = errorMessage(error)
   } finally {
-    delete geneReminderActionLoading[reminderId]
+    geneReminderActionLoading[reminderId] = undefined
   }
 }
 
@@ -1560,7 +1686,7 @@ async function retryGrowth() {
   }
 }
 
-function formatDateTime(value: string) {
+function formatDateTime(value: string | null | undefined) {
   if (!value) return '未知'
   return new Intl.DateTimeFormat('zh-CN', {
     month: '2-digit',
@@ -1586,6 +1712,9 @@ function formatDateTime(value: string) {
       </div>
       <div class="cf-workspace-actions">
         <NuxtLink class="cf-secondary-action" to="/seeds">返回种子库</NuxtLink>
+        <button class="cf-workspace-tool" type="button" :aria-expanded="seedBriefPanelOpen" @click="openSeedBriefPanel">
+          种子简报
+        </button>
         <button class="cf-workspace-tool" type="button" @click="toggleEliminatedNodesVisibility">
           {{ hideEliminatedNodes ? '显示淘汰节点' : '隐藏淘汰节点' }}
         </button>
@@ -1780,6 +1909,69 @@ function formatDateTime(value: string) {
         </div>
       </aside>
     </div>
+
+    <aside v-if="seedBriefPanelOpen" class="cf-seed-brief-panel" aria-label="种子主简报">
+      <header class="cf-seed-brief-head">
+        <div>
+          <span>Seed Brief</span>
+          <strong>种子主简报</strong>
+        </div>
+        <button type="button" aria-label="关闭种子主简报" @click="closeSeedBriefPanel">×</button>
+      </header>
+
+      <section class="cf-seed-brief-status">
+        <div>
+          <span>{{ seedBriefSummary.hasBrief ? '当前简报' : '尚未生成' }}</span>
+          <strong>{{ seedBriefStatusText }}</strong>
+        </div>
+        <button
+          v-if="!seedBriefSummary.hasBrief && !seedBriefDetail"
+          type="button"
+          :disabled="seedBriefGenerating"
+          @click="generateSeedBrief"
+        >
+          {{ seedBriefGenerating ? '生成中...' : '生成' }}
+        </button>
+        <button
+          v-else
+          type="button"
+          :disabled="seedBriefRefreshing || seedBriefGenerating"
+          @click="refreshSeedBrief"
+        >
+          {{ seedBriefRefreshing ? '刷新中...' : '刷新' }}
+        </button>
+      </section>
+
+      <p v-if="seedBriefError" class="cf-inline-error cf-error-action">
+        <span>{{ seedBriefError }}</span>
+        <button v-if="seedBriefSummary.hasBrief" type="button" @click="loadSeedBrief">重试读取</button>
+      </p>
+
+      <div v-if="seedBriefLoading" class="cf-seed-brief-empty">正在读取主简报...</div>
+
+      <section v-else-if="!seedBriefSummary.hasBrief && !seedBriefDetail" class="cf-seed-brief-empty">
+        <strong>还没有主简报</strong>
+        <span>可以先生成一份创作地图，也可以直接从当前节点发起枝化生长。</span>
+      </section>
+
+      <section v-else class="cf-seed-brief-body">
+        <div class="cf-seed-brief-actions">
+          <span>{{ seedBriefDetail?.contentLocation || seedBriefSummary.contentLocation || '等待内容位置' }}</span>
+          <button v-if="!seedBriefEditing" type="button" :disabled="!canEditSeedBrief" @click="startSeedBriefEditing">编辑</button>
+        </div>
+
+        <label v-if="seedBriefEditing" class="cf-seed-brief-editor">
+          <span>主简报正文</span>
+          <textarea v-model="seedBriefDraft" />
+        </label>
+        <MarkdownViewer v-else :markdown="seedBriefDetail?.markdown || ''" />
+
+        <div v-if="seedBriefEditing" class="cf-seed-brief-editor-actions">
+          <button type="button" :disabled="seedBriefSaving" @click="cancelSeedBriefEditing">取消</button>
+          <button type="button" :disabled="seedBriefSaving" @click="saveSeedBrief">{{ seedBriefSaving ? '保存中...' : '保存' }}</button>
+        </div>
+      </section>
+    </aside>
 
     <section
       class="cf-tree-canvas"
@@ -3333,6 +3525,146 @@ button:disabled {
 .cf-gene-task-list {
   display: grid;
   gap: 9px;
+}
+
+.cf-seed-brief-panel {
+  position: absolute;
+  z-index: 32;
+  top: 86px;
+  left: 18px;
+  width: min(386px, calc(100vw - 468px));
+  max-height: calc(100vh - 230px);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid rgba(122, 167, 255, .18);
+  border-radius: 10px;
+  background:
+    linear-gradient(145deg, rgba(122, 167, 255, .08), transparent 38%),
+    rgba(15, 18, 24, .97);
+  box-shadow: 0 26px 88px rgba(0, 0, 0, .48);
+  backdrop-filter: blur(24px);
+}
+
+.cf-seed-brief-head,
+.cf-seed-brief-status,
+.cf-seed-brief-actions,
+.cf-seed-brief-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cf-seed-brief-head {
+  padding: 13px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+
+.cf-seed-brief-head div,
+.cf-seed-brief-status div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.cf-seed-brief-head span,
+.cf-seed-brief-status span,
+.cf-seed-brief-actions span,
+.cf-seed-brief-editor span {
+  overflow: hidden;
+  color: var(--cf-muted);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-seed-brief-head strong,
+.cf-seed-brief-status strong,
+.cf-seed-brief-empty strong {
+  color: var(--cf-text);
+  font-size: 13px;
+}
+
+.cf-seed-brief-head button,
+.cf-seed-brief-status button,
+.cf-seed-brief-actions button,
+.cf-seed-brief-editor-actions button {
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .045);
+  color: var(--cf-text);
+  cursor: pointer;
+}
+
+.cf-seed-brief-head button {
+  width: 30px;
+  height: 30px;
+  color: var(--cf-muted);
+  font-size: 18px;
+}
+
+.cf-seed-brief-status {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, .07);
+  background: rgba(255, 255, 255, .025);
+}
+
+.cf-seed-brief-status button,
+.cf-seed-brief-actions button,
+.cf-seed-brief-editor-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  color: #dce8ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cf-seed-brief-empty {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  color: var(--cf-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.cf-seed-brief-body {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  scrollbar-color: rgba(122, 167, 255, .36) rgba(255, 255, 255, .04);
+}
+
+.cf-seed-brief-actions {
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, .07);
+}
+
+.cf-seed-brief-editor {
+  display: grid;
+  gap: 7px;
+}
+
+.cf-seed-brief-editor textarea {
+  width: 100%;
+  min-height: 320px;
+  box-sizing: border-box;
+  padding: 11px;
+  border: 1px solid var(--cf-border-soft);
+  border-radius: 8px;
+  outline: 0;
+  resize: vertical;
+  background: rgba(8, 10, 14, .62);
+  color: var(--cf-text);
+  line-height: 1.5;
+}
+
+.cf-seed-brief-editor-actions {
+  justify-content: flex-end;
 }
 
 .cf-gene-task-card {
@@ -4898,6 +5230,10 @@ button:disabled {
     right: 382px;
   }
 
+  .cf-seed-brief-panel {
+    width: min(340px, calc(100vw - 400px));
+  }
+
   .cf-growth-composer {
     left: calc(50% - 180px);
     min-width: 500px;
@@ -4911,6 +5247,13 @@ button:disabled {
 }
 
 @media (max-width: 640px) {
+  .cf-seed-brief-panel {
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100vh - 190px);
+  }
+
   .cf-gene-bubble {
     right: 18px;
     bottom: 90px;

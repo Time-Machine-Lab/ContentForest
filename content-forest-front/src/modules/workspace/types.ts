@@ -34,6 +34,14 @@ export interface WorkspaceSeedSummary {
   archivedAt?: string | null
 }
 
+export interface WorkspaceSeedBriefSummary {
+  seedId: string
+  hasBrief: boolean
+  id: string | null
+  contentLocation: string | null
+  updatedAt: string | null
+}
+
 export interface WorkspaceSeedNode {
   nodeType: 'seed'
   nodeId: string
@@ -175,6 +183,7 @@ export interface WorkspaceGeneExtractionHub {
 export interface WorkspaceSnapshot {
   seed: WorkspaceSeedSummary
   workspaceReadOnly: boolean
+  seedBrief: WorkspaceSeedBriefSummary
   nodes: WorkspaceNode[]
   edges: WorkspaceEdge[]
   resources: WorkspaceResources

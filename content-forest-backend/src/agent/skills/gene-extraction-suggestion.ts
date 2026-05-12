@@ -262,18 +262,3 @@ function hasNextRoundAdvice(value: string): boolean {
   return /next|later|future|inherit|strengthen|mutate|combine|avoid|reuse|amplify|weaken|do not|should not|下一|下轮|下一轮|后续|继承|强化|变异|组合|结合|避免|规避|复用|放大|弱化|不要|不应|建议|操作|使用/i.test(value);
 }
 
-function extractNextRoundAdvice(
-  suggestion: StructuredGeneExtractionSuggestion,
-): string {
-  const text = `${suggestion.bodyMarkdown}\n${suggestion.evidenceInterpretation}`;
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => hasNextRoundAdvice(line));
-  if (lines.length > 0) {
-    return lines.join("\n");
-  }
-  return suggestion.polarity === "positive"
-    ? "In the next growth round, inherit or strengthen this expression trait and test light variations across different content angles."
-    : "In the next growth round, avoid reproducing this expression trait unless the applicable boundary is explicit.";
-}

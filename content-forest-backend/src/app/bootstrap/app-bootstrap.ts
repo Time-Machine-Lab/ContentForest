@@ -25,6 +25,7 @@ import { SkillRegistry } from "../../agent/runtime/skill-runtime.js";
 import { ToolRegistry } from "../../agent/runtime/tool-registry.js";
 import { BranchGrowthSkill } from "../../agent/skills/branch-growth-skill.js";
 import { GeneExtractionSkill } from "../../agent/skills/gene-extraction-skill.js";
+import { SeedBriefSkill } from "../../agent/skills/seed-brief-skill.js";
 import { ExecuteGeneratorScriptTool } from "../../agent/tools/execute-generator-script-tool.js";
 import { ReadGeneratorSkillTool } from "../../agent/tools/read-generator-skill-tool.js";
 import {
@@ -117,6 +118,7 @@ export async function bootstrapApp(
   const skillRegistry = new SkillRegistry();
   skillRegistry.register(new BranchGrowthSkill());
   skillRegistry.register(new GeneExtractionSkill());
+  skillRegistry.register(new SeedBriefSkill());
   const toolRegistry = new ToolRegistry();
   toolRegistry.register(
     new ReadGeneratorSkillTool({
@@ -185,6 +187,7 @@ export async function bootstrapApp(
   const seedService = new SeedService({
     storage: seedStorage,
     contentAccess: seedContentAccess,
+    agentPort: agentRuntime,
     afterSeedCreated: (seedId) => geneService.prepareSeedGeneLibrary(seedId).then(() => undefined),
   });
   const generatorService = new GeneratorService({

@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
+import type { AgentPort } from "../agent/ports/agent-port.js";
+import type { AgentTask, AgentTaskResult } from "../agent/runtime/agent-task.js";
 import { InMemoryFruitMarkdownContentAccessAdapter } from "../content-access/adapters/in-memory-fruit-markdown-content-access-adapter.js";
 import { InMemorySeedMarkdownContentAccessAdapter } from "../content-access/adapters/in-memory-seed-markdown-content-access-adapter.js";
 import { FruitService } from "../modules/fruit/application/fruit-service.js";
 import { GeneService } from "../modules/gene/application/gene-service.js";
 import { GeneratorService } from "../modules/generator/application/generator-service.js";
 import { GrowthService } from "../modules/growth/application/growth-service.js";
+import {
+  GROWTH_MUTATION_INTENSITIES,
+  GROWTH_SEARCH_MODES,
+} from "../modules/growth/domain/growth-types.js";
 import { NutrientService } from "../modules/nutrient/application/nutrient-service.js";
 import { SeedService } from "../modules/seed/application/seed-service.js";
 import { WorkspaceService } from "../modules/workspace/application/workspace-service.js";
@@ -38,6 +44,22 @@ function nowFactory(): () => Date {
   };
 }
 
+function seedBriefAgent(markdown: string): AgentPort {
+  return {
+    async runTask(task: AgentTask): Promise<AgentTaskResult> {
+      return {
+        ok: true,
+        taskId: task.taskId ?? "agent-task_1",
+        output: {
+          taskType: "seed_brief",
+          content: { markdown },
+        },
+        trace: [],
+      };
+    },
+  };
+}
+
 async function createFixture(): Promise<{
   workspaceService: WorkspaceService;
   seedService: SeedService;
@@ -58,6 +80,7 @@ async function createFixture(): Promise<{
   const seedService = new SeedService({
     storage: seedStorage,
     contentAccess: new InMemorySeedMarkdownContentAccessAdapter(),
+    agentPort: seedBriefAgent("# Workspace Brief\n\nThis must stay out of snapshot."),
     idGenerator: idGenerator(),
     now,
   });
@@ -170,6 +193,13 @@ describe("WorkspaceService", () => {
     const snapshot = await workspaceService.getWorkspaceSnapshot("seed_1");
 
     expect(snapshot.workspaceReadOnly).toBe(false);
+    expect(snapshot.seedBrief).toMatchObject({
+      seedId: "seed_1",
+      hasBrief: false,
+      id: null,
+      contentLocation: null,
+      updatedAt: null,
+    });
     expect(snapshot.seed).toMatchObject({
       id: "seed_1",
       title: "壁纸项目",
@@ -265,6 +295,11 @@ describe("WorkspaceService", () => {
       nutrientRefs: [],
       geneRefs: [],
       detailParams: {},
+      pipelineParams: {
+        searchMode: GROWTH_SEARCH_MODES.broadExploration,
+        mutationIntensity: GROWTH_MUTATION_INTENSITIES.balanced,
+        recommendationReason: "测试默认管线参数",
+      },
       failureReason: "Agent 输出不可用",
       updatedAt: "2026-01-01T00:01:00.000Z",
     });
@@ -422,5 +457,22 @@ describe("WorkspaceService", () => {
       canReviewSuggestions: false,
       canOpenGeneLibrary: true,
     });
+  });
+
+  it("aggregates seed brief summary without markdown body", async () => {
+    const { workspaceService, seedService } = await createFixture();
+    const brief = await seedService.generateSeedBrief("seed_1");
+
+    const snapshot = await workspaceService.getWorkspaceSnapshot("seed_1");
+
+    expect(snapshot.seedBrief).toMatchObject({
+      seedId: "seed_1",
+      hasBrief: true,
+      id: brief.id,
+      contentLocation: brief.contentLocation,
+      updatedAt: brief.updatedAt,
+    });
+    expect(JSON.stringify(snapshot)).not.toContain("Workspace Brief");
+    expect(JSON.stringify(snapshot)).not.toContain("This must stay out of snapshot.");
   });
 });

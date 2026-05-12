@@ -22,9 +22,64 @@ export type GrowthSourceNodeRef = ParentNodeRef;
 
 export type GrowthResourceType = "nutrient" | "gene";
 
+export const GROWTH_SEARCH_MODES = {
+  broadExploration: "broad_exploration",
+  directionalStrengthening: "directional_strengthening",
+  localVariation: "local_variation",
+  negativeFeedbackAvoidance: "negative_feedback_avoidance",
+} as const;
+
+export type GrowthSearchMode =
+  (typeof GROWTH_SEARCH_MODES)[keyof typeof GROWTH_SEARCH_MODES];
+
+export const GROWTH_MUTATION_INTENSITIES = {
+  conservative: "conservative",
+  balanced: "balanced",
+  aggressive: "aggressive",
+} as const;
+
+export type GrowthMutationIntensity =
+  (typeof GROWTH_MUTATION_INTENSITIES)[keyof typeof GROWTH_MUTATION_INTENSITIES];
+
+export const GROWTH_PATH_STEP_STATUSES = {
+  pending: "pending",
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+} as const;
+
+export type GrowthPathStepStatus =
+  (typeof GROWTH_PATH_STEP_STATUSES)[keyof typeof GROWTH_PATH_STEP_STATUSES];
+
 export interface GrowthResourceRef {
   resourceType: GrowthResourceType;
   resourceId: string;
+}
+
+export interface GrowthPipelineParams {
+  searchMode: GrowthSearchMode;
+  mutationIntensity: GrowthMutationIntensity;
+  recommendationReason: string;
+}
+
+export interface GrowthMutationPlan {
+  direction: string;
+  intent: string;
+  intensity: GrowthMutationIntensity;
+  hypothesis: string;
+  inherit: string[];
+  avoid: string[];
+  evidenceSummary: string;
+}
+
+export interface GrowthPathStep {
+  id: string;
+  parentId: string | null;
+  attemptId: string | null;
+  label: string;
+  status: GrowthPathStepStatus;
+  detail: string | null;
+  updatedAt: string | null;
 }
 
 export interface GrowthTaskInput {
@@ -36,6 +91,7 @@ export interface GrowthTaskInput {
   nutrientRefs: GrowthResourceRef[];
   geneRefs: GrowthResourceRef[];
   detailParams: Record<string, unknown>;
+  pipelineParams: GrowthPipelineParams;
 }
 
 export interface GrowthAuthorizationScope {
@@ -67,12 +123,14 @@ export interface GrowthAttempt {
   fruitId: string | null;
   failureReason: string | null;
   agentOutput: Record<string, unknown>;
+  mutationPlan: GrowthMutationPlan;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface GrowthTaskDetail extends GrowthTaskSummary {
   attempts: GrowthAttempt[];
+  pathGraph: GrowthPathStep[];
 }
 
 export interface GrowthTaskResult {
@@ -103,6 +161,10 @@ export interface BranchGrowthAgentInput {
   };
   authorizationScope: GrowthAuthorizationScope;
   detailParams: Record<string, unknown>;
+  roundGrowthBrief: Record<string, unknown>;
+  searchMode: GrowthSearchMode;
+  mutationIntensity: GrowthMutationIntensity;
+  mutationPlan: GrowthMutationPlan;
   target: {
     fruitCount: 1;
     totalFruitCount?: number;

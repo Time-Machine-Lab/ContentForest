@@ -10,7 +10,11 @@ import { GrowthController } from "../interface/http/growth-controller.js";
 import { FruitService } from "../modules/fruit/application/fruit-service.js";
 import { GrowthService } from "../modules/growth/application/growth-service.js";
 import type { GrowthTaskExecutionScheduler } from "../modules/growth/application/growth-service.js";
-import { GROWTH_TASK_STATUSES } from "../modules/growth/domain/growth-types.js";
+import {
+  GROWTH_MUTATION_INTENSITIES,
+  GROWTH_SEARCH_MODES,
+  GROWTH_TASK_STATUSES,
+} from "../modules/growth/domain/growth-types.js";
 import { SEED_ARCHIVE_STATES } from "../modules/seed/domain/seed-types.js";
 import type { IdGenerator } from "../shared/utils/id-generator.js";
 import { SqliteFruitStorageAdapter } from "../storage/adapters/sqlite-fruit-storage-adapter.js";
@@ -78,7 +82,14 @@ function successAgent(): AgentPort {
             },
           },
         },
-        trace: [],
+        trace: [
+          {
+            type: "skill_progress",
+            at: "2026-01-01T00:00:00.000Z",
+            message: "SQLite trace",
+            metadata: { stage: "sqlite_trace" },
+          },
+        ],
       };
     },
   };
@@ -150,6 +161,8 @@ describe("Growth module integration", () => {
         },
         generatorId: "generator_integration",
         fruitCount: 1,
+        searchMode: GROWTH_SEARCH_MODES.localVariation,
+        mutationIntensity: GROWTH_MUTATION_INTENSITIES.conservative,
       });
       const task = (created.body as { task: { id: string } }).task;
       const running = await controller.getGrowthTask(task.id);
@@ -168,6 +181,10 @@ describe("Growth module integration", () => {
       expect(running.body).toMatchObject({
         status: GROWTH_TASK_STATUSES.running,
         successfulFruitIds: [],
+        pipelineParams: {
+          searchMode: GROWTH_SEARCH_MODES.localVariation,
+          mutationIntensity: GROWTH_MUTATION_INTENSITIES.conservative,
+        },
       });
       expect(runningStatus.body).toMatchObject({
         isGrowing: true,
@@ -176,7 +193,21 @@ describe("Growth module integration", () => {
       expect(queried.body).toMatchObject({
         status: GROWTH_TASK_STATUSES.completed,
         successfulFruitIds: ["fruit_integration_1"],
+        attempts: [
+          {
+            mutationPlan: {
+              intensity: GROWTH_MUTATION_INTENSITIES.conservative,
+            },
+          },
+        ],
       });
+      expect(
+        (queried.body as { pathGraph: Array<{ detail: string | null }> }).pathGraph,
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ detail: "sqlite_trace" }),
+        ]),
+      );
       expect(status.body).toMatchObject({
         isGrowing: false,
         taskId: null,

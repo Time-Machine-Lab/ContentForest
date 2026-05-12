@@ -9,8 +9,6 @@ import {
   type GenePerformanceSummary,
   type GeneSuggestionStatus,
   type GeneSuggestionSemantics,
-  type GeneUsageOutcome,
-  type GeneUsageSourceType,
 } from "../../modules/gene/domain/gene-types.js";
 import type {
   GeneExtractionReminderRecord,
@@ -79,17 +77,6 @@ interface GeneInsightRow {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
-}
-
-interface GeneUsageRecordRow {
-  id: string;
-  seed_id: string;
-  insight_id: string;
-  source_type: GeneUsageSourceType;
-  source_id: string;
-  outcome: GeneUsageOutcome;
-  note: string;
-  created_at: string;
 }
 
 interface GenePerformanceSummaryRow {

@@ -24,12 +24,19 @@ import type {
 import type { SeedRecord, SeedStoragePort } from "../../../storage/ports/seed-storage-port.js";
 import {
   GROWTH_ATTEMPT_STATUSES,
+  GROWTH_MUTATION_INTENSITIES,
+  GROWTH_PATH_STEP_STATUSES,
+  GROWTH_SEARCH_MODES,
   GROWTH_TASK_STATUSES,
   type BranchGrowthAgentCandidate,
   type BranchGrowthAgentInput,
   type GrowthAuthorizationScope,
   type GrowthFailedInput,
+  type GrowthMutationIntensity,
+  type GrowthMutationPlan,
+  type GrowthPathStep,
   type GrowthResourceRef,
+  type GrowthSearchMode,
   type GrowthSourceNodeRef,
   type GrowthSourceStatus,
   type GrowthTaskDetail,
@@ -46,6 +53,8 @@ export interface StartGrowthTaskInput {
   nutrientRefs?: GrowthResourceRef[];
   geneRefs?: GrowthResourceRef[];
   detailParams?: Record<string, unknown>;
+  searchMode?: GrowthSearchMode;
+  mutationIntensity?: GrowthMutationIntensity;
 }
 
 export interface GrowthReferenceAuthorizationPort {
@@ -127,7 +136,7 @@ export class GrowthService {
     const normalized = await this.normalizeStartInput(input);
     const taskId = this.idGenerator.nextId("growth-task");
     const timestamp = this.timestamp();
-    const baseAgentInput = this.buildBaseAgentInput(taskId, normalized);
+    const baseAgentInput = await this.buildBaseAgentInput(taskId, normalized);
     const task: GrowthTaskRecord = {
       id: taskId,
       ...normalized,
@@ -190,6 +199,8 @@ export class GrowthService {
       nutrientRefs: failedInput.nutrientRefs,
       geneRefs: failedInput.geneRefs,
       detailParams: failedInput.detailParams,
+      searchMode: failedInput.pipelineParams.searchMode,
+      mutationIntensity: failedInput.pipelineParams.mutationIntensity,
     });
   }
 
@@ -204,6 +215,7 @@ export class GrowthService {
     return {
       ...task,
       attempts,
+      pathGraph: this.buildPathGraph(task, attempts),
     };
   }
 
@@ -319,6 +331,7 @@ export class GrowthService {
       fruitId: null,
       failureReason: null,
       agentOutput: {},
+      mutationPlan: this.buildAttemptMutationPlan(task, attemptIndex),
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -358,7 +371,11 @@ export class GrowthService {
         summary: candidate.summary,
         geneTags: candidate.geneTags,
       });
-      return this.succeedAttempt(attempt, result.taskId, fruit.id, result.output.content);
+      return this.succeedAttempt(attempt, result.taskId, fruit.id, {
+        content: result.output.content,
+        metadata: result.output.metadata ?? {},
+        trace: result.trace,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "果实生成尝试失败";
       return this.failAttempt(attempt, message, {});
@@ -534,6 +551,11 @@ export class GrowthService {
     );
     const geneRefs = this.normalizeResourceRefs(input.geneRefs, "gene");
     const detailParams = this.normalizeDetailParams(input.detailParams);
+    const pipelineParams = this.resolvePipelineParams(input, {
+      sourceNodeRef,
+      nutrientRefs,
+      geneRefs,
+    });
     const authorizationScope = await this.referenceAuthorization.authorize({
       seedId: seed.id,
       sourceNodeRef,
@@ -551,6 +573,7 @@ export class GrowthService {
       nutrientRefs: authorizationScope.nutrientRefs,
       geneRefs: authorizationScope.geneRefs,
       detailParams,
+      pipelineParams,
     };
   }
 
@@ -703,6 +726,127 @@ export class GrowthService {
     return value === undefined ? {} : { ...value };
   }
 
+  private resolvePipelineParams(
+    input: StartGrowthTaskInput,
+    normalized: {
+      sourceNodeRef: GrowthSourceNodeRef;
+      nutrientRefs: GrowthResourceRef[];
+      geneRefs: GrowthResourceRef[];
+    },
+  ): {
+    searchMode: GrowthSearchMode;
+    mutationIntensity: GrowthMutationIntensity;
+    recommendationReason: string;
+  } {
+    const searchMode = input.searchMode === undefined
+      ? this.recommendSearchMode(input, normalized)
+      : this.normalizeSearchMode(input.searchMode);
+    const mutationIntensity = input.mutationIntensity === undefined
+      ? this.recommendMutationIntensity(input, normalized, searchMode)
+      : this.normalizeMutationIntensity(input.mutationIntensity);
+    const recommendationReason =
+      input.searchMode !== undefined && input.mutationIntensity !== undefined
+        ? "用户显式选择搜索模式和突变激进程度。"
+        : this.buildPipelineRecommendationReason(
+            input,
+            normalized,
+            searchMode,
+            mutationIntensity,
+          );
+    return {
+      searchMode,
+      mutationIntensity,
+      recommendationReason,
+    };
+  }
+
+  private recommendSearchMode(
+    input: StartGrowthTaskInput,
+    normalized: {
+      sourceNodeRef: GrowthSourceNodeRef;
+      nutrientRefs: GrowthResourceRef[];
+      geneRefs: GrowthResourceRef[];
+    },
+  ): GrowthSearchMode {
+    const userInput = input.userInput?.toLowerCase() ?? "";
+    if (/avoid|negative|fail|广告|失败|淘汰|不要|规避/.test(userInput)) {
+      return GROWTH_SEARCH_MODES.negativeFeedbackAvoidance;
+    }
+    if (
+      normalized.sourceNodeRef.nodeType === "fruit" &&
+      normalized.geneRefs.length > 0
+    ) {
+      return GROWTH_SEARCH_MODES.directionalStrengthening;
+    }
+    if (normalized.sourceNodeRef.nodeType === "fruit") {
+      return GROWTH_SEARCH_MODES.localVariation;
+    }
+    return GROWTH_SEARCH_MODES.broadExploration;
+  }
+
+  private recommendMutationIntensity(
+    input: StartGrowthTaskInput,
+    normalized: {
+      sourceNodeRef: GrowthSourceNodeRef;
+      nutrientRefs: GrowthResourceRef[];
+      geneRefs: GrowthResourceRef[];
+    },
+    searchMode: GrowthSearchMode,
+  ): GrowthMutationIntensity {
+    if (searchMode === GROWTH_SEARCH_MODES.negativeFeedbackAvoidance) {
+      return GROWTH_MUTATION_INTENSITIES.aggressive;
+    }
+    if (
+      normalized.sourceNodeRef.nodeType === "fruit" &&
+      normalized.geneRefs.length > 0
+    ) {
+      return GROWTH_MUTATION_INTENSITIES.conservative;
+    }
+    if (
+      normalized.nutrientRefs.length === 0 &&
+      normalized.geneRefs.length === 0 &&
+      input.userInput === undefined
+    ) {
+      return GROWTH_MUTATION_INTENSITIES.aggressive;
+    }
+    return GROWTH_MUTATION_INTENSITIES.balanced;
+  }
+
+  private buildPipelineRecommendationReason(
+    input: StartGrowthTaskInput,
+    normalized: {
+      sourceNodeRef: GrowthSourceNodeRef;
+      nutrientRefs: GrowthResourceRef[];
+      geneRefs: GrowthResourceRef[];
+    },
+    searchMode: GrowthSearchMode,
+    mutationIntensity: GrowthMutationIntensity,
+  ): string {
+    const signals = [
+      `来源节点：${normalized.sourceNodeRef.nodeType}`,
+      `营养引用：${normalized.nutrientRefs.length}`,
+      `基因引用：${normalized.geneRefs.length}`,
+      `用户输入：${input.userInput?.trim() ? "有" : "无"}`,
+    ];
+    return `系统推荐 ${searchMode} / ${mutationIntensity}，依据：${signals.join("；")}。`;
+  }
+
+  private normalizeSearchMode(value: GrowthSearchMode): GrowthSearchMode {
+    if (Object.values(GROWTH_SEARCH_MODES).includes(value)) {
+      return value;
+    }
+    throw new ApplicationError("VALIDATION_ERROR", "搜索模式不正确", 400);
+  }
+
+  private normalizeMutationIntensity(
+    value: GrowthMutationIntensity,
+  ): GrowthMutationIntensity {
+    if (Object.values(GROWTH_MUTATION_INTENSITIES).includes(value)) {
+      return value;
+    }
+    throw new ApplicationError("VALIDATION_ERROR", "突变激进程度不正确", 400);
+  }
+
   private normalizeSourceNodeRef(
     sourceNodeRef: GrowthSourceNodeRef,
   ): GrowthSourceNodeRef {
@@ -723,15 +867,20 @@ export class GrowthService {
     };
   }
 
-  private buildBaseAgentInput(
+  private async buildBaseAgentInput(
     taskId: string,
     input: GrowthTaskInput,
-  ): Record<string, unknown> {
+  ): Promise<Record<string, unknown>> {
+    const roundGrowthBrief = await this.buildRoundGrowthBrief(input);
     return {
       seedId: input.seedId,
       growthTaskId: taskId,
       sourceNodeRef: input.sourceNodeRef,
       userInput: input.userInput,
+      roundGrowthBrief,
+      searchMode: input.pipelineParams.searchMode,
+      mutationIntensity: input.pipelineParams.mutationIntensity,
+      pipelineParams: input.pipelineParams,
       generatorRef: {
         generatorId: input.generatorId,
       },
@@ -744,6 +893,37 @@ export class GrowthService {
       },
       detailParams: input.detailParams,
       fruitCount: input.fruitCount,
+    };
+  }
+
+  private async buildRoundGrowthBrief(
+    input: GrowthTaskInput,
+  ): Promise<Record<string, unknown>> {
+    const seed = await this.seedStorage.findSeedById(input.seedId);
+    const seedBrief = await this.seedStorage.findSeedBriefBySeedId(input.seedId);
+    return {
+      purpose: "本轮生长简报是一次枝化生长的临时任务上下文，不替代种子主简报。",
+      seed: {
+        id: input.seedId,
+        title: seed?.title ?? "",
+        contentLocation: seed?.contentLocation ?? null,
+        hasMasterBrief: seedBrief !== null,
+        masterBriefContentLocation: seedBrief?.contentLocation ?? null,
+        masterBriefUpdatedAt: seedBrief?.updatedAt ?? null,
+      },
+      sourceNodeRef: input.sourceNodeRef,
+      userInput: input.userInput,
+      generatorId: input.generatorId,
+      fruitCount: input.fruitCount,
+      references: {
+        nutrientRefs: input.nutrientRefs,
+        geneRefs: input.geneRefs,
+      },
+      pipeline: input.pipelineParams,
+      executionHint:
+        seedBrief === null
+          ? "种子主简报不存在，本轮降级为基于种子正文、来源节点、用户输入和授权资源生长。"
+          : "种子主简报可用，Agent 可在授权工具返回的上下文中参考主简报。",
     };
   }
 
@@ -763,11 +943,270 @@ export class GrowthService {
       },
       authorizationScope: task.authorizationScope,
       detailParams: task.detailParams,
+      roundGrowthBrief: this.toRecord(task.agentInput.roundGrowthBrief),
+      searchMode: task.pipelineParams.searchMode,
+      mutationIntensity: task.pipelineParams.mutationIntensity,
+      mutationPlan: attempt.mutationPlan,
       target: {
         fruitCount: 1,
         totalFruitCount: task.fruitCount,
       },
     };
+  }
+
+  private buildAttemptMutationPlan(
+    task: GrowthTaskRecord,
+    attemptIndex: number,
+  ): GrowthMutationPlan {
+    const directions = this.discoverMutationDirections(task);
+    const directionIndex = (attemptIndex - 1) % directions.length;
+    const baseDirection = directions[directionIndex] ?? "冷启动探索新的内容表达路线";
+    const direction =
+      directions.length >= task.fruitCount
+        ? baseDirection
+        : `${baseDirection}（第 ${attemptIndex} 条差异化路线）`;
+    const intent = this.buildMutationIntent(
+      task.pipelineParams.searchMode,
+      task.pipelineParams.mutationIntensity,
+    );
+
+    return {
+      direction,
+      intent,
+      intensity: task.pipelineParams.mutationIntensity,
+      hypothesis: `以「${direction}」作为第 ${attemptIndex}/${task.fruitCount} 个果实的表达路线，验证其是否更接近种子目标。`,
+      inherit: this.buildMutationInherit(task),
+      avoid: this.buildMutationAvoid(task),
+      evidenceSummary: this.buildMutationEvidenceSummary(task, attemptIndex),
+    };
+  }
+
+  private discoverMutationDirections(task: GrowthTaskRecord): string[] {
+    const directions: string[] = [];
+    const userInput = task.userInput.trim();
+    const roundGrowthBrief = this.toRecord(task.agentInput.roundGrowthBrief);
+    const seedBrief = this.toRecord(roundGrowthBrief.seed);
+
+    if (userInput.length > 0) {
+      directions.push(`围绕用户补充「${this.shortText(userInput)}」展开表达`);
+    }
+    if (seedBrief.hasMasterBrief === true) {
+      directions.push("结合种子主简报扩展新的候选传播路线");
+    }
+    if (task.sourceNodeRef.nodeType === "fruit") {
+      directions.push("继承来源果实核心主题，改变叙事切入点");
+    }
+    if (task.geneRefs.length > 0) {
+      directions.push(`组合 ${task.geneRefs.length} 条授权基因经验，形成可验证表达`);
+    }
+    if (task.nutrientRefs.length > 0) {
+      directions.push(`从 ${task.nutrientRefs.length} 条营养资料中提取平台或案例路线`);
+    }
+    if (task.pipelineParams.searchMode === GROWTH_SEARCH_MODES.negativeFeedbackAvoidance) {
+      directions.push("规避近期无效表达，重构更像真实分享的内容入口");
+    }
+    if (task.pipelineParams.searchMode === GROWTH_SEARCH_MODES.directionalStrengthening) {
+      directions.push("强化已被选择方向，放大其中最有效的表达特征");
+    }
+    if (task.pipelineParams.searchMode === GROWTH_SEARCH_MODES.localVariation) {
+      directions.push("保留当前路线，只变换角度、结构或受众假设");
+    }
+    if (task.pipelineParams.searchMode === GROWTH_SEARCH_MODES.broadExploration) {
+      directions.push("围绕种子核心做广泛探索，寻找尚未验证的内容形态");
+    }
+
+    return directions.length > 0
+      ? directions
+      : ["冷启动探索新的内容表达路线"];
+  }
+
+  private buildMutationIntent(
+    searchMode: GrowthSearchMode,
+    intensity: GrowthMutationIntensity,
+  ): string {
+    const radius =
+      intensity === GROWTH_MUTATION_INTENSITIES.conservative
+        ? "小步变异"
+        : intensity === GROWTH_MUTATION_INTENSITIES.aggressive
+          ? "大步探索"
+          : "均衡探索";
+    switch (searchMode) {
+      case GROWTH_SEARCH_MODES.directionalStrengthening:
+        return `${radius}：优先继承已出现正向信号的表达路线，并寻找更强版本。`;
+      case GROWTH_SEARCH_MODES.localVariation:
+        return `${radius}：保留来源节点核心，只改动少量表达变量。`;
+      case GROWTH_SEARCH_MODES.negativeFeedbackAvoidance:
+        return `${radius}：主动规避失败或淘汰信号，探索替代表达。`;
+      case GROWTH_SEARCH_MODES.broadExploration:
+      default:
+        return `${radius}：在不偏离种子事实的前提下扩展解空间。`;
+    }
+  }
+
+  private buildMutationInherit(task: GrowthTaskRecord): string[] {
+    const inherit = [
+      "保留种子事实、用户明确要求和生成器目标格式。",
+    ];
+    if (task.sourceNodeRef.nodeType === "fruit") {
+      inherit.push("继承来源果实中仍有效的主题、受众和表达资产。");
+    }
+    if (task.geneRefs.length > 0) {
+      inherit.push(
+        `优先参考授权基因：${task.geneRefs.map((ref) => ref.resourceId).join(", ")}。`,
+      );
+    }
+    return inherit;
+  }
+
+  private buildMutationAvoid(task: GrowthTaskRecord): string[] {
+    const avoid = [
+      "不要为了新奇而偏离种子核心。",
+      "不要编造种子、营养或基因中不存在的系统事实。",
+    ];
+    if (task.pipelineParams.searchMode === GROWTH_SEARCH_MODES.negativeFeedbackAvoidance) {
+      avoid.push("重点规避广告感、空泛表达和已失败的内容承诺。");
+    }
+    if (task.pipelineParams.mutationIntensity === GROWTH_MUTATION_INTENSITIES.aggressive) {
+      avoid.push("激进探索仍必须保留用户明确约束和生成器交付格式。");
+    }
+    return avoid;
+  }
+
+  private buildMutationEvidenceSummary(
+    task: GrowthTaskRecord,
+    attemptIndex: number,
+  ): string {
+    return [
+      `attempt ${attemptIndex}/${task.fruitCount}`,
+      `搜索模式=${task.pipelineParams.searchMode}`,
+      `突变激进程度=${task.pipelineParams.mutationIntensity}`,
+      `营养引用=${task.nutrientRefs.length}`,
+      `基因引用=${task.geneRefs.length}`,
+      `来源=${task.sourceNodeRef.nodeType}`,
+    ].join("；");
+  }
+
+  private buildPathGraph(
+    task: GrowthTaskRecord,
+    attempts: GrowthAttemptRecord[],
+  ): GrowthPathStep[] {
+    const generationStatus = this.resolveGenerationStageStatus(task, attempts);
+    const wrapStatus = this.resolveWrapStageStatus(task);
+    const baseSteps: GrowthPathStep[] = [
+      this.createPathStep("pipeline:input", "输入层", GROWTH_PATH_STEP_STATUSES.completed, task.createdAt),
+      this.createPathStep("pipeline:context", "上下文补全层", GROWTH_PATH_STEP_STATUSES.completed, task.createdAt),
+      this.createPathStep("pipeline:search", "创作搜索层", GROWTH_PATH_STEP_STATUSES.completed, task.createdAt),
+      this.createPathStep("pipeline:attention", "注意力编排层", GROWTH_PATH_STEP_STATUSES.completed, task.createdAt),
+      this.createPathStep("pipeline:generation", "生成执行层", generationStatus, task.updatedAt),
+      this.createPathStep("pipeline:wrap", "结果封装层", wrapStatus, task.finishedAt ?? task.updatedAt),
+    ];
+    const attemptSteps = attempts.flatMap((attempt) => [
+      this.createPathStep(
+        `attempt:${attempt.id}`,
+        `果实生成尝试 ${attempt.attemptIndex}`,
+        this.mapAttemptStatusToPathStatus(attempt.status),
+        attempt.updatedAt,
+        "pipeline:generation",
+        attempt.id,
+        attempt.mutationPlan.direction,
+      ),
+      ...this.extractAttemptTraceSteps(attempt),
+    ]);
+    return [...baseSteps, ...attemptSteps];
+  }
+
+  private createPathStep(
+    id: string,
+    label: string,
+    status: GrowthPathStep["status"],
+    updatedAt: string | null,
+    parentId: string | null = null,
+    attemptId: string | null = null,
+    detail: string | null = null,
+  ): GrowthPathStep {
+    return {
+      id,
+      parentId,
+      attemptId,
+      label,
+      status,
+      detail,
+      updatedAt,
+    };
+  }
+
+  private resolveGenerationStageStatus(
+    task: GrowthTaskRecord,
+    attempts: GrowthAttemptRecord[],
+  ): GrowthPathStep["status"] {
+    if (task.status === GROWTH_TASK_STATUSES.completed) {
+      return GROWTH_PATH_STEP_STATUSES.completed;
+    }
+    if (task.status === GROWTH_TASK_STATUSES.failed) {
+      return GROWTH_PATH_STEP_STATUSES.failed;
+    }
+    return attempts.some((attempt) => attempt.status === GROWTH_ATTEMPT_STATUSES.running) ||
+      attempts.length === 0
+      ? GROWTH_PATH_STEP_STATUSES.running
+      : GROWTH_PATH_STEP_STATUSES.completed;
+  }
+
+  private resolveWrapStageStatus(task: GrowthTaskRecord): GrowthPathStep["status"] {
+    if (task.status === GROWTH_TASK_STATUSES.completed) {
+      return GROWTH_PATH_STEP_STATUSES.completed;
+    }
+    if (task.status === GROWTH_TASK_STATUSES.failed) {
+      return GROWTH_PATH_STEP_STATUSES.failed;
+    }
+    return GROWTH_PATH_STEP_STATUSES.pending;
+  }
+
+  private mapAttemptStatusToPathStatus(
+    status: GrowthAttemptRecord["status"],
+  ): GrowthPathStep["status"] {
+    switch (status) {
+      case GROWTH_ATTEMPT_STATUSES.succeeded:
+        return GROWTH_PATH_STEP_STATUSES.completed;
+      case GROWTH_ATTEMPT_STATUSES.failed:
+        return GROWTH_PATH_STEP_STATUSES.failed;
+      case GROWTH_ATTEMPT_STATUSES.running:
+      default:
+        return GROWTH_PATH_STEP_STATUSES.running;
+    }
+  }
+
+  private extractAttemptTraceSteps(attempt: GrowthAttemptRecord): GrowthPathStep[] {
+    const trace = Array.isArray(attempt.agentOutput.trace)
+      ? attempt.agentOutput.trace
+      : [];
+    return trace
+      .filter((event): event is Record<string, unknown> => this.isRecord(event))
+      .map((event, index) => {
+        const metadata = this.toRecord(event.metadata);
+        const type = typeof event.type === "string" ? event.type : "skill_progress";
+        const stage = typeof metadata.stage === "string" ? metadata.stage : type;
+        const message = typeof event.message === "string" ? event.message : stage;
+        const at = typeof event.at === "string" ? event.at : attempt.updatedAt;
+        return this.createPathStep(
+          `trace:${attempt.id}:${index + 1}`,
+          message,
+          this.mapTraceEventToPathStatus(type),
+          at,
+          `attempt:${attempt.id}`,
+          attempt.id,
+          stage,
+        );
+      });
+  }
+
+  private mapTraceEventToPathStatus(type: string): GrowthPathStep["status"] {
+    if (type.endsWith("_failed") || type === "task_failed") {
+      return GROWTH_PATH_STEP_STATUSES.failed;
+    }
+    if (type === "task_started") {
+      return GROWTH_PATH_STEP_STATUSES.running;
+    }
+    return GROWTH_PATH_STEP_STATUSES.completed;
   }
 
   private extractAgentCandidate(
@@ -804,6 +1243,7 @@ export class GrowthService {
       nutrientRefs: task.nutrientRefs,
       geneRefs: task.geneRefs,
       detailParams: task.detailParams,
+      pipelineParams: task.pipelineParams,
       failureReason,
       updatedAt: task.updatedAt,
     };
@@ -841,6 +1281,13 @@ export class GrowthService {
 
   private isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  private shortText(value: string, maxLength = 28): string {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    return normalized.length <= maxLength
+      ? normalized
+      : `${normalized.slice(0, maxLength)}...`;
   }
 
   private timestamp(): string {

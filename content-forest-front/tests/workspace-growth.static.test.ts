@@ -40,7 +40,7 @@ test('workspace has one backend-driven gene extraction dialog launched from a bu
   assert.equal(workspacePage.includes('pollGeneExtractionReminder'), true)
   assert.equal(workspacePage.includes('scheduleGeneExtractionPoll'), true)
   assert.equal(workspacePage.includes('GENE_EXTRACTION_POLL_INTERVAL_MS'), true)
-  assert.equal(workspacePage.includes('delete geneReminderActionLoading[reminderId]'), true)
+  assert.equal(workspacePage.includes('geneReminderActionLoading[reminderId] = undefined'), true)
   assert.equal(workspacePage.includes('geneReasonComposerIds'), true)
   assert.equal(workspacePage.includes('reminder?.runningTaskId'), true)
   assert.equal(workspacePage.includes('geneExtractionReasonDrafts'), true)
@@ -77,4 +77,29 @@ test('workspace keeps gene extraction out of fruit detail and publication action
   assert.equal(workspacePage.includes('createReminderFromFruitEvidence'), false)
   assert.equal(workspacePage.includes('autoPublish'), false)
   assert.equal(workspacePage.includes('cf-publication'), true)
+})
+
+test('workspace exposes seed brief panel without blocking growth composer', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+
+  assert.equal(workspacePage.includes('seedBriefPanelOpen'), true)
+  assert.equal(workspacePage.includes('seedBriefSummary = computed(() => snapshot.value?.seedBrief'), true)
+  assert.equal(workspacePage.includes('openSeedBriefPanel'), true)
+  assert.equal(workspacePage.includes('generateSeedBrief'), true)
+  assert.equal(workspacePage.includes('refreshSeedBrief'), true)
+  assert.equal(workspacePage.includes('saveSeedBrief'), true)
+  assert.equal(workspacePage.includes('cf-seed-brief-panel'), true)
+  assert.equal(workspacePage.includes('还没有主简报'), true)
+  assert.equal(workspacePage.includes('可以先生成一份创作地图，也可以直接从当前节点发起枝化生长。'), true)
+  assert.equal(workspacePage.includes('v-if="visibleComposer && selectedNode"'), true)
+})
+
+test('workspace seed brief failures are local to the seed brief panel', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+
+  assert.equal(workspacePage.includes('seedBriefError = ref'), true)
+  assert.equal(workspacePage.includes('seedBriefError.value = errorMessage(error)'), true)
+  assert.equal(workspacePage.includes('growthError.value = errorMessage(error)'), true)
+  assert.equal(workspacePage.includes('seedBriefError'), true)
+  assert.equal(workspacePage.includes('visibleComposer'), true)
 })

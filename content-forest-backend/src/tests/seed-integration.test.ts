@@ -2,6 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { AgentPort } from "../agent/ports/agent-port.js";
+import type { AgentTask, AgentTaskResult } from "../agent/runtime/agent-task.js";
 import { initializeRuntimeFilesystem } from "../app/bootstrap/runtime-filesystem.js";
 import { LocalSeedMarkdownContentAccessAdapter } from "../content-access/adapters/local-seed-markdown-content-access-adapter.js";
 import { SeedService } from "../modules/seed/application/seed-service.js";
@@ -10,6 +12,22 @@ import type { IdGenerator } from "../shared/utils/id-generator.js";
 import { SqliteSeedStorageAdapter } from "../storage/adapters/sqlite-seed-storage-adapter.js";
 
 const tempRoots: string[] = [];
+
+function seedBriefAgent(markdown: string): AgentPort {
+  return {
+    async runTask(task: AgentTask): Promise<AgentTaskResult> {
+      return {
+        ok: true,
+        taskId: task.taskId ?? "agent-task_1",
+        output: {
+          taskType: "seed_brief",
+          content: { markdown },
+        },
+        trace: [],
+      };
+    },
+  };
+}
 
 async function createTempRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "content-forest-seed-"));
@@ -42,6 +60,7 @@ describe("Seed module integration", () => {
     const service = new SeedService({
       storage,
       contentAccess: new LocalSeedMarkdownContentAccessAdapter(config.contentRootDir),
+      agentPort: seedBriefAgent("# Integration Brief"),
       idGenerator,
       now: () => new Date("2026-01-01T00:00:00.000Z"),
     });
@@ -64,9 +83,23 @@ describe("Seed module integration", () => {
       });
       expect(detail.markdown).toBe("# 真实 Markdown");
       expect(storedMarkdown).toBe("# 真实 Markdown");
+      const brief = await service.generateSeedBrief(seed.id);
+      if (brief.contentLocation === null) {
+        throw new Error("Seed brief content location should exist after generation");
+      }
+      const storedBriefMarkdown = await readFile(
+        join(config.contentRootDir, brief.contentLocation),
+        "utf8",
+      );
+
+      expect(brief).toMatchObject({
+        seedId: seed.id,
+        contentLocation: "seeds/seed_integration.brief.md",
+        markdown: "# Integration Brief",
+      });
+      expect(storedBriefMarkdown).toBe("# Integration Brief");
     } finally {
       storage.close();
     }
   });
 });
-
