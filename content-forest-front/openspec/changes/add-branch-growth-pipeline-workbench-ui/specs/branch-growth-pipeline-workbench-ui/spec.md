@@ -26,13 +26,23 @@
 - **THEN** 前端 MUST 提交当前系统推荐或契约允许的缺省值
 - **AND** 前端 MUST NOT 提交数字突变率
 
-### Requirement: 展示生成中路径图
-前端 SHALL 在用户点击生成中节点时展示该节点关联生长任务的临时生成路径图。路径图 MUST 来自 `GET /api/growth-tasks/{taskId}`。
+### Requirement: 展示用户可见生成路径图
+前端 SHALL 在用户点击生成中节点时展示该节点关联生长任务的临时生成路径图。路径图 MUST 来自 `GET /api/growth-tasks/{taskId}`，且前端 MUST 将其视为用户可见进度，不得展示 Agent Trace、Tool 调用、LLM 调用或 Skill 调用等工程事件。
 
 #### Scenario: 查看生成中路径图
 - **WHEN** 用户点击生成中的果实或生长中来源节点
 - **THEN** 前端 MUST 查询或使用轮询结果中的路径图
-- **AND** 前端 MUST 展示步骤名称、状态和当前执行位置
+- **AND** 前端 MUST 展示人能理解的步骤名称、状态和当前执行位置
+
+#### Scenario: 顶部展示当前任务
+- **WHEN** 路径图中存在执行中的步骤
+- **THEN** 前端 MUST 在路径图顶部展示当前正在执行的用户任务
+- **AND** 展示文本 MUST 使用用户可理解的步骤名称
+
+#### Scenario: 不展示工程事件
+- **WHEN** 后端响应或历史兼容数据中包含 task_started、skill_called、tool_called、llm_called 等工程事件
+- **THEN** 前端 MUST NOT 将这些事件作为普通路径步骤展示
+- **AND** 前端 MUST NOT 用这些事件替代当前任务说明
 
 #### Scenario: 路径图更新
 - **WHEN** 轮询返回路径图步骤发生变化

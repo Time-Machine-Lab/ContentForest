@@ -219,10 +219,15 @@ components:
           type: string
     GrowthPathStep:
       type: object
+      description: >
+        用户可见的生成路径步骤，用于展示 AI 当前正在完成的实际创作动作。
+        该结构不是 Agent Trace，不得直接暴露 task_started、skill_called、
+        tool_called、llm_called 等工程运行事件。
       required: [id, label, status]
       properties:
         id:
           type: string
+          description: 用户路径图步骤标识，应表达管线阶段或用户可理解的子步骤。
         parentId:
           type: string
           nullable: true
@@ -231,12 +236,14 @@ components:
           nullable: true
         label:
           type: string
+          description: 用户可理解的动作名称，例如获取输入、补全上下文、发现创作方向、使用生成器、生成文案、生成封面、生成视频或封装候选果实。
         status:
           type: string
           enum: [pending, running, completed, failed]
         detail:
           type: string
           nullable: true
+          description: 面向用户的补充说明，不承载 Tool、LLM、Skill 调用日志。
         updatedAt:
           type: string
           format: date-time
@@ -321,6 +328,9 @@ components:
           $ref: '#/components/schemas/GrowthPipelineParams'
         pathGraph:
           type: array
+          description: >
+            生成中的用户可见路径图。它只描述 AI 正在做哪些人能理解的创作任务，
+            不等同于 Agent Trace；工程 trace、tool/skill/llm 调用明细仅允许进入日志或调试通道。
           items:
             $ref: '#/components/schemas/GrowthPathStep'
         failureReason:

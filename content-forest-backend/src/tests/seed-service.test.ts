@@ -229,6 +229,23 @@ describe("SeedService", () => {
     });
   });
 
+  it("cleans think blocks from generated seed briefs before saving", async () => {
+    const service = createSeedService(
+      seedBriefAgent(["<think>内部推理</think>\n# Clean Brief\n\n- Exploration map"]),
+    );
+    const seed = await service.createSeed({
+      title: "Idea",
+      markdown: "# Seed markdown",
+    });
+
+    const brief = await service.generateSeedBrief(seed.id);
+
+    expect(brief.markdown).toBe("# Clean Brief\n\n- Exploration map");
+    await expect(service.getSeedBrief(seed.id)).resolves.toMatchObject({
+      markdown: "# Clean Brief\n\n- Exploration map",
+    });
+  });
+
   it("views and edits the current seed brief", async () => {
     const service = createSeedService(seedBriefAgent(["# Generated Brief"]));
     const seed = await service.createSeed({ title: "Idea", markdown: "Seed" });

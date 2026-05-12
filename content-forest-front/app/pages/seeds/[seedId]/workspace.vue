@@ -2,7 +2,7 @@
 import { createFruitApi, type FruitDetail, type FruitSelectionState } from '../../../../src/modules/fruit'
 import { createFeedbackApi, type FeedbackHistory, type FeedbackSnapshot } from '../../../../src/modules/feedback'
 import { createGeneApi, type GeneEvidenceSource, type GeneSuggestion } from '../../../../src/modules/gene'
-import { createGrowthApi, type GrowthFailedInput, type GrowthNodeType, type GrowthTaskDetail } from '../../../../src/modules/growth'
+import { createGrowthApi, type GrowthFailedInput, type GrowthMutationIntensity, type GrowthNodeType, type GrowthPathStep, type GrowthSearchMode, type GrowthTaskDetail } from '../../../../src/modules/growth'
 import { createPublicationApi, type PublicationRecord } from '../../../../src/modules/publication'
 import { createSeedApi, type SeedBriefDetail } from '../../../../src/modules/seed'
 import { createWorkspaceApi, type WorkspaceNode, type WorkspaceNodeRef, type WorkspaceSnapshot } from '../../../../src/modules/workspace'
@@ -62,6 +62,18 @@ interface FeedbackMetricDraft {
   value: string
 }
 
+interface GrowthSearchModeOption {
+  value: GrowthSearchMode
+  label: string
+  hint: string
+}
+
+interface GrowthMutationIntensityOption {
+  value: GrowthMutationIntensity
+  label: string
+  hint: string
+}
+
 const route = useRoute()
 const runtimeConfig = useRuntimeConfig()
 const apiBase = String(runtimeConfig.public.apiBase || '')
@@ -115,14 +127,30 @@ const resourcePopoverOpen = ref(false)
 const resourceQuery = ref('')
 const generatorMenuOpen = ref(false)
 const fruitCountMenuOpen = ref(false)
+const mutationIntensityMenuOpen = ref(false)
+const searchModeMenuOpen = ref(false)
 const growthDetailOpen = ref(false)
 const growthIntent = ref('')
 const referencedResources = ref<ResourceRef[]>([])
 const growthInputEl = ref<HTMLTextAreaElement | null>(null)
 const selectedGeneratorId = ref('')
 const fruitCount = ref(3)
-const mutationRate = ref(18)
 const fruitCountOptions = [1, 2, 3, 4, 5, 6]
+const searchModeOptions: GrowthSearchModeOption[] = [
+  { value: 'broad_exploration', label: '广泛探索', hint: '系统推荐' },
+  { value: 'directional_strengthening', label: '方向强化', hint: '放大有效路线' },
+  { value: 'local_variation', label: '局部变体', hint: '围绕当前表达微调' },
+  { value: 'negative_feedback_avoidance', label: '规避负反馈', hint: '避开低效表达' },
+]
+const mutationIntensityOptions: GrowthMutationIntensityOption[] = [
+  { value: 'conservative', label: '保守', hint: '小步调整' },
+  { value: 'balanced', label: '均衡', hint: '推荐' },
+  { value: 'aggressive', label: '激进', hint: '大步探索' },
+]
+const defaultSearchModeOption = searchModeOptions[0] as GrowthSearchModeOption
+const defaultMutationIntensityOption = mutationIntensityOptions[1] as GrowthMutationIntensityOption
+const selectedSearchMode = ref<GrowthSearchMode>('broad_exploration')
+const selectedMutationIntensity = ref<GrowthMutationIntensity>('balanced')
 const geneHubDialogOpen = ref(false)
 const geneActionLoading = ref('')
 const geneReminderActionLoading = reactive<Record<string, 'extract' | 'ignore' | undefined>>({})
@@ -165,6 +193,7 @@ const feedbackDraft = reactive({
 
 const pollTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const growthTaskFruitCounts = new Map<string, number>()
+const growthPipelineTasks = reactive<Record<string, GrowthTaskDetail | undefined>>({})
 const geneExtractionPollAttempts = new Map<string, number>()
 const GENE_EXTRACTION_POLL_INTERVAL_MS = 2400
 const GENE_EXTRACTION_MAX_POLL_ATTEMPTS = 80
@@ -220,11 +249,12 @@ const seedBriefSummary = computed(() => snapshot.value?.seedBrief ?? {
   contentLocation: null,
   updatedAt: null,
 })
+const hasSeedBrief = computed(() => Boolean(seedBriefSummary.value.hasBrief || seedBriefDetail.value?.hasBrief))
 const seedBriefStatusText = computed(() => {
   if (seedBriefGenerating.value) return '生成中'
   if (seedBriefRefreshing.value) return '刷新中'
   if (seedBriefSaving.value) return '保存中'
-  if (seedBriefSummary.value.hasBrief) return `更新于 ${formatDateTime(seedBriefSummary.value.updatedAt)}`
+  if (hasSeedBrief.value) return `更新于 ${formatDateTime(seedBriefSummary.value.updatedAt || seedBriefDetail.value?.updatedAt)}`
   return '尚未生成'
 })
 const canEditSeedBrief = computed(() => Boolean(seedBriefDetail.value?.hasBrief && !seedBriefLoading.value && !seedBriefGenerating.value))
@@ -313,6 +343,24 @@ const growthDetailResources = computed(() => referencedResources.value.map((reso
   ...resource,
   kindLabel: resource.kind === 'gene' ? '基因' : '营养',
 })))
+const selectedSearchModeOption = computed<GrowthSearchModeOption>(() => searchModeOptions.find((option) => option.value === selectedSearchMode.value) ?? defaultSearchModeOption)
+const selectedMutationIntensityOption = computed<GrowthMutationIntensityOption>(() => mutationIntensityOptions.find((option) => option.value === selectedMutationIntensity.value) ?? defaultMutationIntensityOption)
+const selectedGrowthTask = computed(() => {
+  const taskId = selectedNode.value?.taskId
+  return taskId ? growthPipelineTasks[taskId] ?? null : null
+})
+const selectedGrowthPathSteps = computed(() => (selectedGrowthTask.value?.pathGraph ?? []).filter(isUserVisiblePathStep))
+const selectedCurrentGrowthPathStep = computed(() => {
+  const steps = selectedGrowthPathSteps.value
+  return [...steps].reverse().find((step) => step.status === 'running')
+    ?? steps.find((step) => step.status === 'pending')
+    ?? null
+})
+const selectedGrowthDirections = computed(() => uniqueStrings(
+  selectedGrowthTask.value?.attempts
+    .map((attempt) => attempt.mutationPlan?.direction)
+    .filter((direction): direction is string => Boolean(direction?.trim())) ?? [],
+))
 
 watch(seedId, () => {
   void loadWorkspace()
@@ -332,6 +380,60 @@ function errorMessage(error: unknown) {
   return '操作失败，请稍后重试'
 }
 
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+}
+
+function pathStepStatusLabel(status: GrowthPathStep['status']) {
+  if (status === 'running') return '执行中'
+  if (status === 'completed') return '已完成'
+  if (status === 'failed') return '失败'
+  return '等待'
+}
+
+const ENGINEERING_PATH_STEP_EVENT_PATTERNS = [
+  'task_started',
+  'task_completed',
+  'task_failed',
+  'skill_called',
+  'skill_failed',
+  'tool_called',
+  'tool_failed',
+  'llm_called',
+  'llm_failed',
+  'output_validated',
+]
+
+const ENGINEERING_PATH_STEP_LABEL_PATTERNS = [
+  /^Agent task /i,
+  /^Skill called:/i,
+  /^Tool called:/i,
+  /^LLM called/i,
+  /^Branch growth /i,
+  /^Content evolution /i,
+  /^Generator payload /i,
+]
+
+function isUserVisiblePathStep(step: GrowthPathStep) {
+  const text = `${step.id} ${step.label} ${step.detail ?? ''}`.toLowerCase()
+  if (step.id.startsWith('trace:')) return false
+  if (ENGINEERING_PATH_STEP_EVENT_PATTERNS.some((pattern) => text.includes(pattern))) return false
+  return !ENGINEERING_PATH_STEP_LABEL_PATTERNS.some((pattern) => pattern.test(step.label))
+}
+
+function growthPathStepDepth(step: GrowthPathStep, steps: GrowthPathStep[], visited = new Set<string>()): number {
+  if (!step.parentId) return 0
+  if (visited.has(step.id)) return 0
+  visited.add(step.id)
+  const parent = steps.find((candidate) => candidate.id === step.parentId)
+  if (!parent) return 1
+  return Math.min(growthPathStepDepth(parent, steps, visited) + 1, 3)
+}
+
+function pathStepIndent(step: GrowthPathStep) {
+  return growthPathStepDepth(step, selectedGrowthPathSteps.value)
+}
+
 async function loadWorkspace(preferredNodeId = selectedNodeId.value) {
   if (!seedId.value) return
 
@@ -342,7 +444,7 @@ async function loadWorkspace(preferredNodeId = selectedNodeId.value) {
   try {
     const nextSnapshot = await workspaceApi.getSeedWorkspace(seedId.value)
     snapshot.value = nextSnapshot
-    if (!nextSnapshot.seedBrief.hasBrief || seedBriefDetail.value?.seedId !== nextSnapshot.seed.id) {
+    if (seedBriefDetail.value?.seedId && seedBriefDetail.value.seedId !== nextSnapshot.seed.id) {
       seedBriefDetail.value = null
       seedBriefDraft.value = ''
       seedBriefEditing.value = false
@@ -684,7 +786,7 @@ function resetPublicationPanel() {
 async function openSeedBriefPanel() {
   seedBriefPanelOpen.value = true
   seedBriefError.value = ''
-  if (seedBriefSummary.value.hasBrief && !seedBriefDetail.value) {
+  if (hasSeedBrief.value && !seedBriefDetail.value) {
     await loadSeedBrief()
   }
 }
@@ -1044,6 +1146,8 @@ async function selectNode(nodeId: string) {
   resourcePopoverOpen.value = false
   generatorMenuOpen.value = false
   fruitCountMenuOpen.value = false
+  mutationIntensityMenuOpen.value = false
+  searchModeMenuOpen.value = false
   growthDetailOpen.value = false
   growthError.value = ''
   await loadSelectedNodeDetail()
@@ -1470,18 +1574,40 @@ function openResourceMention() {
   resourcePopoverOpen.value = true
   generatorMenuOpen.value = false
   fruitCountMenuOpen.value = false
+  mutationIntensityMenuOpen.value = false
+  searchModeMenuOpen.value = false
   void nextTick(() => growthInputEl.value?.focus())
 }
 
 function toggleGeneratorMenu() {
   generatorMenuOpen.value = !generatorMenuOpen.value
   fruitCountMenuOpen.value = false
+  mutationIntensityMenuOpen.value = false
+  searchModeMenuOpen.value = false
   resourcePopoverOpen.value = false
 }
 
 function toggleFruitCountMenu() {
   fruitCountMenuOpen.value = !fruitCountMenuOpen.value
   generatorMenuOpen.value = false
+  mutationIntensityMenuOpen.value = false
+  searchModeMenuOpen.value = false
+  resourcePopoverOpen.value = false
+}
+
+function toggleMutationIntensityMenu() {
+  mutationIntensityMenuOpen.value = !mutationIntensityMenuOpen.value
+  searchModeMenuOpen.value = false
+  generatorMenuOpen.value = false
+  fruitCountMenuOpen.value = false
+  resourcePopoverOpen.value = false
+}
+
+function toggleSearchModeMenu() {
+  searchModeMenuOpen.value = !searchModeMenuOpen.value
+  mutationIntensityMenuOpen.value = false
+  generatorMenuOpen.value = false
+  fruitCountMenuOpen.value = false
   resourcePopoverOpen.value = false
 }
 
@@ -1495,6 +1621,16 @@ function selectFruitCount(count: number) {
   fruitCountMenuOpen.value = false
 }
 
+function selectSearchMode(mode: GrowthSearchMode) {
+  selectedSearchMode.value = mode
+  searchModeMenuOpen.value = false
+}
+
+function selectMutationIntensity(intensity: GrowthMutationIntensity) {
+  selectedMutationIntensity.value = intensity
+  mutationIntensityMenuOpen.value = false
+}
+
 async function startGrowth() {
   const source = selectedNode.value
   if (!source || !visibleComposer.value || !selectedGeneratorId.value) return
@@ -1504,6 +1640,8 @@ async function startGrowth() {
   growthDetailOpen.value = false
   generatorMenuOpen.value = false
   fruitCountMenuOpen.value = false
+  mutationIntensityMenuOpen.value = false
+  searchModeMenuOpen.value = false
 
   try {
     const nutrientRefs = referencedResources.value
@@ -1520,15 +1658,18 @@ async function startGrowth() {
       fruitCount: fruitCount.value,
       nutrientRefs,
       geneRefs,
-      detailParams: { mutationRate: mutationRate.value / 100 },
+      searchMode: selectedSearchMode.value,
+      mutationIntensity: selectedMutationIntensity.value,
     }
     source.status = 'growing'
     source.taskId = 'pending'
     addGrowthPlaceholders(source, fruitCount.value)
     console.info('[ContentForest] start growth task payload', payload)
     const result = await growthApi.startGrowthTask(payload)
+    growthPipelineTasks[result.task.id] = result.task
     source.status = 'growing'
     source.taskId = result.task.id
+    updateGrowthPlaceholderTaskId(source.id, result.task.id)
     growthTaskFruitCounts.set(result.task.id, result.task.successfulFruitIds.length)
     pollGrowthTask(result.task)
   } catch (error) {
@@ -1541,7 +1682,7 @@ async function startGrowth() {
   }
 }
 
-function addGrowthPlaceholders(source: TreeNode, count: number) {
+function addGrowthPlaceholders(source: TreeNode, count: number, taskId = source.taskId) {
   removeGrowthPlaceholders(source.id)
   const placeholders = Array.from({ length: count }, (_, index): TreeNode => ({
     id: `pending-${source.id}-${Date.now()}-${index}`,
@@ -1560,7 +1701,7 @@ function addGrowthPlaceholders(source: TreeNode, count: number) {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     status: 'growing',
-    taskId: null,
+    taskId,
     isPlaceholder: true,
     failedInput: {
       hasFailedInput: false,
@@ -1572,16 +1713,24 @@ function addGrowthPlaceholders(source: TreeNode, count: number) {
   nodes.value = layoutVisibleTreeNodes([...nodes.value, ...placeholders])
 }
 
+function updateGrowthPlaceholderTaskId(sourceNodeId: string, taskId: string) {
+  nodes.value.forEach((node) => {
+    if (node.isPlaceholder && node.parentNodeRef?.nodeId === sourceNodeId) node.taskId = taskId
+  })
+}
+
 function removeGrowthPlaceholders(sourceNodeId: string) {
   nodes.value = nodes.value.filter((node) => !(node.isPlaceholder && node.parentNodeRef?.nodeId === sourceNodeId))
 }
 
 function pollGrowthTask(task: GrowthTaskDetail) {
   stopGrowthPolling(task.id)
+  growthPipelineTasks[task.id] = task
   growthTaskFruitCounts.set(task.id, task.successfulFruitIds.length)
 
   if (task.status !== 'running') {
     growthTaskFruitCounts.delete(task.id)
+    growthPipelineTasks[task.id] = undefined
     removeGrowthPlaceholders(task.sourceNodeRef.nodeId)
     void loadWorkspace(task.sourceNodeRef.nodeId)
     return
@@ -1591,6 +1740,7 @@ function pollGrowthTask(task: GrowthTaskDetail) {
     pollTimers.delete(task.id)
     try {
       const nextTask = await growthApi.getGrowthTask(task.id)
+      growthPipelineTasks[nextTask.id] = nextTask
       if (nextTask.status === 'running') {
         await syncGrowthTaskProgress(nextTask)
         pollGrowthTask(nextTask)
@@ -1598,6 +1748,7 @@ function pollGrowthTask(task: GrowthTaskDetail) {
       }
 
       growthTaskFruitCounts.delete(nextTask.id)
+      growthPipelineTasks[nextTask.id] = undefined
       if (nextTask.status === 'failed') growthError.value = nextTask.failureReason || '枝化生长失败，可恢复输入后重试'
       removeGrowthPlaceholders(nextTask.sourceNodeRef.nodeId)
       await loadWorkspace(nextTask.sourceNodeRef.nodeId)
@@ -1631,11 +1782,15 @@ function stopGrowthPolling(taskId: string) {
   if (timer) clearTimeout(timer)
   pollTimers.delete(taskId)
   growthTaskFruitCounts.delete(taskId)
+  growthPipelineTasks[taskId] = undefined
 }
 
 function stopAllPolling() {
   pollTimers.forEach((timer) => clearTimeout(timer))
   pollTimers.clear()
+  Object.keys(growthPipelineTasks).forEach((taskId) => {
+    growthPipelineTasks[taskId] = undefined
+  })
   geneExtractionPollAttempts.clear()
 }
 
@@ -1658,6 +1813,8 @@ function applyFailedInput(failedInput: GrowthFailedInput) {
   growthIntent.value = failedInput.userInput || ''
   selectedGeneratorId.value = failedInput.generatorId
   fruitCount.value = failedInput.fruitCount || 3
+  selectedSearchMode.value = failedInput.pipelineParams?.searchMode ?? selectedSearchMode.value
+  selectedMutationIntensity.value = failedInput.pipelineParams?.mutationIntensity ?? selectedMutationIntensity.value
   referencedResources.value = [
     ...failedInput.nutrientRefs,
     ...failedInput.geneRefs,
@@ -1674,6 +1831,7 @@ async function retryGrowth() {
 
   try {
     const result = await growthApi.retryGrowthSource(node.nodeType as GrowthNodeType, node.id)
+    growthPipelineTasks[result.task.id] = result.task
     node.status = 'growing'
     node.taskId = result.task.id
     addGrowthPlaceholders(node, result.task.fruitCount || fruitCount.value)
@@ -1700,8 +1858,18 @@ function formatDateTime(value: string | null | undefined) {
 <template>
   <section class="cf-workspace-page">
     <header class="cf-workspace-topbar">
-      <div class="cf-workspace-crumb">
-        <strong>{{ snapshot?.seed.title || '内容森林工作区' }}</strong>
+      <div class="cf-workspace-nav-zone">
+        <NuxtLink class="cf-topbar-icon-action is-home" to="/seeds" aria-label="返回种子库" title="返回种子库">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 11.2 12 5l7 6.2" />
+            <path d="M7.5 10.2V19h9v-8.8" />
+            <path d="M10 19v-5h4v5" />
+          </svg>
+          <span>种子库</span>
+        </NuxtLink>
+        <div class="cf-workspace-crumb">
+          <strong>{{ snapshot?.seed.title || '内容森林工作区' }}</strong>
+        </div>
       </div>
       <div class="cf-header-tree-status" :class="{ 'is-growing': isTreeGrowing }">
         <strong>
@@ -1711,14 +1879,43 @@ function formatDateTime(value: string | null | undefined) {
         <div class="cf-growth-meter"><span /></div>
       </div>
       <div class="cf-workspace-actions">
-        <NuxtLink class="cf-secondary-action" to="/seeds">返回种子库</NuxtLink>
-        <button class="cf-workspace-tool" type="button" :aria-expanded="seedBriefPanelOpen" @click="openSeedBriefPanel">
-          种子简报
+        <button class="cf-topbar-icon-action" type="button" :aria-expanded="seedBriefPanelOpen" title="打开种子简报" @click="openSeedBriefPanel">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 4.8h10a1.2 1.2 0 0 1 1.2 1.2v12A1.2 1.2 0 0 1 17 19.2H7A1.2 1.2 0 0 1 5.8 18V6A1.2 1.2 0 0 1 7 4.8Z" />
+            <path d="M8.8 8.4h6.4" />
+            <path d="M8.8 12h6.4" />
+            <path d="M8.8 15.6h3.8" />
+          </svg>
+          <span>简报</span>
         </button>
-        <button class="cf-workspace-tool" type="button" @click="toggleEliminatedNodesVisibility">
-          {{ hideEliminatedNodes ? '显示淘汰节点' : '隐藏淘汰节点' }}
+        <button
+          class="cf-topbar-icon-action"
+          type="button"
+          :aria-pressed="!hideEliminatedNodes"
+          :title="hideEliminatedNodes ? '显示淘汰节点' : '隐藏淘汰节点'"
+          @click="toggleEliminatedNodesVisibility"
+        >
+          <svg v-if="hideEliminatedNodes" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3.8 12s3-5.2 8.2-5.2S20.2 12 20.2 12s-3 5.2-8.2 5.2S3.8 12 3.8 12Z" />
+            <path d="M9.8 12a2.2 2.2 0 1 0 4.4 0 2.2 2.2 0 0 0-4.4 0Z" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3.8 12s3-5.2 8.2-5.2c2 0 3.6.74 4.9 1.7" />
+            <path d="M20.2 12s-3 5.2-8.2 5.2c-2 0-3.6-.74-4.9-1.7" />
+            <path d="M4.8 4.8 19.2 19.2" />
+          </svg>
+          <span>{{ hideEliminatedNodes ? '显示淘汰' : '隐藏淘汰' }}</span>
         </button>
-        <button class="cf-workspace-tool" type="button" @click="resetView">整理树形</button>
+        <button class="cf-topbar-icon-action" type="button" title="整理树形布局" @click="resetView">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5.4v4.2" />
+            <path d="M7.2 14.4v-2a2.8 2.8 0 0 1 2.8-2.8h4a2.8 2.8 0 0 1 2.8 2.8v2" />
+            <path d="M9.2 5.2h5.6v4.4H9.2Z" />
+            <path d="M4.6 14.4h5.2v4.4H4.6Z" />
+            <path d="M14.2 14.4h5.2v4.4h-5.2Z" />
+          </svg>
+          <span>整理</span>
+        </button>
       </div>
     </header>
 
@@ -1919,13 +2116,13 @@ function formatDateTime(value: string | null | undefined) {
         <button type="button" aria-label="关闭种子主简报" @click="closeSeedBriefPanel">×</button>
       </header>
 
-      <section class="cf-seed-brief-status">
+      <section class="cf-seed-brief-status" :class="{ 'is-busy': seedBriefGenerating || seedBriefRefreshing || seedBriefSaving }">
         <div>
-          <span>{{ seedBriefSummary.hasBrief ? '当前简报' : '尚未生成' }}</span>
+          <span>{{ hasSeedBrief ? '当前简报' : '尚未生成' }}</span>
           <strong>{{ seedBriefStatusText }}</strong>
         </div>
         <button
-          v-if="!seedBriefSummary.hasBrief && !seedBriefDetail"
+          v-if="!hasSeedBrief"
           type="button"
           :disabled="seedBriefGenerating"
           @click="generateSeedBrief"
@@ -1944,12 +2141,18 @@ function formatDateTime(value: string | null | undefined) {
 
       <p v-if="seedBriefError" class="cf-inline-error cf-error-action">
         <span>{{ seedBriefError }}</span>
-        <button v-if="seedBriefSummary.hasBrief" type="button" @click="loadSeedBrief">重试读取</button>
+        <button v-if="hasSeedBrief" type="button" @click="loadSeedBrief">重试读取</button>
       </p>
 
       <div v-if="seedBriefLoading" class="cf-seed-brief-empty">正在读取主简报...</div>
 
-      <section v-else-if="!seedBriefSummary.hasBrief && !seedBriefDetail" class="cf-seed-brief-empty">
+      <section v-else-if="seedBriefGenerating" class="cf-seed-brief-empty is-working">
+        <span class="cf-brief-loader" aria-hidden="true"><span /><span /><span /></span>
+        <strong>正在生成主简报</strong>
+        <span>生成完成后会保留在当前种子工作区。</span>
+      </section>
+
+      <section v-else-if="!hasSeedBrief" class="cf-seed-brief-empty">
         <strong>还没有主简报</strong>
         <span>可以先生成一份创作地图，也可以直接从当前节点发起枝化生长。</span>
       </section>
@@ -2079,6 +2282,41 @@ function formatDateTime(value: string | null | undefined) {
           <span>{{ selectedNode.failedInput.failureReason || '最近一次枝化生长失败' }}</span>
           <button type="button" :disabled="growthLoading" @click="restoreFailedInput">恢复输入</button>
           <button type="button" :disabled="growthLoading" @click="retryGrowth">重试</button>
+        </div>
+
+        <div v-if="selectedNode.status === 'growing' && selectedGrowthTask" class="cf-pipeline-panel" aria-label="生成路径图">
+          <div class="cf-pipeline-head">
+            <span>生成路径</span>
+            <strong>{{ pathStepStatusLabel(selectedGrowthTask.status === 'running' ? 'running' : selectedGrowthTask.status === 'failed' ? 'failed' : 'completed') }}</strong>
+          </div>
+          <div v-if="selectedCurrentGrowthPathStep" class="cf-pipeline-current">
+            <span>当前正在</span>
+            <strong>{{ selectedCurrentGrowthPathStep.label }}</strong>
+            <em v-if="selectedCurrentGrowthPathStep.detail">{{ selectedCurrentGrowthPathStep.detail }}</em>
+          </div>
+          <div class="cf-pipeline-summary">
+            <span>{{ selectedGrowthTask.pipelineParams.searchMode }}</span>
+            <span>{{ selectedGrowthTask.pipelineParams.mutationIntensity }}</span>
+          </div>
+          <div v-if="selectedGrowthDirections.length > 0" class="cf-pipeline-directions">
+            <span v-for="direction in selectedGrowthDirections" :key="direction">{{ direction }}</span>
+          </div>
+          <ol v-if="selectedGrowthPathSteps.length > 0" class="cf-pipeline-steps">
+            <li
+              v-for="step in selectedGrowthPathSteps"
+              :key="step.id"
+              :class="`is-${step.status}`"
+              :style="{ '--step-indent': pathStepIndent(step) }"
+            >
+              <span class="cf-step-dot" aria-hidden="true" />
+              <div>
+                <strong>{{ step.label }}</strong>
+                <span>{{ pathStepStatusLabel(step.status) }}</span>
+                <em v-if="step.detail">{{ step.detail }}</em>
+              </div>
+            </li>
+          </ol>
+          <p v-else class="cf-muted">路径图同步中...</p>
         </div>
       </header>
 
@@ -2367,9 +2605,51 @@ function formatDateTime(value: string | null | undefined) {
             </button>
           </div>
         </div>
-        <div class="cf-growth-pill">
-          <span>突变</span>
-          <strong>{{ mutationRate }}%</strong>
+        <div class="cf-growth-menu-wrap">
+          <button class="cf-growth-pill cf-growth-picker" type="button" :aria-expanded="mutationIntensityMenuOpen" @click="toggleMutationIntensityMenu">
+            <span>突变</span>
+            <strong>{{ selectedMutationIntensityOption.label }}</strong>
+            <span class="cf-picker-caret">⌄</span>
+          </button>
+          <div v-if="mutationIntensityMenuOpen" class="cf-pill-menu is-compact">
+            <button
+              v-for="option in mutationIntensityOptions"
+              :key="option.value"
+              class="cf-pill-menu-item"
+              :class="{ 'is-active': option.value === selectedMutationIntensity }"
+              type="button"
+              @click="selectMutationIntensity(option.value)"
+            >
+              <span>
+                <strong>{{ option.label }}</strong>
+                <em>{{ option.hint }}</em>
+              </span>
+              <span class="cf-menu-check">{{ option.value === selectedMutationIntensity ? '*' : '' }}</span>
+            </button>
+          </div>
+        </div>
+        <div class="cf-growth-menu-wrap">
+          <button class="cf-growth-pill cf-growth-picker" type="button" :aria-expanded="searchModeMenuOpen" @click="toggleSearchModeMenu">
+            <span>搜索</span>
+            <strong>{{ selectedSearchModeOption.label }}</strong>
+            <span class="cf-picker-caret">⌄</span>
+          </button>
+          <div v-if="searchModeMenuOpen" class="cf-pill-menu">
+            <button
+              v-for="option in searchModeOptions"
+              :key="option.value"
+              class="cf-pill-menu-item"
+              :class="{ 'is-active': option.value === selectedSearchMode }"
+              type="button"
+              @click="selectSearchMode(option.value)"
+            >
+              <span>
+                <strong>{{ option.label }}</strong>
+                <em>{{ option.hint }}</em>
+              </span>
+              <span class="cf-menu-check">{{ option.value === selectedSearchMode ? '*' : '' }}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2422,7 +2702,34 @@ function formatDateTime(value: string | null | undefined) {
         </div>
         <div class="cf-growth-detail-row"><span>生成器</span><strong>{{ generatorName }}</strong></div>
         <div class="cf-growth-detail-row"><span>果实数量</span><strong>{{ fruitCount }}</strong></div>
-        <div class="cf-growth-detail-row"><span>突变概率</span><strong>{{ mutationRate }}%</strong></div>
+        <div class="cf-growth-detail-row"><span>搜索模式</span><strong>{{ selectedSearchModeOption.label }} · {{ selectedSearchModeOption.hint }}</strong></div>
+        <div class="cf-growth-option-grid" aria-label="搜索模式">
+          <button
+            v-for="option in searchModeOptions"
+            :key="option.value"
+            class="cf-growth-option"
+            :class="{ 'is-active': option.value === selectedSearchMode }"
+            type="button"
+            @click="selectSearchMode(option.value)"
+          >
+            <strong>{{ option.label }}</strong>
+            <span>{{ option.hint }}</span>
+          </button>
+        </div>
+        <div class="cf-growth-detail-row"><span>突变强度</span><strong>{{ selectedMutationIntensityOption.label }} · {{ selectedMutationIntensityOption.hint }}</strong></div>
+        <div class="cf-growth-option-grid is-compact" aria-label="突变强度">
+          <button
+            v-for="option in mutationIntensityOptions"
+            :key="option.value"
+            class="cf-growth-option"
+            :class="{ 'is-active': option.value === selectedMutationIntensity }"
+            type="button"
+            @click="selectMutationIntensity(option.value)"
+          >
+            <strong>{{ option.label }}</strong>
+            <span>{{ option.hint }}</span>
+          </button>
+        </div>
         <div class="cf-growth-detail-row"><span>引用资源</span><strong>{{ referencedResources.length }}</strong></div>
         <div class="cf-growth-detail-refs">
           <span
@@ -2519,6 +2826,16 @@ button:disabled {
   min-width: 0;
 }
 
+.cf-workspace-nav-zone {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .cf-workspace-crumb strong {
   position: relative;
   display: flex;
@@ -2574,7 +2891,12 @@ button:disabled {
   position: relative;
   z-index: 1;
   flex: 0 0 auto;
-  gap: 10px;
+  gap: 8px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .035);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
 }
 
 .cf-header-tree-status {
@@ -2633,18 +2955,23 @@ button:disabled {
   cursor: pointer;
 }
 
-.cf-workspace-topbar .cf-workspace-tool,
-.cf-workspace-topbar .cf-secondary-action {
+.cf-topbar-icon-action {
   position: relative;
   overflow: hidden;
   min-height: 38px;
-  padding: 0 14px;
-  border-color: rgba(255, 255, 255, .12);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, .12);
   border-radius: 10px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, .075), rgba(255, 255, 255, .035)),
     rgba(10, 13, 15, .7);
   color: #cbd7d5;
+  font-size: 12px;
+  cursor: pointer;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
   transition:
     transform .22s ease,
@@ -2654,8 +2981,40 @@ button:disabled {
     color .22s ease;
 }
 
-.cf-workspace-topbar .cf-workspace-tool::before,
-.cf-workspace-topbar .cf-secondary-action::before {
+.cf-topbar-icon-action svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  color: currentColor;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  transition: transform .22s ease;
+}
+
+.cf-topbar-icon-action span {
+  position: relative;
+  z-index: 1;
+  font-weight: 760;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.cf-topbar-icon-action.is-home {
+  flex: 0 0 auto;
+  min-width: 42px;
+  padding: 0 13px 0 11px;
+  border-color: rgba(94, 215, 197, .18);
+  background:
+    linear-gradient(180deg, rgba(94, 215, 197, .12), rgba(255, 255, 255, .035)),
+    rgba(10, 13, 15, .66);
+  color: #cffff7;
+  text-decoration: none;
+}
+
+.cf-topbar-icon-action::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -2665,8 +3024,7 @@ button:disabled {
   transition: opacity .22s ease, transform .42s ease;
 }
 
-.cf-workspace-topbar .cf-workspace-tool:hover,
-.cf-workspace-topbar .cf-secondary-action:hover {
+.cf-topbar-icon-action:hover {
   border-color: rgba(94, 215, 197, .38);
   background:
     linear-gradient(180deg, rgba(94, 215, 197, .14), rgba(255, 255, 255, .045)),
@@ -2678,15 +3036,31 @@ button:disabled {
   transform: translateY(-2px);
 }
 
-.cf-workspace-topbar .cf-workspace-tool:hover::before,
-.cf-workspace-topbar .cf-secondary-action:hover::before {
+.cf-topbar-icon-action:hover svg {
+  transform: translateY(-1px) scale(1.06);
+}
+
+.cf-topbar-icon-action:hover::before {
   opacity: 1;
   transform: translateX(90%);
 }
 
-.cf-workspace-topbar .cf-workspace-tool:active,
-.cf-workspace-topbar .cf-secondary-action:active {
+.cf-topbar-icon-action:focus-visible {
+  border-color: rgba(122, 167, 255, .52);
+  outline: 2px solid rgba(122, 167, 255, .32);
+  outline-offset: 2px;
+}
+
+.cf-topbar-icon-action:active {
   transform: translateY(0) scale(.98);
+}
+
+.cf-topbar-icon-action[aria-pressed="true"] {
+  border-color: rgba(231, 189, 104, .3);
+  background:
+    linear-gradient(180deg, rgba(231, 189, 104, .13), rgba(255, 255, 255, .04)),
+    rgba(10, 13, 15, .74);
+  color: #ffe3ac;
 }
 
 .cf-tree-canvas {
@@ -3532,7 +3906,7 @@ button:disabled {
   z-index: 32;
   top: 86px;
   left: 18px;
-  width: min(386px, calc(100vw - 468px));
+  width: min(620px, calc(100vw - 468px));
   max-height: calc(100vh - 230px);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -3611,6 +3985,14 @@ button:disabled {
   background: rgba(255, 255, 255, .025);
 }
 
+.cf-seed-brief-status.is-busy {
+  background:
+    linear-gradient(90deg, rgba(122, 167, 255, .1), rgba(94, 215, 197, .075), rgba(122, 167, 255, .1)),
+    rgba(255, 255, 255, .025);
+  background-size: 220% 100%;
+  animation: cf-brief-flow 1.5s ease-in-out infinite;
+}
+
 .cf-seed-brief-status button,
 .cf-seed-brief-actions button,
 .cf-seed-brief-editor-actions button {
@@ -3630,7 +4012,36 @@ button:disabled {
   line-height: 18px;
 }
 
+.cf-seed-brief-empty.is-working {
+  place-items: start;
+}
+
+.cf-brief-loader {
+  width: 42px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cf-brief-loader span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #a9c2ff;
+  animation: cf-brief-dot .9s ease-in-out infinite;
+}
+
+.cf-brief-loader span:nth-child(2) {
+  animation-delay: .12s;
+}
+
+.cf-brief-loader span:nth-child(3) {
+  animation-delay: .24s;
+}
+
 .cf-seed-brief-body {
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   display: grid;
@@ -4254,6 +4665,134 @@ button:disabled {
 .cf-info-row strong {
   overflow-wrap: anywhere;
   font-weight: 600;
+}
+
+.cf-pipeline-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(94, 215, 197, .18);
+  border-radius: 8px;
+  background: rgba(94, 215, 197, .06);
+}
+
+.cf-pipeline-head,
+.cf-pipeline-summary,
+.cf-pipeline-directions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cf-pipeline-head span,
+.cf-pipeline-summary span {
+  color: var(--cf-muted);
+  font-size: 11px;
+}
+
+.cf-pipeline-head strong {
+  color: #c0fff4;
+  font-size: 12px;
+}
+
+.cf-pipeline-current {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid rgba(94, 215, 197, .18);
+  border-radius: 8px;
+  background: rgba(94, 215, 197, .08);
+}
+
+.cf-pipeline-current span {
+  color: var(--cf-muted);
+  font-size: 11px;
+}
+
+.cf-pipeline-current strong {
+  overflow-wrap: anywhere;
+  color: #c0fff4;
+  font-size: 13px;
+}
+
+.cf-pipeline-current em {
+  color: var(--cf-muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.cf-pipeline-summary,
+.cf-pipeline-directions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.cf-pipeline-summary span,
+.cf-pipeline-directions span {
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .04);
+}
+
+.cf-pipeline-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cf-pipeline-steps li {
+  --step-indent: 0;
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: 8px;
+  align-items: start;
+  margin-left: calc(var(--step-indent) * 14px);
+  color: var(--cf-muted);
+}
+
+.cf-step-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .22);
+}
+
+.cf-pipeline-steps li.is-running .cf-step-dot {
+  background: var(--cf-growth);
+  box-shadow: 0 0 14px rgba(94, 215, 197, .36);
+}
+
+.cf-pipeline-steps li.is-completed .cf-step-dot {
+  background: var(--cf-select);
+}
+
+.cf-pipeline-steps li.is-failed .cf-step-dot {
+  background: #ff9b7d;
+}
+
+.cf-pipeline-steps div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cf-pipeline-steps strong {
+  overflow-wrap: anywhere;
+  color: var(--cf-text);
+  font-size: 12px;
+}
+
+.cf-pipeline-steps span,
+.cf-pipeline-steps em {
+  color: var(--cf-muted);
+  font-size: 11px;
+  font-style: normal;
 }
 
 .cf-node-detail-footer {
@@ -5058,6 +5597,47 @@ button:disabled {
   color: var(--cf-text);
 }
 
+.cf-growth-option-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.cf-growth-option-grid.is-compact {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.cf-growth-option {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid var(--cf-border-soft);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .035);
+  color: var(--cf-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cf-growth-option:hover,
+.cf-growth-option.is-active {
+  border-color: rgba(94, 215, 197, .34);
+  background: rgba(94, 215, 197, .1);
+  color: var(--cf-text);
+}
+
+.cf-growth-option strong {
+  color: inherit;
+  font-size: 12px;
+}
+
+.cf-growth-option span {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cf-inline-error {
   margin: 8px 0;
   color: #ffd7c9;
@@ -5197,6 +5777,30 @@ button:disabled {
   }
 }
 
+@keyframes cf-brief-flow {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes cf-brief-dot {
+  0%,
+  100% {
+    opacity: .35;
+    transform: translateY(0);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cf-tree-node,
   .cf-tree-node.is-growing,
@@ -5211,12 +5815,16 @@ button:disabled {
   .cf-dna-helix,
   .cf-pill-menu,
   .cf-resource-popover,
+  .cf-topbar-icon-action,
+  .cf-topbar-icon-action svg,
   .cf-header-tree-status.is-growing .cf-growth-meter span {
     animation: none;
     transition-duration: .01ms;
   }
 
-  .cf-tree-node:hover {
+  .cf-tree-node:hover,
+  .cf-topbar-icon-action:hover,
+  .cf-topbar-icon-action:hover svg {
     transform: none;
   }
 }

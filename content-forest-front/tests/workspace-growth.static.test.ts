@@ -103,3 +103,69 @@ test('workspace seed brief failures are local to the seed brief panel', () => {
   assert.equal(workspacePage.includes('seedBriefError'), true)
   assert.equal(workspacePage.includes('visibleComposer'), true)
 })
+
+test('workspace submits branch growth pipeline parameters without numeric mutation rate', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+
+  assert.equal(workspacePage.includes('searchModeOptions'), true)
+  assert.equal(workspacePage.includes('mutationIntensityOptions'), true)
+  assert.equal(workspacePage.includes('toggleSearchModeMenu'), true)
+  assert.equal(workspacePage.includes('toggleMutationIntensityMenu'), true)
+  assert.equal(workspacePage.includes('searchModeMenuOpen'), true)
+  assert.equal(workspacePage.includes('mutationIntensityMenuOpen'), true)
+  assert.equal(workspacePage.includes('selectedSearchMode'), true)
+  assert.equal(workspacePage.includes('selectedMutationIntensity'), true)
+  assert.equal(workspacePage.includes('searchMode: selectedSearchMode.value'), true)
+  assert.equal(workspacePage.includes('mutationIntensity: selectedMutationIntensity.value'), true)
+  assert.equal(workspacePage.includes('mutationRate'), false)
+})
+
+test('workspace renders running growth pipeline path graph from polled task detail', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+
+  assert.equal(workspacePage.includes('growthPipelineTasks'), true)
+  assert.equal(workspacePage.includes('selectedGrowthPathSteps'), true)
+  assert.equal(workspacePage.includes('selectedGrowthDirections'), true)
+  assert.equal(workspacePage.includes('class="cf-pipeline-panel"'), true)
+  assert.equal(workspacePage.includes('v-for="step in selectedGrowthPathSteps"'), true)
+  assert.equal(workspacePage.includes('growthPipelineTasks[nextTask.id] = nextTask'), true)
+  assert.equal(workspacePage.includes('pathStepStatusLabel(step.status)'), true)
+})
+
+test('workspace filters engineering trace from growth path graph', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+
+  assert.equal(workspacePage.includes('isUserVisiblePathStep'), true)
+  assert.equal(workspacePage.includes('ENGINEERING_PATH_STEP_EVENT_PATTERNS'), true)
+  assert.equal(workspacePage.includes('ENGINEERING_PATH_STEP_LABEL_PATTERNS'), true)
+  assert.equal(workspacePage.includes("step.id.startsWith('trace:')"), true)
+  assert.equal(workspacePage.includes('task_started'), true)
+  assert.equal(workspacePage.includes('skill_called'), true)
+  assert.equal(workspacePage.includes('tool_called'), true)
+  assert.equal(workspacePage.includes('llm_called'), true)
+  assert.equal(workspacePage.includes('selectedCurrentGrowthPathStep'), true)
+  assert.equal(workspacePage.includes('当前正在'), true)
+  assert.equal(workspacePage.includes('growthPathStepDepth'), true)
+  assert.equal(workspacePage.includes('Math.min(growthPathStepDepth(parent, steps, visited) + 1, 3)'), true)
+})
+
+test('workspace keeps generated seed brief visible while snapshot summary catches up', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+
+  assert.equal(workspacePage.includes('hasSeedBrief = computed'), true)
+  assert.equal(workspacePage.includes("v-if=\"!hasSeedBrief\""), true)
+  assert.equal(workspacePage.includes('seedBriefDetail.value?.seedId && seedBriefDetail.value.seedId !== nextSnapshot.seed.id'), true)
+  assert.equal(workspacePage.includes('cf-brief-loader'), true)
+  assert.equal(workspacePage.includes('is-working'), true)
+})
+
+test('workspace seed brief uses full markdown rendering and wider reading panel', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+  const markdownViewer = readProjectFile('app/components/markdown/MarkdownViewer.vue')
+
+  assert.equal(workspacePage.includes('width: min(620px, calc(100vw - 468px))'), true)
+  assert.equal(markdownViewer.includes('renderTable'), true)
+  assert.equal(markdownViewer.includes('<hr>'), true)
+  assert.equal(markdownViewer.includes('<strong>$1</strong>'), true)
+  assert.equal(markdownViewer.includes('cf-markdown-table-wrap'), true)
+})

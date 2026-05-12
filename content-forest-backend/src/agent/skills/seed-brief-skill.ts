@@ -22,7 +22,7 @@ export class SeedBriefSkill implements SkillContract {
         {
           role: "system",
           content:
-            "你是内容森林的种子主简报生成器。请基于用户的种子原文生成一份通用创作地图，适配产品、项目、知识、内容账号、搞笑、美食、教学等不同类型种子。不要把它写成商业定位报告，不要改写种子事实。",
+            "你是内容森林的种子主简报生成器。请基于用户的种子原文生成一份通用创作地图，适配产品、项目、知识、内容账号、搞笑、美食、教学等不同类型种子。不要把它写成商业定位报告，不要改写种子事实。只输出最终 Markdown，不要输出 <think>、分析过程或中间推理。",
         },
         {
           role: "user",
@@ -36,7 +36,7 @@ export class SeedBriefSkill implements SkillContract {
         },
       ],
     });
-    const markdown = result.content.trim();
+    const markdown = cleanSeedBriefMarkdown(result.content);
     if (markdown.length === 0) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
@@ -64,4 +64,8 @@ export class SeedBriefSkill implements SkillContract {
     }
     return value;
   }
+}
+
+function cleanSeedBriefMarkdown(value: string): string {
+  return value.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }

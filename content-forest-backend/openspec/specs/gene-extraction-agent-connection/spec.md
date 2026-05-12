@@ -1,9 +1,7 @@
 ## Purpose
 
 定义基因汲取领域与 AgentPort 的连接层规则，包括证据归属校验、支持证据类型、输入契约版本、Agent 输出兜底校验和契约边界。
-
 ## Requirements
-
 ### Requirement: 校验基因汲取证据归属
 系统 SHALL 在发起基因汲取 Agent 任务前校验证据来源归属。果实选择、果实淘汰和发布记录证据 MUST 归属于当前种子或当前种子内容树，未归属的证据 MUST 被拒绝。
 
@@ -96,3 +94,66 @@
 - **WHEN** 实现过程中发现必须新增结构化字段或接口
 - **THEN** 系统 MUST 暂停本变更范围
 - **AND** 系统 MUST 通过新的 OpenSpec 变更更新 API 或 SQL 契约
+
+### Requirement: Agent 输入携带基因表现摘要
+系统 SHALL 在构建基因汲取 Agent 输入时提供可引用基因经验的表现摘要。表现摘要 MUST 来自基因库演化系统事实，并 MUST 保持任务授权边界。
+
+#### Scenario: 基因汲取输入包含表现摘要
+- **WHEN** 基因领域服务构建 `gene_extraction` Agent 输入
+- **THEN** 输入中的可引用基因经验 MUST 能携带使用次数、结果倾向和轻量评分
+- **AND** 输入 MUST 只包含当前种子授权范围内的基因经验
+
+#### Scenario: 无表现数据时返回零值摘要
+- **WHEN** 某条可引用基因经验没有任何使用记录
+- **THEN** Agent 输入 MUST 能表达该经验暂无历史表现
+- **AND** 系统 MUST NOT 因缺少表现数据而排除该未归档经验
+
+### Requirement: Agent 不负责更新基因表现
+系统 SHALL 保持 Agent 与基因表现系统事实的写入边界。Agent 可以读取表现摘要并生成建议，但 MUST NOT 直接创建使用记录、修改评分或归档基因经验。
+
+#### Scenario: Agent 返回建议不直接更新评分
+- **WHEN** Agent 完成一次基因汲取或枝化生长任务
+- **THEN** 系统 MUST NOT 让 Agent 输出直接修改基因表现汇总
+- **AND** 基因表现更新 MUST 由后端领域服务基于明确业务操作完成
+
+#### Scenario: Agent 建议归档但不执行归档
+- **WHEN** Agent 建议某条基因经验应该弱化、分叉或归档
+- **THEN** 系统 MUST 将该内容作为建议或说明展示
+- **AND** 系统 MUST NOT 让 Agent 直接归档正式基因经验
+
+### Requirement: Agent 输入契约支持原因版本化
+系统 SHALL 为基因汲取 Agent 输入保留原因信息与上下文版本。输入契约 MUST 能够区分本次任务的用户原因、证据来源与任务版本。
+
+#### Scenario: 输入包含用户原因版本
+- **WHEN** 基因汲取领域服务构造 Agent 输入
+- **THEN** 输入 MUST 包含当前用户原因与上下文版本
+- **AND** 输入 MUST 保留证据来源与任务关联信息
+
+#### Scenario: 输入结构演进
+- **WHEN** 后续需要扩展基因汲取输入语义
+- **THEN** 系统 MUST 能在不破坏旧任务的前提下演进输入契约
+
+### Requirement: Agent 输出必须可解释并可归类
+系统 SHALL 要求 Agent 输出能够被归类为候选建议集合。每条建议 MUST 至少包含标题、正文与证据解释，并 SHOULD 标明正向或负向语义。
+
+#### Scenario: 输出为候选建议集合
+- **WHEN** Agent 成功返回基因汲取结果
+- **THEN** 系统 MUST 能将结果归类为候选建议集合
+
+#### Scenario: 输出包含解释信息
+- **WHEN** Agent 返回单条基因建议
+- **THEN** 该建议 MUST 包含可读的证据解释
+- **AND** 该建议 SHOULD 标明其正向或负向语义
+
+### Requirement: 仍然禁止 Agent 直接落地正式基因事实
+系统 SHALL 保持 Agent 只负责生成建议，不负责沉淀事实。即使输出结构完整，Agent 结果也 MUST 先经过后端校验与确认。
+
+#### Scenario: Agent 输出成功
+- **WHEN** Agent 返回可用建议
+- **THEN** 系统 MUST 先交给后端业务层确认
+- **AND** 系统 MUST NOT 让 Agent 直接写入基因库事实
+
+#### Scenario: Agent 输出不可用
+- **WHEN** Agent 返回不可解析或不完整结果
+- **THEN** 系统 MUST 将本次任务标记为失败
+

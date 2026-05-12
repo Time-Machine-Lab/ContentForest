@@ -122,6 +122,30 @@ function tracedAgent(capturedTasks: AgentTask[] = []): AgentPort {
         },
         trace: [
           {
+            type: "task_started",
+            at: "2026-01-01T00:00:19.000Z",
+            message: "Agent task started: growth",
+            metadata: { taskType: "growth" },
+          },
+          {
+            type: "skill_called",
+            at: "2026-01-01T00:00:19.100Z",
+            message: "Skill called: branch_growth",
+            metadata: { skillName: "branch_growth" },
+          },
+          {
+            type: "tool_called",
+            at: "2026-01-01T00:00:19.200Z",
+            message: "Tool called: read_growth_source_node",
+            metadata: { toolName: "read_growth_source_node" },
+          },
+          {
+            type: "llm_called",
+            at: "2026-01-01T00:00:19.300Z",
+            message: "LLM called",
+            metadata: { provider: "test" },
+          },
+          {
             type: "skill_progress",
             at: "2026-01-01T00:00:20.000Z",
             message: "Branch growth context loaded",
@@ -130,8 +154,14 @@ function tracedAgent(capturedTasks: AgentTask[] = []): AgentPort {
           {
             type: "skill_progress",
             at: "2026-01-01T00:00:21.000Z",
-            message: "Content evolution strategy prepared",
-            metadata: { stage: "strategy_prepared" },
+            message: "正在生成文案",
+            metadata: {
+              userVisible: true,
+              stepId: "copywriting",
+              label: "生成文案",
+              status: "completed",
+              detail: "使用生成器产出正文草稿",
+            },
           },
           {
             type: "output_validated",
@@ -501,7 +531,7 @@ describe("GrowthService", () => {
     });
   });
 
-  it("returns pipeline path graph with fixed stages and Agent trace substeps", async () => {
+  it("returns user-readable path graph without leaking Agent trace events", async () => {
     const capturedTasks: AgentTask[] = [];
     const { service, scheduler } = await createFixture(tracedAgent(capturedTasks));
 
@@ -516,14 +546,17 @@ describe("GrowthService", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: "pipeline:input",
+          label: "获取输入",
           status: GROWTH_PATH_STEP_STATUSES.completed,
         }),
         expect.objectContaining({
           id: "pipeline:generation",
+          label: "使用生成器",
           status: GROWTH_PATH_STEP_STATUSES.running,
         }),
         expect.objectContaining({
           id: "pipeline:wrap",
+          label: "封装候选果实",
           status: GROWTH_PATH_STEP_STATUSES.pending,
         }),
       ]),
@@ -541,13 +574,24 @@ describe("GrowthService", () => {
         expect.objectContaining({
           parentId: "pipeline:generation",
           attemptId: completed.attempts[0]?.id,
+          label: "生成第 1 个果实",
           status: GROWTH_PATH_STEP_STATUSES.completed,
         }),
         expect.objectContaining({
           parentId: `attempt:${completed.attempts[0]?.id}`,
-          label: "Content evolution strategy prepared",
-          detail: "strategy_prepared",
+          label: "生成文案",
+          detail: "使用生成器产出正文草稿",
         }),
+      ]),
+    );
+    expect(completed.pathGraph).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Agent task started: growth" }),
+        expect.objectContaining({ label: "Skill called: branch_growth" }),
+        expect.objectContaining({ label: "Tool called: read_growth_source_node" }),
+        expect.objectContaining({ label: "LLM called" }),
+        expect.objectContaining({ label: "Branch growth context loaded" }),
+        expect.objectContaining({ label: "Candidate output validated" }),
       ]),
     );
   });

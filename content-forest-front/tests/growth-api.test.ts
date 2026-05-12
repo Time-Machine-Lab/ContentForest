@@ -17,7 +17,8 @@ test('growth api client uses documented growth endpoints', async () => {
     fruitCount: 3,
     nutrientRefs: [{ resourceType: 'nutrient' as const, resourceId: 'nutrient 1' }],
     geneRefs: [{ resourceType: 'gene' as const, resourceId: 'gene 1' }],
-    detailParams: { mutationRate: 0.18 },
+    searchMode: 'broad_exploration' as const,
+    mutationIntensity: 'balanced' as const,
   }
 
   await api.startGrowthTask(payload)

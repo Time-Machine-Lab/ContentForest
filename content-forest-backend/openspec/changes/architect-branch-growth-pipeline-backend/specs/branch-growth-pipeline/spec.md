@@ -39,18 +39,28 @@
 - **THEN** 系统 MAY 探索更远的内容路线
 - **AND** 系统 MUST 保留种子事实、用户明确要求和生成器目标格式
 
-### Requirement: 维护生成中路径图
-系统 SHALL 为生成中的生长任务或内部 attempt 维护路径图。路径图 MUST 包含管线固定大阶段，并允许 Agent 或生成器执行阶段追加子步骤。
+### Requirement: 维护用户可见生成路径图
+系统 SHALL 为生成中的生长任务或内部 attempt 维护用户可见路径图。路径图 MUST 包含人能理解的实际任务步骤，并允许 Agent 或生成器执行阶段追加用户可理解子步骤。系统 MUST NOT 将 Agent Trace、Tool 调用、LLM 调用或 Skill 调用日志直接映射为用户可见路径步骤。
 
 #### Scenario: 创建任务时初始化路径图
 - **WHEN** 生长任务开始执行
-- **THEN** 系统 MUST 初始化包含管线大阶段的路径图
+- **THEN** 系统 MUST 初始化包含用户可理解大阶段的路径图
 - **AND** 每个步骤 MUST 有可展示的名称和状态
 
 #### Scenario: Agent 追加子步骤
 - **WHEN** Agent 在生成器执行阶段上报新的子步骤
 - **THEN** 系统 MUST 将该子步骤追加到对应路径图
 - **AND** 前端后续查询任务状态时 MUST 能看到更新后的路径图
+
+#### Scenario: 工程 Trace 不进入用户路径图
+- **WHEN** Agent 运行过程中产生 task_started、skill_called、tool_called、llm_called 等工程事件
+- **THEN** 系统 MUST 将这些事件保留在日志或调试 Trace 中
+- **AND** 系统 MUST NOT 将这些事件直接返回为 pathGraph 中的用户可见步骤
+
+#### Scenario: 路径步骤表达实际工作
+- **WHEN** 系统返回生成路径图
+- **THEN** 每个用户可见步骤 MUST 表达一件实际工作
+- **AND** 步骤名称 SHOULD 使用类似“获取输入”“补全上下文”“发现创作方向”“生成文案”“生成封面”“封装候选果实”的语义
 
 #### Scenario: 任务完成后路径图不作为果实内容
 - **WHEN** 生长任务完成或失败

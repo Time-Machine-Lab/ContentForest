@@ -29,3 +29,12 @@
 - [x] 4.3 补充动态突变方向和 attempt 差异化测试
 - [x] 4.4 补充路径图初始化、更新和查询测试
 - [x] 4.5 运行后端测试、类型检查、lint 和 OpenSpec 严格校验
+
+## 5. 用户可见路径图语义修正
+
+- [x] 5.1 更新 `docs/api/growth.yaml`，明确 `pathGraph` 是用户可见生成进度，不是 Agent Trace
+- [x] 5.2 更新 `docs/design/domain/枝化生长领域模块设计文档.md` 和 `docs/design/内容森林Agent架构设计文档.md`，区分用户路径图与工程 Trace
+- [x] 5.3 停止将 `task_started`、`skill_called`、`tool_called`、`llm_called` 等 trace 事件直接映射到 `pathGraph`
+- [x] 5.4 将路径图步骤改为人能理解的实际任务，例如获取输入、补全上下文、发现创作方向、使用生成器、封装候选果实
+- [x] 5.5 支持 Agent 或生成器通过专门的用户进度事件追加子步骤，例如生成文案、生成封面、生成视频
+- [x] 5.6 补充测试，验证工程 trace 不会出现在用户可见路径图中

@@ -300,7 +300,7 @@ export class SeedService {
 
   private readBriefMarkdownFromAgentOutput(content: unknown): string {
     if (typeof content === "string") {
-      return content;
+      return cleanSeedBriefMarkdown(content);
     }
     if (
       typeof content === "object" &&
@@ -308,7 +308,7 @@ export class SeedService {
       !Array.isArray(content) &&
       typeof (content as { markdown?: unknown }).markdown === "string"
     ) {
-      return (content as { markdown: string }).markdown;
+      return cleanSeedBriefMarkdown((content as { markdown: string }).markdown);
     }
     throw new ApplicationError(
       "VALIDATION_ERROR",
@@ -417,4 +417,8 @@ export class SeedService {
       markdown,
     };
   }
+}
+
+function cleanSeedBriefMarkdown(value: string): string {
+  return value.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }

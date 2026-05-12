@@ -13,6 +13,11 @@
 - **THEN** 前端 MUST 允许用户点击查看该节点的生成路径图
 - **AND** 生长中动效 MUST 不遮挡节点标题和状态标签
 
+#### Scenario: 进度视图展示用户任务
+- **WHEN** 用户查看生成路径图
+- **THEN** 前端 MUST 以“当前正在执行的实际工作”为核心展示进度
+- **AND** 前端 MUST NOT 展示 Agent 内部 task、skill、tool 或 LLM 调用日志
+
 #### Scenario: 管线信息不替代业务状态
 - **WHEN** 果实展示方向标签或路径摘要
 - **THEN** 前端 MUST 继续以物竞天择状态作为果实主状态

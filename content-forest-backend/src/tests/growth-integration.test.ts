@@ -84,10 +84,27 @@ function successAgent(): AgentPort {
         },
         trace: [
           {
+            type: "tool_called",
+            at: "2026-01-01T00:00:00.000Z",
+            message: "SQLite internal tool trace",
+            metadata: { toolName: "read_growth_source_node" },
+          },
+          {
             type: "skill_progress",
             at: "2026-01-01T00:00:00.000Z",
             message: "SQLite trace",
             metadata: { stage: "sqlite_trace" },
+          },
+          {
+            type: "skill_progress",
+            at: "2026-01-01T00:00:00.000Z",
+            message: "SQLite user progress",
+            metadata: {
+              userVisible: true,
+              stepId: "sqlite-copy",
+              label: "生成文案",
+              detail: "SQLite 集成进度",
+            },
           },
         ],
       };
@@ -202,9 +219,18 @@ describe("Growth module integration", () => {
         ],
       });
       expect(
-        (queried.body as { pathGraph: Array<{ detail: string | null }> }).pathGraph,
+        (queried.body as { pathGraph: Array<{ label: string; detail: string | null }> }).pathGraph,
       ).toEqual(
         expect.arrayContaining([
+          expect.objectContaining({ label: "生成文案", detail: "SQLite 集成进度" }),
+        ]),
+      );
+      expect(
+        (queried.body as { pathGraph: Array<{ label: string; detail: string | null }> }).pathGraph,
+      ).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ label: "SQLite internal tool trace" }),
+          expect.objectContaining({ label: "SQLite trace" }),
           expect.objectContaining({ detail: "sqlite_trace" }),
         ]),
       );

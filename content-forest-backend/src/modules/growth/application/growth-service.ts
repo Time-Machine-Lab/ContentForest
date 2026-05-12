@@ -1093,24 +1093,24 @@ export class GrowthService {
     const generationStatus = this.resolveGenerationStageStatus(task, attempts);
     const wrapStatus = this.resolveWrapStageStatus(task);
     const baseSteps: GrowthPathStep[] = [
-      this.createPathStep("pipeline:input", "输入层", GROWTH_PATH_STEP_STATUSES.completed, task.createdAt),
-      this.createPathStep("pipeline:context", "上下文补全层", GROWTH_PATH_STEP_STATUSES.completed, task.createdAt),
-      this.createPathStep("pipeline:search", "创作搜索层", GROWTH_PATH_STEP_STATUSES.completed, task.createdAt),
-      this.createPathStep("pipeline:attention", "注意力编排层", GROWTH_PATH_STEP_STATUSES.completed, task.createdAt),
-      this.createPathStep("pipeline:generation", "生成执行层", generationStatus, task.updatedAt),
-      this.createPathStep("pipeline:wrap", "结果封装层", wrapStatus, task.finishedAt ?? task.updatedAt),
+      this.createPathStep("pipeline:input", "获取输入", GROWTH_PATH_STEP_STATUSES.completed, task.createdAt),
+      this.createPathStep("pipeline:context", "补全上下文", GROWTH_PATH_STEP_STATUSES.completed, task.createdAt),
+      this.createPathStep("pipeline:search", "发现创作方向", GROWTH_PATH_STEP_STATUSES.completed, task.createdAt),
+      this.createPathStep("pipeline:attention", "编排参考重点", GROWTH_PATH_STEP_STATUSES.completed, task.createdAt),
+      this.createPathStep("pipeline:generation", "使用生成器", generationStatus, task.updatedAt),
+      this.createPathStep("pipeline:wrap", "封装候选果实", wrapStatus, task.finishedAt ?? task.updatedAt),
     ];
     const attemptSteps = attempts.flatMap((attempt) => [
       this.createPathStep(
         `attempt:${attempt.id}`,
-        `果实生成尝试 ${attempt.attemptIndex}`,
+        `生成第 ${attempt.attemptIndex} 个果实`,
         this.mapAttemptStatusToPathStatus(attempt.status),
         attempt.updatedAt,
         "pipeline:generation",
         attempt.id,
         attempt.mutationPlan.direction,
       ),
-      ...this.extractAttemptTraceSteps(attempt),
+      ...this.extractAttemptUserProgressSteps(attempt),
     ]);
     return [...baseSteps, ...attemptSteps];
   }
@@ -1175,36 +1175,52 @@ export class GrowthService {
     }
   }
 
-  private extractAttemptTraceSteps(attempt: GrowthAttemptRecord): GrowthPathStep[] {
+  private extractAttemptUserProgressSteps(attempt: GrowthAttemptRecord): GrowthPathStep[] {
     const trace = Array.isArray(attempt.agentOutput.trace)
       ? attempt.agentOutput.trace
       : [];
     return trace
-      .filter((event): event is Record<string, unknown> => this.isRecord(event))
+      .filter((event): event is Record<string, unknown> =>
+        this.isRecord(event) && this.isUserProgressTraceEvent(event),
+      )
       .map((event, index) => {
         const metadata = this.toRecord(event.metadata);
-        const type = typeof event.type === "string" ? event.type : "skill_progress";
-        const stage = typeof metadata.stage === "string" ? metadata.stage : type;
-        const message = typeof event.message === "string" ? event.message : stage;
+        const stepId = this.readOptionalString(metadata.stepId) ??
+          this.readOptionalString(metadata.stage) ??
+          `user-progress-${index + 1}`;
+        const label = this.readOptionalString(metadata.label) ??
+          this.readOptionalString(event.message) ??
+          "更新生成进度";
         const at = typeof event.at === "string" ? event.at : attempt.updatedAt;
+        const parentId = this.readOptionalString(metadata.parentStepId) ??
+          `attempt:${attempt.id}`;
         return this.createPathStep(
-          `trace:${attempt.id}:${index + 1}`,
-          message,
-          this.mapTraceEventToPathStatus(type),
+          `progress:${attempt.id}:${stepId}`,
+          label,
+          this.normalizeUserProgressStatus(metadata.status),
           at,
-          `attempt:${attempt.id}`,
+          parentId,
           attempt.id,
-          stage,
+          this.readOptionalString(metadata.detail),
         );
       });
   }
 
-  private mapTraceEventToPathStatus(type: string): GrowthPathStep["status"] {
-    if (type.endsWith("_failed") || type === "task_failed") {
-      return GROWTH_PATH_STEP_STATUSES.failed;
-    }
-    if (type === "task_started") {
-      return GROWTH_PATH_STEP_STATUSES.running;
+  private isUserProgressTraceEvent(event: Record<string, unknown>): boolean {
+    const metadata = this.toRecord(event.metadata);
+    return metadata.userVisible === true ||
+      metadata.visibility === "user" ||
+      event.type === "user_progress";
+  }
+
+  private normalizeUserProgressStatus(value: unknown): GrowthPathStep["status"] {
+    if (
+      typeof value === "string" &&
+      Object.values(GROWTH_PATH_STEP_STATUSES).includes(
+        value as GrowthPathStep["status"],
+      )
+    ) {
+      return value as GrowthPathStep["status"];
     }
     return GROWTH_PATH_STEP_STATUSES.completed;
   }
@@ -1277,6 +1293,12 @@ export class GrowthService {
 
   private toRecord(value: unknown): Record<string, unknown> {
     return this.isRecord(value) ? value : {};
+  }
+
+  private readOptionalString(value: unknown): string | null {
+    return typeof value === "string" && value.trim().length > 0
+      ? value.trim()
+      : null;
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

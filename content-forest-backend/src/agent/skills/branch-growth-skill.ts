@@ -43,6 +43,11 @@ export class BranchGrowthSkill implements SkillContract {
       stage: "context_loaded",
       generatorId,
       entryCount: Array.isArray(generator.entries) ? generator.entries.length : 0,
+      userVisible: true,
+      parentStepId: "pipeline:context",
+      stepId: "context-loaded",
+      label: "读取资源补全上下文",
+      status: "completed",
     });
 
     const strategy = buildContentEvolutionStrategy({
@@ -55,6 +60,11 @@ export class BranchGrowthSkill implements SkillContract {
       algorithmVersion: strategy.algorithmVersion,
       explorationSlot: strategy.explorationSlot.key,
       evidenceCardCount: strategy.evidenceCards.length,
+      userVisible: true,
+      parentStepId: "pipeline:search",
+      stepId: "strategy-prepared",
+      label: "确定创作探索方向",
+      status: "completed",
     });
 
     const payload = await this.createGeneratorPayload({
@@ -70,6 +80,11 @@ export class BranchGrowthSkill implements SkillContract {
       algorithmVersion: strategy.algorithmVersion,
       explorationSlot: strategy.explorationSlot.key,
       payloadLength: payload.length,
+      userVisible: true,
+      parentStepId: `attempt:${readOptionalString(input.context.input.attemptId)}`,
+      stepId: "generator-payload-created",
+      label: "生成文案",
+      status: "completed",
     });
 
     const candidate = await buildStructuredBranchGrowthCandidate({

@@ -2,6 +2,9 @@ export type GrowthNodeType = 'seed' | 'fruit'
 export type GrowthResourceType = 'nutrient' | 'gene'
 export type GrowthTaskStatus = 'running' | 'completed' | 'failed'
 export type GrowthAttemptStatus = 'running' | 'succeeded' | 'failed'
+export type GrowthSearchMode = 'broad_exploration' | 'directional_strengthening' | 'local_variation' | 'negative_feedback_avoidance'
+export type GrowthMutationIntensity = 'conservative' | 'balanced' | 'aggressive'
+export type GrowthPathStepStatus = 'pending' | 'running' | 'completed' | 'failed'
 
 export interface GrowthSourceNodeRef {
   nodeType: GrowthNodeType
@@ -22,6 +25,34 @@ export interface StartGrowthTaskRequest {
   nutrientRefs?: GrowthResourceRef[]
   geneRefs?: GrowthResourceRef[]
   detailParams?: Record<string, unknown>
+  searchMode?: GrowthSearchMode
+  mutationIntensity?: GrowthMutationIntensity
+}
+
+export interface GrowthPipelineParams {
+  searchMode: GrowthSearchMode
+  mutationIntensity: GrowthMutationIntensity
+  recommendationReason: string
+}
+
+export interface GrowthMutationPlan {
+  direction: string
+  intent: string
+  intensity: GrowthMutationIntensity
+  hypothesis: string
+  inherit?: string[]
+  avoid?: string[]
+  evidenceSummary?: string
+}
+
+export interface GrowthPathStep {
+  id: string
+  parentId?: string | null
+  attemptId?: string | null
+  label: string
+  status: GrowthPathStepStatus
+  detail?: string | null
+  updatedAt?: string | null
 }
 
 export interface GrowthAttempt {
@@ -34,6 +65,7 @@ export interface GrowthAttempt {
   failureReason: string | null
   createdAt: string
   updatedAt: string
+  mutationPlan: GrowthMutationPlan
 }
 
 export interface GrowthTaskDetail {
@@ -47,6 +79,8 @@ export interface GrowthTaskDetail {
   nutrientRefs: GrowthResourceRef[]
   geneRefs: GrowthResourceRef[]
   successfulFruitIds: string[]
+  pipelineParams: GrowthPipelineParams
+  pathGraph: GrowthPathStep[]
   failureReason: string | null
   attempts: GrowthAttempt[]
   createdAt: string
@@ -74,6 +108,7 @@ export interface GrowthFailedInput {
   nutrientRefs: GrowthResourceRef[]
   geneRefs: GrowthResourceRef[]
   detailParams?: Record<string, unknown>
+  pipelineParams: GrowthPipelineParams
   failureReason: string
   updatedAt: string
 }
