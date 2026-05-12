@@ -111,6 +111,27 @@ test('nutrient api client uses documented nutrient card endpoints', async () => 
   assert.equal(calls[8]?.options?.method, 'POST')
 })
 
+test('nutrient api client uses documented gap suggestion endpoints', async () => {
+  const calls: Array<{ url: string; options?: NutrientFetchOptions }> = []
+  const api = createNutrientApi(async (url, options) => {
+    calls.push({ url, options })
+    return {}
+  }, '')
+
+  await api.listGapSuggestions('seed 1', { status: 'pending' })
+  await api.adoptGapSuggestion('suggestion 1')
+  await api.ignoreGapSuggestion('suggestion 1')
+
+  assert.deepEqual(calls.map((call) => call.url), [
+    '/api/seeds/seed%201/nutrient-gap-suggestions?status=pending',
+    '/api/nutrient-gap-suggestions/suggestion%201/adopt',
+    '/api/nutrient-gap-suggestions/suggestion%201/ignore',
+  ])
+
+  assert.equal(calls[1]?.options?.method, 'POST')
+  assert.equal(calls[2]?.options?.method, 'POST')
+})
+
 test('nutrient api client uses documented research session endpoints', async () => {
   const calls: Array<{ url: string; options?: NutrientFetchOptions }> = []
   const api = createNutrientApi(async (url, options) => {

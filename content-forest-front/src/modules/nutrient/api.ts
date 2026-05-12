@@ -4,6 +4,7 @@ import type {
   CreateNutrientCardRequest,
   CreateNutrientLibraryRequest,
   CreateNutrientResearchSessionRequest,
+  AdoptNutrientGapSuggestionResult,
   NutrientCardDetail,
   NutrientCardListQuery,
   NutrientCardSummary,
@@ -11,6 +12,8 @@ import type {
   NutrientContentListQuery,
   NutrientContentSummary,
   NutrientDepositableBlock,
+  NutrientGapSuggestion,
+  NutrientGapSuggestionListQuery,
   NutrientLibraryDetail,
   NutrientLibraryListQuery,
   NutrientLibrarySummary,
@@ -129,6 +132,20 @@ export function createNutrientApi(fetcher: NutrientFetcher, baseUrl = '') {
     listCards(seedId: string, query: NutrientCardListQuery = {}) {
       const search = queryString({ status: query.status })
       return fetcher<NutrientCardSummary[]>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/nutrient-cards${search}`))
+    },
+    listGapSuggestions(seedId: string, query: NutrientGapSuggestionListQuery = {}) {
+      const search = queryString({ status: query.status })
+      return fetcher<NutrientGapSuggestion[]>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/nutrient-gap-suggestions${search}`))
+    },
+    adoptGapSuggestion(suggestionId: string) {
+      return fetcher<AdoptNutrientGapSuggestionResult>(endpoint(baseUrl, `/api/nutrient-gap-suggestions/${encodeURIComponent(suggestionId)}/adopt`), {
+        method: 'POST',
+      })
+    },
+    ignoreGapSuggestion(suggestionId: string) {
+      return fetcher<NutrientGapSuggestion>(endpoint(baseUrl, `/api/nutrient-gap-suggestions/${encodeURIComponent(suggestionId)}/ignore`), {
+        method: 'POST',
+      })
     },
     createCard(seedId: string, payload: CreateNutrientCardRequest) {
       return fetcher<NutrientCardDetail>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/nutrient-cards`), {

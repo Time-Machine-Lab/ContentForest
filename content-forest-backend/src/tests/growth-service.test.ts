@@ -10,6 +10,7 @@ import {
 import {
   GrowthService,
   type GeneUsageTrackingPort,
+  type GrowthNutrientUsageTrackingPort,
   type GrowthReferenceAuthorizationPort,
   type GrowthTaskExecutionScheduler,
 } from "../modules/growth/application/growth-service.js";
@@ -288,6 +289,7 @@ async function createFixture(
   options: {
     attemptConcurrency?: number;
     geneUsageTracking?: GeneUsageTrackingPort;
+    nutrientUsageTracking?: GrowthNutrientUsageTrackingPort;
     referenceAuthorization?: GrowthReferenceAuthorizationPort;
   } = {},
 ): Promise<{
@@ -361,6 +363,7 @@ async function createFixture(
     fruitService,
     agentPort,
     geneUsageTracking: options.geneUsageTracking,
+    nutrientUsageTracking: options.nutrientUsageTracking,
     referenceAuthorization: options.referenceAuthorization,
     idGenerator: createIdGenerator(),
     now,
@@ -420,6 +423,55 @@ describe("GrowthService", () => {
       isGrowing: false,
       taskId: null,
     });
+  });
+
+  it("records formal and temporary nutrient usage after each successful fruit attempt", async () => {
+    const usageCalls: Array<Parameters<GrowthNutrientUsageTrackingPort["recordNutrientUsage"]>[0]> = [];
+    const nutrientUsageTracking: GrowthNutrientUsageTrackingPort = {
+      async recordNutrientUsage(input) {
+        usageCalls.push(input);
+      },
+    };
+    const { service, scheduler } = await createFixture(successAgent(), {
+      nutrientUsageTracking,
+    });
+
+    const result = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 2,
+      nutrientRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
+      temporaryNutrientCardRefs: [
+        { resourceType: "nutrient_card", resourceId: "card_1" },
+      ],
+    });
+
+    await scheduler.runAll();
+
+    expect(usageCalls).toHaveLength(2);
+    expect(usageCalls).toEqual([
+      expect.objectContaining({
+        seedId: "seed_1",
+        growthTaskId: result.task.id,
+        growthAttemptId: "growth-attempt_2",
+        fruitId: "fruit_1",
+        refs: [
+          { resourceType: "nutrient", resourceId: "nutrient_1" },
+          { resourceType: "nutrient_card", resourceId: "card_1" },
+        ],
+      }),
+      expect.objectContaining({
+        seedId: "seed_1",
+        growthTaskId: result.task.id,
+        growthAttemptId: "growth-attempt_3",
+        fruitId: "fruit_2",
+        refs: [
+          { resourceType: "nutrient", resourceId: "nutrient_1" },
+          { resourceType: "nutrient_card", resourceId: "card_1" },
+        ],
+      }),
+    ]);
   });
 
   it("assembles round growth briefs and degrades when the seed master brief is missing", async () => {

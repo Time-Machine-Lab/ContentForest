@@ -5,6 +5,7 @@ import type {
   NutrientGapSuggestionStatus,
   NutrientLibraryScope,
   NutrientResearchMessageRole,
+  NutrientUsageResourceType,
 } from "../../modules/nutrient/domain/nutrient-types.js";
 
 export interface NutrientLibraryRecord {
@@ -39,6 +40,8 @@ export interface NutrientCardRecord {
   settledContentId: string | null;
   defaultForGrowth: boolean;
   conversationId: string | null;
+  lastResearchedAt: string | null;
+  lastReferencedAt: string | null;
   createdAt: string;
   updatedAt: string;
   settledAt: string | null;
@@ -87,6 +90,30 @@ export interface NutrientGapSuggestionRecord {
   createdAt: string;
   updatedAt: string;
   resolvedAt: string | null;
+}
+
+export interface NutrientUsageRecord {
+  id: string;
+  seedId: string;
+  resourceType: NutrientUsageResourceType;
+  resourceId: string;
+  growthTaskId: string;
+  growthAttemptId: string;
+  fruitId: string;
+  usedAt: string;
+  createdAt: string;
+}
+
+export interface NutrientCardMergeRecord {
+  id: string;
+  seedId: string;
+  sourceCardId: string | null;
+  targetCardId: string;
+  sourceTitle: string;
+  sourceContentLocation: string | null;
+  mergeNote: string;
+  mergedAt: string;
+  createdAt: string;
 }
 
 export interface NutrientLibraryListFilter {
@@ -172,4 +199,13 @@ export interface NutrientStoragePort {
     seedId: string,
     filter?: NutrientGapSuggestionListFilter,
   ): Promise<number>;
+
+  createUsageRecord(record: NutrientUsageRecord): Promise<void>;
+  listUsageRecordsByResource(
+    resourceType: NutrientUsageResourceType,
+    resourceId: string,
+  ): Promise<NutrientUsageRecord[]>;
+
+  createCardMergeRecord(record: NutrientCardMergeRecord): Promise<void>;
+  listCardMergeRecordsByTarget(cardId: string): Promise<NutrientCardMergeRecord[]>;
 }

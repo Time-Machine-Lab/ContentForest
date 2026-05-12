@@ -5,6 +5,7 @@ import type {
   NutrientGapSuggestionSourceType,
   NutrientGapSuggestionStatus,
   NutrientLibraryScope,
+  NutrientUsageResourceType,
 } from "../../modules/nutrient/domain/nutrient-types.js";
 import { NUTRIENT_ARCHIVE_STATES } from "../../modules/nutrient/domain/nutrient-types.js";
 import type {
@@ -15,11 +16,13 @@ import type {
   NutrientContentRecord,
   NutrientGapSuggestionListFilter,
   NutrientGapSuggestionRecord,
+  NutrientCardMergeRecord,
   NutrientLibraryListFilter,
   NutrientLibraryRecord,
   NutrientResearchMessageRecord,
   NutrientResearchSessionRecord,
   NutrientStoragePort,
+  NutrientUsageRecord,
   ReferableNutrientContentRecord,
 } from "../ports/nutrient-storage-port.js";
 
@@ -55,10 +58,36 @@ interface NutrientCardRow {
   settled_content_id: string | null;
   default_for_growth: number;
   conversation_id: string | null;
+  last_researched_at: string | null;
+  last_referenced_at: string | null;
   created_at: string;
   updated_at: string;
   settled_at: string | null;
   archived_at: string | null;
+}
+
+interface NutrientUsageRow {
+  id: string;
+  seed_id: string;
+  resource_type: NutrientUsageResourceType;
+  resource_id: string;
+  growth_task_id: string;
+  growth_attempt_id: string;
+  fruit_id: string;
+  used_at: string;
+  created_at: string;
+}
+
+interface NutrientCardMergeRow {
+  id: string;
+  seed_id: string;
+  source_card_id: string | null;
+  target_card_id: string;
+  source_title: string;
+  source_content_location: string | null;
+  merge_note: string;
+  merged_at: string;
+  created_at: string;
 }
 
 interface NutrientResearchSessionRow {
@@ -367,11 +396,13 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
           settled_content_id,
           default_for_growth,
           conversation_id,
+          last_researched_at,
+          last_referenced_at,
           created_at,
           updated_at,
           settled_at,
           archived_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
@@ -382,6 +413,8 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
         record.settledContentId,
         record.defaultForGrowth ? 1 : 0,
         record.conversationId,
+        record.lastResearchedAt,
+        record.lastReferencedAt,
         record.createdAt,
         record.updatedAt,
         record.settledAt,
@@ -406,6 +439,8 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
               settled_content_id = ?,
               default_for_growth = ?,
               conversation_id = ?,
+              last_researched_at = ?,
+              last_referenced_at = ?,
               updated_at = ?,
               settled_at = ?,
               archived_at = ?
@@ -418,6 +453,8 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
         record.settledContentId,
         record.defaultForGrowth ? 1 : 0,
         record.conversationId,
+        record.lastResearchedAt,
+        record.lastReferencedAt,
         record.updatedAt,
         record.settledAt,
         record.archivedAt,
@@ -717,6 +754,91 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
     return row?.count ?? 0;
   }
 
+  public async createUsageRecord(record: NutrientUsageRecord): Promise<void> {
+    this.database
+      .prepare(
+        `INSERT INTO nutrient_usage_records (
+          id,
+          seed_id,
+          resource_type,
+          resource_id,
+          growth_task_id,
+          growth_attempt_id,
+          fruit_id,
+          used_at,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        record.id,
+        record.seedId,
+        record.resourceType,
+        record.resourceId,
+        record.growthTaskId,
+        record.growthAttemptId,
+        record.fruitId,
+        record.usedAt,
+        record.createdAt,
+      );
+  }
+
+  public async listUsageRecordsByResource(
+    resourceType: NutrientUsageResourceType,
+    resourceId: string,
+  ): Promise<NutrientUsageRecord[]> {
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM nutrient_usage_records
+          WHERE resource_type = ? AND resource_id = ?
+          ORDER BY used_at DESC`,
+      )
+      .all(resourceType, resourceId) as unknown as NutrientUsageRow[];
+    return rows.map((row) => this.toUsageRecord(row));
+  }
+
+  public async createCardMergeRecord(
+    record: NutrientCardMergeRecord,
+  ): Promise<void> {
+    this.database
+      .prepare(
+        `INSERT INTO nutrient_card_merge_records (
+          id,
+          seed_id,
+          source_card_id,
+          target_card_id,
+          source_title,
+          source_content_location,
+          merge_note,
+          merged_at,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        record.id,
+        record.seedId,
+        record.sourceCardId,
+        record.targetCardId,
+        record.sourceTitle,
+        record.sourceContentLocation,
+        record.mergeNote,
+        record.mergedAt,
+        record.createdAt,
+      );
+  }
+
+  public async listCardMergeRecordsByTarget(
+    cardId: string,
+  ): Promise<NutrientCardMergeRecord[]> {
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM nutrient_card_merge_records
+          WHERE target_card_id = ?
+          ORDER BY created_at DESC`,
+      )
+      .all(cardId) as unknown as NutrientCardMergeRow[];
+    return rows.map((row) => this.toCardMergeRecord(row));
+  }
+
   public close(): void {
     this.database.close();
   }
@@ -769,6 +891,8 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
         settled_content_id TEXT,
         default_for_growth INTEGER NOT NULL DEFAULT 0 CHECK (default_for_growth IN (0, 1)),
         conversation_id TEXT,
+        last_researched_at TEXT,
+        last_referenced_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         settled_at TEXT,
@@ -845,7 +969,59 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
 
       CREATE INDEX IF NOT EXISTS idx_nutrient_gap_suggestions_seed_status_updated_at
         ON nutrient_gap_suggestions (seed_id, status, updated_at);
+
+      CREATE TABLE IF NOT EXISTS nutrient_usage_records (
+        id TEXT PRIMARY KEY,
+        seed_id TEXT NOT NULL,
+        resource_type TEXT NOT NULL CHECK (resource_type IN ('nutrient', 'nutrient_card')),
+        resource_id TEXT NOT NULL,
+        growth_task_id TEXT NOT NULL,
+        growth_attempt_id TEXT NOT NULL,
+        fruit_id TEXT NOT NULL,
+        used_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_nutrient_usage_resource_used_at
+        ON nutrient_usage_records (resource_type, resource_id, used_at);
+
+      CREATE INDEX IF NOT EXISTS idx_nutrient_usage_seed_used_at
+        ON nutrient_usage_records (seed_id, used_at);
+
+      CREATE INDEX IF NOT EXISTS idx_nutrient_usage_fruit_id
+        ON nutrient_usage_records (fruit_id);
+
+      CREATE TABLE IF NOT EXISTS nutrient_card_merge_records (
+        id TEXT PRIMARY KEY,
+        seed_id TEXT NOT NULL,
+        source_card_id TEXT,
+        target_card_id TEXT NOT NULL,
+        source_title TEXT NOT NULL,
+        source_content_location TEXT,
+        merge_note TEXT NOT NULL DEFAULT '',
+        merged_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_nutrient_card_merge_target_created_at
+        ON nutrient_card_merge_records (target_card_id, created_at);
     `);
+    this.ensureColumn("nutrient_cards", "last_researched_at", "TEXT");
+    this.ensureColumn("nutrient_cards", "last_referenced_at", "TEXT");
+  }
+
+  private ensureColumn(
+    tableName: string,
+    columnName: string,
+    definition: string,
+  ): void {
+    const rows = this.database
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all() as unknown as Array<{ name: string }>;
+    if (rows.some((row) => row.name === columnName)) {
+      return;
+    }
+    this.database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
   }
 
   private toLibraryRecord(row: NutrientLibraryRow): NutrientLibraryRecord {
@@ -885,10 +1061,42 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
       settledContentId: row.settled_content_id,
       defaultForGrowth: row.default_for_growth === 1,
       conversationId: row.conversation_id,
+      lastResearchedAt: row.last_researched_at,
+      lastReferencedAt: row.last_referenced_at,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       settledAt: row.settled_at,
       archivedAt: row.archived_at,
+    };
+  }
+
+  private toUsageRecord(row: NutrientUsageRow): NutrientUsageRecord {
+    return {
+      id: row.id,
+      seedId: row.seed_id,
+      resourceType: row.resource_type,
+      resourceId: row.resource_id,
+      growthTaskId: row.growth_task_id,
+      growthAttemptId: row.growth_attempt_id,
+      fruitId: row.fruit_id,
+      usedAt: row.used_at,
+      createdAt: row.created_at,
+    };
+  }
+
+  private toCardMergeRecord(
+    row: NutrientCardMergeRow,
+  ): NutrientCardMergeRecord {
+    return {
+      id: row.id,
+      seedId: row.seed_id,
+      sourceCardId: row.source_card_id,
+      targetCardId: row.target_card_id,
+      sourceTitle: row.source_title,
+      sourceContentLocation: row.source_content_location,
+      mergeNote: row.merge_note,
+      mergedAt: row.merged_at,
+      createdAt: row.created_at,
     };
   }
 

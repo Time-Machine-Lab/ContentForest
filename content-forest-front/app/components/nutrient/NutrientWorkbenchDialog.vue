@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { createNutrientApi, NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES, type NutrientCardDetail, type NutrientCardStatus, type NutrientCardSummary, type NutrientDepositableBlock, type NutrientFetcher, type NutrientResearchMessage, type NutrientResearchSessionDetail, type NutrientResearchTemplate, type NutrientWorkbenchPane, type NutrientWorkbenchState } from '../../../src/modules/nutrient'
+import { createNutrientApi, NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES, type NutrientCardDetail, type NutrientCardStatus, type NutrientCardSummary, type NutrientDepositableBlock, type NutrientFetcher, type NutrientGapSuggestion, type NutrientGapSuggestionSourceType, type NutrientResearchMessage, type NutrientResearchSessionDetail, type NutrientResearchTemplate, type NutrientWorkbenchPane, type NutrientWorkbenchState } from '../../../src/modules/nutrient'
 import MarkdownViewer from '../markdown/MarkdownViewer.vue'
 
 const props = defineProps<{
@@ -38,11 +38,13 @@ const localState = reactive<NutrientWorkbenchState>({
   sessionStatus: 'idle',
 })
 const cards = ref<NutrientCardSummary[]>([])
+const nutrientSuggestions = ref<NutrientGapSuggestion[]>([])
 const selectedCard = ref<NutrientCardDetail | null>(null)
 const researchSession = ref<NutrientResearchSessionDetail | null>(null)
 const researchMessages = ref<NutrientResearchMessage[]>([])
 const depositableBlocks = ref<NutrientDepositableBlock[]>([])
 const cardsLoading = ref(false)
+const suggestionsLoading = ref(false)
 const detailLoading = ref(false)
 const sessionLoading = ref(false)
 const submitLoading = ref(false)
@@ -87,6 +89,7 @@ const researchTemplates: NutrientResearchTemplate[] = [
 ]
 
 const suggestionDependencies = computed(() => NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES.filter((item) => item.status === '依赖后端更新'))
+const pendingNutrientSuggestions = computed(() => nutrientSuggestions.value.filter((suggestion) => suggestion.status === 'pending'))
 const settledCardsCount = computed(() => cards.value.filter((card) => card.status === 'settled').length)
 const visibleDepositableBlocks = computed(() => depositableBlocks.value.filter((block) => !ignoredBlockIds.value.includes(block.id)))
 const hasActiveConversation = computed(() => researchMessages.value.length > 0 || visibleDepositableBlocks.value.length > 0)
@@ -103,6 +106,7 @@ watch(
     if (!open || !seedId) return
     localState.seedId = seedId
     void loadCards()
+    void loadGapSuggestions()
   },
   { immediate: true },
 )
@@ -122,6 +126,21 @@ async function loadCards() {
   }
   finally {
     cardsLoading.value = false
+  }
+}
+
+async function loadGapSuggestions() {
+  if (!props.seedId) return
+  suggestionsLoading.value = true
+  workbenchError.value = ''
+  try {
+    nutrientSuggestions.value = await nutrientApi.listGapSuggestions(props.seedId, { status: 'pending' })
+  }
+  catch (error) {
+    workbenchError.value = errorMessage(error)
+  }
+  finally {
+    suggestionsLoading.value = false
   }
 }
 
@@ -283,6 +302,10 @@ async function createCardFromBlock(block: NutrientDepositableBlock) {
   }
 }
 
+async function keepSuggestionAsNewCard(block: NutrientDepositableBlock) {
+  await createCardFromBlock(block)
+}
+
 async function mergeBlockIntoSelectedCard(block: NutrientDepositableBlock) {
   if (!selectedCard.value || selectedCard.value.status === 'archived') return
   operationLoading.value = `merge-block:${block.id}`
@@ -309,9 +332,49 @@ async function mergeBlockIntoSelectedCard(block: NutrientDepositableBlock) {
   }
 }
 
+async function mergeSuggestionIntoCard(block: NutrientDepositableBlock) {
+  await mergeBlockIntoSelectedCard(block)
+}
+
 function ignoreDepositableBlock(blockId: string) {
   if (ignoredBlockIds.value.includes(blockId)) return
   ignoredBlockIds.value = [...ignoredBlockIds.value, blockId]
+}
+
+async function acceptNutrientSuggestion(suggestion: NutrientGapSuggestion) {
+  operationLoading.value = `adopt-suggestion:${suggestion.id}`
+  workbenchError.value = ''
+  try {
+    const result = await nutrientApi.adoptGapSuggestion(suggestion.id)
+    nutrientSuggestions.value = nutrientSuggestions.value.filter((item) => item.id !== suggestion.id)
+    await loadCards()
+    await selectCard(result.nutrientCard.id)
+    localState.composingMessage = suggestion.bodyMarkdown
+    activePane.value = 'agent'
+    emit('changed')
+  }
+  catch (error) {
+    workbenchError.value = errorMessage(error)
+  }
+  finally {
+    operationLoading.value = ''
+  }
+}
+
+async function ignoreNutrientSuggestion(suggestion: NutrientGapSuggestion) {
+  operationLoading.value = `ignore-suggestion:${suggestion.id}`
+  workbenchError.value = ''
+  try {
+    await nutrientApi.ignoreGapSuggestion(suggestion.id)
+    nutrientSuggestions.value = nutrientSuggestions.value.filter((item) => item.id !== suggestion.id)
+    emit('changed')
+  }
+  catch (error) {
+    workbenchError.value = errorMessage(error)
+  }
+  finally {
+    operationLoading.value = ''
+  }
 }
 
 function applyResearchTemplate(template: NutrientResearchTemplate) {
@@ -417,6 +480,22 @@ function statusLabel(status: NutrientCardStatus) {
   if (status === 'unsettled') return '未沉淀'
   if (status === 'settled') return '已沉淀'
   return '已归档'
+}
+
+function suggestionSourceLabel(sourceType: NutrientGapSuggestionSourceType) {
+  const labels: Record<NutrientGapSuggestionSourceType, string> = {
+    seed_brief_gap: '种子简报缺口',
+    growth_input_gap: '枝化输入缺口',
+    fruit_elimination: '淘汰反馈',
+    growth_failure: '生长失败',
+    manual: '手动建议',
+  }
+  return labels[sourceType]
+}
+
+function suggestionSummary(suggestion: NutrientGapSuggestion) {
+  const normalized = suggestion.bodyMarkdown.replace(/[#>*_\-\n\r`]/g, ' ').replace(/\s+/g, ' ').trim()
+  return normalized.length > 72 ? `${normalized.slice(0, 72)}...` : normalized
 }
 
 function formatDate(value: string) {
@@ -557,6 +636,16 @@ function errorMessage(error: unknown) {
                   </div>
                   <p v-if="selectedCard.status === 'archived'" class="cf-nutrient-dependency-note">回档营养卡片依赖后端更新</p>
                   <p v-if="selectedCard.conversationId" class="cf-nutrient-conversation-note">会话 {{ selectedCard.conversationId }}</p>
+                  <div class="cf-nutrient-feedback-grid" aria-label="营养反馈信息">
+                    <section class="cf-nutrient-freshness">
+                      <strong>新鲜度提醒</strong>
+                      <p>依赖后端更新：后续由系统提示这张营养是否需要重新研究。</p>
+                    </section>
+                    <section class="cf-nutrient-usage-summary">
+                      <strong>使用表现摘要</strong>
+                      <p>依赖后端更新：后续展示引用次数、关联果实和选择/淘汰/发布反馈，只辅助判断使用表现。</p>
+                    </section>
+                  </div>
                   <details class="cf-nutrient-card-markdown">
                     <summary>查看卡片内容</summary>
                     <MarkdownViewer :markdown="selectedCard.markdown" />
@@ -594,18 +683,22 @@ function errorMessage(error: unknown) {
                       <strong>{{ block.title }}</strong>
                     </header>
                     <MarkdownViewer :markdown="block.markdown" />
+                    <div v-if="selectedCard && selectedCard.status !== 'archived'" class="cf-nutrient-similar-hint">
+                      <strong>相似营养提示</strong>
+                      <p>这段内容可能适合合并进当前卡片，也可以保留为新的营养方向。</p>
+                    </div>
                     <div class="cf-nutrient-block-actions">
                       <button
                         type="button"
                         :disabled="Boolean(operationLoading)"
-                        @click="createCardFromBlock(block)"
+                        @click="keepSuggestionAsNewCard(block)"
                       >
-                        {{ operationLoading === `create-block:${block.id}` ? '生成中' : '生成卡片' }}
+                        {{ operationLoading === `create-block:${block.id}` ? '生成中' : '保留为新卡片' }}
                       </button>
                       <button
                         type="button"
                         :disabled="!selectedCard || selectedCard.status === 'archived' || Boolean(operationLoading)"
-                        @click="mergeBlockIntoSelectedCard(block)"
+                        @click="mergeSuggestionIntoCard(block)"
                       >
                         {{ operationLoading === `merge-block:${block.id}` ? '合并中' : '合并到当前卡片' }}
                       </button>
@@ -653,10 +746,32 @@ function errorMessage(error: unknown) {
           <aside class="cf-nutrient-suggestion-rail" :class="{ 'is-active-pane': activePane === 'suggestions' }" aria-label="营养汲取建议">
             <header class="cf-nutrient-pane-head">
               <strong>汲取建议</strong>
-              <span>{{ suggestionDependencies.length }}</span>
+              <span>{{ pendingNutrientSuggestions.length }}</span>
             </header>
 
             <div class="cf-nutrient-suggestion-list">
+              <div v-if="suggestionsLoading" class="cf-nutrient-workbench-empty">读取建议中</div>
+              <article v-for="suggestion in pendingNutrientSuggestions" :key="suggestion.id" class="cf-nutrient-suggestion-card">
+                <span>{{ suggestionSourceLabel(suggestion.sourceType) }}</span>
+                <strong>{{ suggestion.title }}</strong>
+                <p>{{ suggestionSummary(suggestion) }}</p>
+                <div>
+                  <button
+                    type="button"
+                    :disabled="Boolean(operationLoading)"
+                    @click="acceptNutrientSuggestion(suggestion)"
+                  >
+                    {{ operationLoading === `adopt-suggestion:${suggestion.id}` ? '采纳中' : '采纳' }}
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="Boolean(operationLoading)"
+                    @click="ignoreNutrientSuggestion(suggestion)"
+                  >
+                    {{ operationLoading === `ignore-suggestion:${suggestion.id}` ? '忽略中' : '忽略' }}
+                  </button>
+                </div>
+              </article>
               <article v-for="dependency in suggestionDependencies" :key="dependency.name" class="cf-nutrient-suggestion-card">
                 <span>依赖后端更新</span>
                 <strong>{{ dependency.name }}</strong>
@@ -666,7 +781,7 @@ function errorMessage(error: unknown) {
                   <button type="button" disabled>忽略</button>
                 </div>
               </article>
-              <div v-if="suggestionDependencies.length === 0" class="cf-nutrient-workbench-empty">
+              <div v-if="!suggestionsLoading && pendingNutrientSuggestions.length === 0 && suggestionDependencies.length === 0" class="cf-nutrient-workbench-empty">
                 <strong>暂无建议</strong>
                 <span>新的缺口建议会进入这里。</span>
               </div>
@@ -967,6 +1082,40 @@ function errorMessage(error: unknown) {
   margin: 0 0 14px;
 }
 
+.cf-nutrient-feedback-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.cf-nutrient-freshness,
+.cf-nutrient-usage-summary,
+.cf-nutrient-similar-hint {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid rgba(127, 247, 221, .14);
+  border-radius: 8px;
+  background: rgba(127, 247, 221, .055);
+}
+
+.cf-nutrient-freshness strong,
+.cf-nutrient-usage-summary strong,
+.cf-nutrient-similar-hint strong {
+  color: #d7fff8;
+  font-size: 12px;
+}
+
+.cf-nutrient-freshness p,
+.cf-nutrient-usage-summary p,
+.cf-nutrient-similar-hint p {
+  margin: 0;
+  color: rgba(218, 235, 246, .68);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .cf-nutrient-card-actions button {
   min-height: 30px;
   padding: 0 10px;
@@ -1059,6 +1208,15 @@ function errorMessage(error: unknown) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.cf-nutrient-similar-hint {
+  border-color: rgba(255, 220, 160, .18);
+  background: rgba(214, 153, 61, .08);
+}
+
+.cf-nutrient-similar-hint strong {
+  color: #ffe3ad;
 }
 
 .cf-nutrient-block-actions button {
@@ -1228,6 +1386,10 @@ function errorMessage(error: unknown) {
   .cf-nutrient-agent-panel.is-active-pane,
   .cf-nutrient-suggestion-rail.is-active-pane {
     display: grid;
+  }
+
+  .cf-nutrient-feedback-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

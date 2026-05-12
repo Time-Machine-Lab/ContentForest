@@ -3,6 +3,8 @@ export type NutrientCardStatus = 'unsettled' | 'settled' | 'archived'
 export type NutrientLibraryScope = 'public' | 'seed_scoped'
 export type NutrientResearchMessageRole = 'user' | 'assistant'
 export type NutrientResearchSessionStatus = 'idle' | 'loading' | 'ready' | 'submitting' | 'failed'
+export type NutrientGapSuggestionStatus = 'pending' | 'adopted' | 'ignored'
+export type NutrientGapSuggestionSourceType = 'seed_brief_gap' | 'growth_input_gap' | 'fruit_elimination' | 'growth_failure' | 'manual'
 
 export interface CreateNutrientLibraryRequest {
   name: string
@@ -105,6 +107,25 @@ export interface NutrientCardDetail extends NutrientCardSummary {
   markdown: string
 }
 
+export interface NutrientGapSuggestion {
+  id: string
+  seedId: string
+  status: NutrientGapSuggestionStatus
+  sourceType: NutrientGapSuggestionSourceType
+  sourceId: string | null
+  title: string
+  bodyMarkdown: string
+  adoptedCardId: string | null
+  createdAt: string
+  updatedAt: string
+  resolvedAt?: string | null
+}
+
+export interface AdoptNutrientGapSuggestionResult {
+  suggestion: NutrientGapSuggestion
+  nutrientCard: NutrientCardDetail
+}
+
 export interface NutrientResearchMessage {
   id: string
   sessionId: string
@@ -175,6 +196,10 @@ export interface NutrientCardListQuery {
   status?: NutrientCardStatus
 }
 
+export interface NutrientGapSuggestionListQuery {
+  status?: NutrientGapSuggestionStatus
+}
+
 export type NutrientWorkbenchPane = 'cards' | 'agent' | 'suggestions'
 
 export interface NutrientWorkbenchState {
@@ -207,6 +232,21 @@ export const NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES: NutrientWorkbenchBackendDe
     name: '枝化生长缺口建议队列',
     status: 'available',
     note: '已对齐 docs/api/nutrient.yaml 中的 nutrient-gap-suggestions 系列接口',
+  },
+  {
+    name: '营养新鲜度提醒',
+    status: '依赖后端更新',
+    note: '当前缺少营养卡片新鲜度提醒接口；前端先预留展示位并提示依赖',
+  },
+  {
+    name: '营养使用表现摘要',
+    status: '依赖后端更新',
+    note: '当前缺少引用次数、关联果实和后续反馈摘要接口；前端先预留展示位并避免表达为质量评分',
+  },
+  {
+    name: '相似营养检测',
+    status: '依赖后端更新',
+    note: '当前缺少相似营养候选接口；前端先在可沉淀块处提供合并与保留新卡片操作',
   },
   {
     name: '可沉淀营养块合并与忽略',

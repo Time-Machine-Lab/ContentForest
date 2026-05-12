@@ -196,6 +196,9 @@ export async function bootstrapApp(
     storage: nutrientStorage,
     contentAccess: nutrientContentAccess,
     seedStorage,
+    fruitStorage,
+    publicationStorage,
+    feedbackStorage,
     agentPort: agentRuntime,
   });
   const seedService = new SeedService({
@@ -237,6 +240,7 @@ export async function bootstrapApp(
     agentPort: agentRuntime,
     geneUsageTracking: geneService,
     nutrientGapSuggestions: nutrientService,
+    nutrientUsageTracking: nutrientService,
     referenceAuthorization: {
       async authorize(scope) {
         await nutrientService.assertNutrientRefsReferable(

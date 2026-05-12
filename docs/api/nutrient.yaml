@@ -552,6 +552,86 @@ paths:
                   $ref: '#/components/schemas/NutrientDepositableBlock'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/nutrient-cards/{cardId}/usage-summary:
+    get:
+      tags: [Nutrient]
+      summary: 查看营养卡片使用效果摘要
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+      responses:
+        '200':
+          description: 使用效果摘要
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NutrientUsageSummary'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/seeds/{seedId}/nutrient-cards/freshness:
+    get:
+      tags: [Nutrient]
+      summary: 查询种子营养卡片新鲜度提醒
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      responses:
+        '200':
+          description: 新鲜度提醒列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NutrientFreshnessReminder'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/seeds/{seedId}/nutrient-cards/similar:
+    post:
+      tags: [Nutrient]
+      summary: 查询相似营养卡片提示
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FindSimilarNutrientCardsRequest'
+      responses:
+        '200':
+          description: 相似卡片提示
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SimilarNutrientCard'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/nutrient-cards/{cardId}/merge:
+    post:
+      tags: [Nutrient]
+      summary: 将新营养内容合并到已有营养卡片
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MergeNutrientCardRequest'
+      responses:
+        '200':
+          description: 合并成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NutrientCardDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
 components:
   parameters:
     LibraryId:
@@ -706,6 +786,30 @@ components:
         conversationId:
           type: string
           minLength: 1
+    FindSimilarNutrientCardsRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        markdown:
+          type: string
+    MergeNutrientCardRequest:
+      type: object
+      required: [title, markdown]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        markdown:
+          type: string
+          minLength: 1
+        sourceCardId:
+          type: string
+          nullable: true
+        mergeNote:
+          type: string
     CreateNutrientResearchSessionRequest:
       type: object
       required: [seedId]
@@ -969,6 +1073,14 @@ components:
         conversationId:
           type: string
           nullable: true
+        lastResearchedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastReferencedAt:
+          type: string
+          format: date-time
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -991,6 +1103,79 @@ components:
           properties:
             markdown:
               type: string
+    NutrientUsageSummary:
+      type: object
+      required:
+        - resourceType
+        - resourceId
+        - usageCount
+        - fruitCount
+        - selectedFruitCount
+        - eliminatedFruitCount
+        - publicationRecordCount
+        - feedbackSnapshotCount
+        - latestUsedAt
+        - fruits
+      properties:
+        resourceType:
+          type: string
+          enum: [nutrient, nutrient_card]
+        resourceId:
+          type: string
+        usageCount:
+          type: integer
+        fruitCount:
+          type: integer
+        selectedFruitCount:
+          type: integer
+        eliminatedFruitCount:
+          type: integer
+        publicationRecordCount:
+          type: integer
+        feedbackSnapshotCount:
+          type: integer
+        latestUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        fruits:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    NutrientFreshnessReminder:
+      type: object
+      required: [cardId, title, reasons, lastUpdatedAt, lastReferencedAt]
+      properties:
+        cardId:
+          type: string
+        title:
+          type: string
+        reasons:
+          type: array
+          items:
+            type: string
+        lastUpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastReferencedAt:
+          type: string
+          format: date-time
+          nullable: true
+    SimilarNutrientCard:
+      type: object
+      required: [cardId, title, status, reason]
+      properties:
+        cardId:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+          enum: [unsettled, settled, archived]
+        reason:
+          type: string
     ReferableNutrientContent:
       allOf:
         - $ref: '#/components/schemas/NutrientContentSummary'

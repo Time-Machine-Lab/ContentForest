@@ -95,6 +95,19 @@ export interface GrowthNutrientGapSuggestionPort {
   }): Promise<unknown>;
 }
 
+export interface GrowthNutrientUsageTrackingPort {
+  recordNutrientUsage(input: {
+    seedId: string;
+    growthTaskId: string;
+    growthAttemptId: string;
+    fruitId: string;
+    refs: Array<{
+      resourceType: "nutrient" | "nutrient_card";
+      resourceId: string;
+    }>;
+  }): Promise<unknown>;
+}
+
 export interface GrowthServiceDependencies {
   storage: GrowthStoragePort;
   seedStorage: SeedStoragePort;
@@ -105,6 +118,7 @@ export interface GrowthServiceDependencies {
   referenceAuthorization?: GrowthReferenceAuthorizationPort;
   geneUsageTracking?: GeneUsageTrackingPort;
   nutrientGapSuggestions?: GrowthNutrientGapSuggestionPort;
+  nutrientUsageTracking?: GrowthNutrientUsageTrackingPort;
   idGenerator?: IdGenerator;
   now?: () => Date;
   scheduleTaskExecution?: GrowthTaskExecutionScheduler;
@@ -125,6 +139,9 @@ export class GrowthService {
   private readonly nutrientGapSuggestions:
     | GrowthNutrientGapSuggestionPort
     | undefined;
+  private readonly nutrientUsageTracking:
+    | GrowthNutrientUsageTrackingPort
+    | undefined;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
   private readonly scheduleTaskExecution: GrowthTaskExecutionScheduler;
@@ -142,6 +159,7 @@ export class GrowthService {
       dependencies.referenceAuthorization ?? new PassThroughGrowthReferenceAuthorization();
     this.geneUsageTracking = dependencies.geneUsageTracking;
     this.nutrientGapSuggestions = dependencies.nutrientGapSuggestions;
+    this.nutrientUsageTracking = dependencies.nutrientUsageTracking;
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
     this.scheduleTaskExecution =
@@ -396,6 +414,7 @@ export class GrowthService {
         summary: candidate.summary,
         geneTags: candidate.geneTags,
       });
+      await this.recordNutrientUsagesForAttempt(task, attempt, fruit.id);
       return this.succeedAttempt(attempt, result.taskId, fruit.id, {
         content: result.output.content,
         metadata: result.output.metadata ?? {},
@@ -602,6 +621,40 @@ export class GrowthService {
         }
       }),
     );
+  }
+
+  private async recordNutrientUsagesForAttempt(
+    task: GrowthTaskRecord,
+    attempt: GrowthAttemptRecord,
+    fruitId: string,
+  ): Promise<void> {
+    if (this.nutrientUsageTracking === undefined) {
+      return;
+    }
+    const refs = [
+      ...task.authorizationScope.nutrientRefs.map((ref) => ({
+        resourceType: "nutrient" as const,
+        resourceId: ref.resourceId,
+      })),
+      ...task.authorizationScope.temporaryNutrientCardRefs.map((ref) => ({
+        resourceType: "nutrient_card" as const,
+        resourceId: ref.resourceId,
+      })),
+    ];
+    if (refs.length === 0) {
+      return;
+    }
+    try {
+      await this.nutrientUsageTracking.recordNutrientUsage({
+        seedId: task.seedId,
+        growthTaskId: task.id,
+        growthAttemptId: attempt.id,
+        fruitId,
+        refs,
+      });
+    } catch {
+      // Nutrient usage feedback is telemetry; it must not turn a created fruit into a failed attempt.
+    }
   }
 
   private async normalizeStartInput(

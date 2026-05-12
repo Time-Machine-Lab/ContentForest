@@ -237,6 +237,29 @@ async function handleApiRequest(
     return true;
   }
 
+  const seedNutrientCardsFreshnessMatch = pathname.match(
+    /^\/api\/seeds\/([^/]+)\/nutrient-cards\/freshness$/,
+  );
+  if (seedNutrientCardsFreshnessMatch && method === "GET") {
+    const result = await app.nutrientController.listFreshnessReminders(
+      decodeURIComponent(seedNutrientCardsFreshnessMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const seedNutrientCardsSimilarMatch = pathname.match(
+    /^\/api\/seeds\/([^/]+)\/nutrient-cards\/similar$/,
+  );
+  if (seedNutrientCardsSimilarMatch && method === "POST") {
+    const result = await app.nutrientController.findSimilarCards(
+      decodeURIComponent(seedNutrientCardsSimilarMatch[1] ?? ""),
+      toFindSimilarNutrientCardsInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
   const seedGapSuggestionsMatch = pathname.match(
     /^\/api\/seeds\/([^/]+)\/nutrient-gap-suggestions$/,
   );
@@ -325,6 +348,29 @@ async function handleApiRequest(
     const result = await app.nutrientController.bindCardConversation(
       decodeURIComponent(nutrientCardConversationMatch[1] ?? ""),
       toBindNutrientCardConversationInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientCardUsageSummaryMatch = pathname.match(
+    /^\/api\/nutrient-cards\/([^/]+)\/usage-summary$/,
+  );
+  if (nutrientCardUsageSummaryMatch && method === "GET") {
+    const result = await app.nutrientController.getCardUsageSummary(
+      decodeURIComponent(nutrientCardUsageSummaryMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const nutrientCardMergeMatch = pathname.match(
+    /^\/api\/nutrient-cards\/([^/]+)\/merge$/,
+  );
+  if (nutrientCardMergeMatch && method === "POST") {
+    const result = await app.nutrientController.mergeIntoCard(
+      decodeURIComponent(nutrientCardMergeMatch[1] ?? ""),
+      toMergeNutrientCardInput(await readJsonBody(request)),
     );
     sendJson(response, result.status, result.body);
     return true;
@@ -1111,6 +1157,55 @@ function toBindNutrientCardConversationInput(body: Record<string, unknown>): {
     throw new ApplicationError("VALIDATION_ERROR", "绑定会话需要提供会话标识", 400);
   }
   return { conversationId: body.conversationId };
+}
+
+function toFindSimilarNutrientCardsInput(body: Record<string, unknown>): {
+  title: string;
+  markdown?: string;
+} {
+  rejectUnexpectedFields(body, ["title", "markdown"]);
+  if (typeof body.title !== "string") {
+    throw new ApplicationError("VALIDATION_ERROR", "similar nutrient title is required", 400);
+  }
+  if (body.markdown !== undefined && typeof body.markdown !== "string") {
+    throw new ApplicationError("VALIDATION_ERROR", "钀ュ吇 Markdown 蹇呴』鏄瓧绗︿覆", 400);
+  }
+  return {
+    title: body.title,
+    markdown: body.markdown,
+  };
+}
+
+function toMergeNutrientCardInput(body: Record<string, unknown>): {
+  title: string;
+  markdown: string;
+  sourceCardId?: string | null;
+  mergeNote?: string;
+} {
+  rejectUnexpectedFields(body, ["title", "markdown", "sourceCardId", "mergeNote"]);
+  if (typeof body.title !== "string" || typeof body.markdown !== "string") {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "鍚堝苟钀ュ吇闇€瑕佹彁渚涙爣棰樺拰 Markdown 姝ｆ枃",
+      400,
+    );
+  }
+  if (
+    body.sourceCardId !== undefined &&
+    body.sourceCardId !== null &&
+    typeof body.sourceCardId !== "string"
+  ) {
+    throw new ApplicationError("VALIDATION_ERROR", "鏉ユ簮鍗＄墖蹇呴』鏄瓧绗︿覆", 400);
+  }
+  if (body.mergeNote !== undefined && typeof body.mergeNote !== "string") {
+    throw new ApplicationError("VALIDATION_ERROR", "鍚堝苟澶囨敞蹇呴』鏄瓧绗︿覆", 400);
+  }
+  return {
+    title: body.title,
+    markdown: body.markdown,
+    sourceCardId: body.sourceCardId,
+    mergeNote: body.mergeNote,
+  };
 }
 
 function toCreateNutrientResearchSessionInput(body: Record<string, unknown>): {

@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS nutrient_cards (
   settled_content_id TEXT,
   default_for_growth INTEGER NOT NULL DEFAULT 0 CHECK (default_for_growth IN (0, 1)),
   conversation_id TEXT,
+  last_researched_at TEXT,
+  last_referenced_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   settled_at TEXT,
@@ -72,6 +74,42 @@ CREATE INDEX IF NOT EXISTS idx_nutrient_cards_settled_content_id
 
 CREATE INDEX IF NOT EXISTS idx_nutrient_cards_seed_default_for_growth
   ON nutrient_cards (seed_id, default_for_growth);
+
+CREATE TABLE IF NOT EXISTS nutrient_usage_records (
+  id TEXT PRIMARY KEY,
+  seed_id TEXT NOT NULL,
+  resource_type TEXT NOT NULL CHECK (resource_type IN ('nutrient', 'nutrient_card')),
+  resource_id TEXT NOT NULL,
+  growth_task_id TEXT NOT NULL,
+  growth_attempt_id TEXT NOT NULL,
+  fruit_id TEXT NOT NULL,
+  used_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_nutrient_usage_resource_used_at
+  ON nutrient_usage_records (resource_type, resource_id, used_at);
+
+CREATE INDEX IF NOT EXISTS idx_nutrient_usage_seed_used_at
+  ON nutrient_usage_records (seed_id, used_at);
+
+CREATE INDEX IF NOT EXISTS idx_nutrient_usage_fruit_id
+  ON nutrient_usage_records (fruit_id);
+
+CREATE TABLE IF NOT EXISTS nutrient_card_merge_records (
+  id TEXT PRIMARY KEY,
+  seed_id TEXT NOT NULL,
+  source_card_id TEXT,
+  target_card_id TEXT NOT NULL,
+  source_title TEXT NOT NULL,
+  source_content_location TEXT,
+  merge_note TEXT NOT NULL DEFAULT '',
+  merged_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_nutrient_card_merge_target_created_at
+  ON nutrient_card_merge_records (target_card_id, created_at);
 
 CREATE TABLE IF NOT EXISTS nutrient_research_sessions (
   id TEXT PRIMARY KEY,

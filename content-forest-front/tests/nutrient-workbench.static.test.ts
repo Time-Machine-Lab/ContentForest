@@ -43,11 +43,19 @@ test('nutrient workbench dialog has three panes and narrow screen tabs', () => {
   assert.equal(dialog.includes('grid-template-columns: minmax(250px, 300px) minmax(0, 1fr) minmax(250px, 320px)'), true)
 })
 
-test('nutrient workbench marks missing suggestion queue as backend dependency', () => {
+test('nutrient workbench tracks available suggestions and missing feedback dependencies', () => {
   const nutrientTypes = readProjectFile('src/modules/nutrient/types.ts')
+  const nutrientApi = readProjectFile('src/modules/nutrient/api.ts')
 
   assert.equal(nutrientTypes.includes('NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES'), true)
+  assert.equal(nutrientTypes.includes('NutrientGapSuggestion'), true)
+  assert.equal(nutrientApi.includes('listGapSuggestions'), true)
+  assert.equal(nutrientApi.includes('adoptGapSuggestion'), true)
+  assert.equal(nutrientApi.includes('ignoreGapSuggestion'), true)
   assert.equal(nutrientTypes.includes('依赖后端更新'), true)
+  assert.equal(nutrientTypes.includes('营养新鲜度提醒'), true)
+  assert.equal(nutrientTypes.includes('营养使用表现摘要'), true)
+  assert.equal(nutrientTypes.includes('相似营养检测'), true)
   assert.equal(nutrientTypes.includes('可沉淀营养块合并与忽略'), true)
 })
 
@@ -87,10 +95,38 @@ test('nutrient research chat renders depositable blocks with actions', () => {
   assert.equal(dialog.includes('cf-nutrient-depositable-block'), true)
   assert.equal(dialog.includes('createCardFromBlock'), true)
   assert.equal(dialog.includes('mergeBlockIntoSelectedCard'), true)
+  assert.equal(dialog.includes('keepSuggestionAsNewCard'), true)
+  assert.equal(dialog.includes('mergeSuggestionIntoCard'), true)
   assert.equal(dialog.includes('ignoreDepositableBlock'), true)
-  assert.equal(dialog.includes('生成卡片'), true)
+  assert.equal(dialog.includes('保留为新卡片'), true)
   assert.equal(dialog.includes('合并到当前卡片'), true)
   assert.equal(dialog.includes('忽略'), true)
+})
+
+test('nutrient workbench accepts and ignores nutrient suggestions', () => {
+  const dialog = readProjectFile('app/components/nutrient/NutrientWorkbenchDialog.vue')
+
+  assert.equal(dialog.includes('nutrientSuggestions'), true)
+  assert.equal(dialog.includes('pendingNutrientSuggestions'), true)
+  assert.equal(dialog.includes('loadGapSuggestions'), true)
+  assert.equal(dialog.includes('acceptNutrientSuggestion'), true)
+  assert.equal(dialog.includes('ignoreNutrientSuggestion'), true)
+  assert.equal(dialog.includes('adoptGapSuggestion'), true)
+  assert.equal(dialog.includes('ignoreGapSuggestion'), true)
+  assert.equal(dialog.includes('localState.composingMessage = suggestion.bodyMarkdown'), true)
+  assert.equal(dialog.includes('cf-nutrient-suggestion-card'), true)
+  assert.equal(dialog.includes('suggestionSourceLabel'), true)
+})
+
+test('nutrient workbench shows freshness usage summary and merge hints without quality scoring', () => {
+  const dialog = readProjectFile('app/components/nutrient/NutrientWorkbenchDialog.vue')
+
+  assert.equal(dialog.includes('cf-nutrient-freshness'), true)
+  assert.equal(dialog.includes('cf-nutrient-usage-summary'), true)
+  assert.equal(dialog.includes('使用表现摘要'), true)
+  assert.equal(dialog.includes('cf-nutrient-similar-hint'), true)
+  assert.equal(dialog.includes('相似营养提示'), true)
+  assert.equal(dialog.includes('质量评分'), false)
 })
 
 test('nutrient research chat exposes editable research templates', () => {

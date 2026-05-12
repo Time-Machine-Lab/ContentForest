@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryNutrientMarkdownContentAccessAdapter } from "../content-access/adapters/in-memory-nutrient-markdown-content-access-adapter.js";
 import { NutrientService } from "../modules/nutrient/application/nutrient-service.js";
+import { FEEDBACK_MONITOR_TYPES } from "../modules/feedback/domain/feedback-types.js";
+import { FRUIT_SELECTION_STATES } from "../modules/fruit/domain/fruit-types.js";
 import {
   NUTRIENT_ARCHIVE_STATES,
   NUTRIENT_CARD_STATUSES,
@@ -8,10 +10,14 @@ import {
   NUTRIENT_GAP_SUGGESTION_STATUSES,
   NUTRIENT_LIBRARY_SCOPES,
 } from "../modules/nutrient/domain/nutrient-types.js";
+import { PUBLICATION_PUBLISHER_TYPES } from "../modules/publication/domain/publication-types.js";
 import { SEED_ARCHIVE_STATES } from "../modules/seed/domain/seed-types.js";
 import { ApplicationError } from "../shared/errors/application-error.js";
 import type { IdGenerator } from "../shared/utils/id-generator.js";
+import { InMemoryFeedbackStorageAdapter } from "../storage/adapters/in-memory-feedback-storage-adapter.js";
+import { InMemoryFruitStorageAdapter } from "../storage/adapters/in-memory-fruit-storage-adapter.js";
 import { InMemoryNutrientStorageAdapter } from "../storage/adapters/in-memory-nutrient-storage-adapter.js";
+import { InMemoryPublicationStorageAdapter } from "../storage/adapters/in-memory-publication-storage-adapter.js";
 import { InMemorySeedStorageAdapter } from "../storage/adapters/in-memory-seed-storage-adapter.js";
 
 function createIdGenerator(): IdGenerator {
@@ -37,10 +43,16 @@ async function createFixture(): Promise<{
   storage: InMemoryNutrientStorageAdapter;
   contentAccess: InMemoryNutrientMarkdownContentAccessAdapter;
   seedStorage: InMemorySeedStorageAdapter;
+  fruitStorage: InMemoryFruitStorageAdapter;
+  publicationStorage: InMemoryPublicationStorageAdapter;
+  feedbackStorage: InMemoryFeedbackStorageAdapter;
 }> {
   const storage = new InMemoryNutrientStorageAdapter();
   const contentAccess = new InMemoryNutrientMarkdownContentAccessAdapter();
   const seedStorage = new InMemorySeedStorageAdapter();
+  const fruitStorage = new InMemoryFruitStorageAdapter();
+  const publicationStorage = new InMemoryPublicationStorageAdapter();
+  const feedbackStorage = new InMemoryFeedbackStorageAdapter();
   await seedStorage.createSeed({
     id: "seed_1",
     title: "壁纸项目",
@@ -65,6 +77,9 @@ async function createFixture(): Promise<{
     storage,
     contentAccess,
     seedStorage,
+    fruitStorage,
+    publicationStorage,
+    feedbackStorage,
     idGenerator: createIdGenerator(),
     now: createNow(),
   });
@@ -73,6 +88,9 @@ async function createFixture(): Promise<{
     storage,
     contentAccess,
     seedStorage,
+    fruitStorage,
+    publicationStorage,
+    feedbackStorage,
   };
 }
 
@@ -471,5 +489,198 @@ describe("NutrientService", () => {
       title: "补充小红书资料",
     });
     expect(ignoredBecauseNutrientExists).toBeNull();
+  });
+
+  it("records formal and unsettled nutrient usage with growth and fruit anchors", async () => {
+    const { service, storage } = await createFixture();
+    const card = await service.createCard("seed_1", {
+      title: "Xiaohongshu cases",
+      markdown: "fresh platform cases",
+    });
+
+    await service.recordNutrientUsage({
+      seedId: "seed_1",
+      growthTaskId: "growth-task_1",
+      growthAttemptId: "growth-attempt_1",
+      fruitId: "fruit_1",
+      refs: [
+        { resourceType: "nutrient", resourceId: "nutrient-content_1" },
+        { resourceType: "nutrient_card", resourceId: card.id },
+        { resourceType: "nutrient_card", resourceId: card.id },
+      ],
+    });
+
+    await expect(
+      storage.listUsageRecordsByResource("nutrient", "nutrient-content_1"),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        seedId: "seed_1",
+        growthTaskId: "growth-task_1",
+        growthAttemptId: "growth-attempt_1",
+        fruitId: "fruit_1",
+      }),
+    ]);
+    await expect(
+      storage.listUsageRecordsByResource("nutrient_card", card.id),
+    ).resolves.toHaveLength(1);
+    await expect(service.getCard(card.id)).resolves.toMatchObject({
+      lastReferencedAt: "2026-01-01T00:00:02.000Z",
+    });
+  });
+
+  it("summarizes nutrient card usage through fruit, publication and feedback facts", async () => {
+    const {
+      service,
+      fruitStorage,
+      publicationStorage,
+      feedbackStorage,
+    } = await createFixture();
+    const library = await service.createLibrary({
+      name: "seed library",
+      scope: NUTRIENT_LIBRARY_SCOPES.seedScoped,
+      seedId: "seed_1",
+    });
+    const card = await service.createCard("seed_1", {
+      title: "settled card",
+      markdown: "settled markdown",
+    });
+    const settled = await service.settleCard(card.id, { libraryId: library.id });
+    await fruitStorage.createFruit({
+      id: "fruit_1",
+      selectionState: FRUIT_SELECTION_STATES.selected,
+      parentNodeRef: { nodeType: "seed", nodeId: "seed_1" },
+      contentLocation: "fruits/fruit_1.md",
+      generatorId: "generator_1",
+      summary: "selected fruit",
+      geneTags: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await publicationStorage.createPublicationRecord({
+      id: "publication_1",
+      fruitId: "fruit_1",
+      publisherType: PUBLICATION_PUBLISHER_TYPES.manual,
+      publicationTarget: "xiaohongshu",
+      publicationEvidence: "url",
+      publicationNote: "",
+      publishedAt: "2026-01-01T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await feedbackStorage.createMonitorAttachment({
+      id: "monitor_1",
+      publicationRecordId: "publication_1",
+      monitorType: FEEDBACK_MONITOR_TYPES.manual,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await feedbackStorage.createFeedbackSnapshot({
+      id: "snapshot_1",
+      publicationRecordId: "publication_1",
+      monitorAttachmentId: "monitor_1",
+      performanceData: { likes: 10 },
+      userObservation: "good",
+      capturedAt: "2026-01-01T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await service.recordNutrientUsage({
+      seedId: "seed_1",
+      growthTaskId: "growth-task_1",
+      growthAttemptId: "growth-attempt_1",
+      fruitId: "fruit_1",
+      refs: [{ resourceType: "nutrient", resourceId: settled.settledContentId ?? "" }],
+    });
+
+    await expect(service.getCardUsageSummary(card.id)).resolves.toMatchObject({
+      resourceType: "nutrient_card",
+      resourceId: card.id,
+      usageCount: 1,
+      fruitCount: 1,
+      selectedFruitCount: 1,
+      eliminatedFruitCount: 0,
+      publicationRecordCount: 1,
+      feedbackSnapshotCount: 1,
+      fruits: [
+        expect.objectContaining({
+          fruitId: "fruit_1",
+          summary: "selected fruit",
+          selectionState: FRUIT_SELECTION_STATES.selected,
+          publicationRecordCount: 1,
+          feedbackSnapshotCount: 1,
+        }),
+      ],
+    });
+  });
+
+  it("returns freshness reminders for stale or unused nutrient cards", async () => {
+    const { service, storage } = await createFixture();
+    const card = await service.createCard("seed_1", {
+      title: "old card",
+      markdown: "old markdown",
+    });
+    const record = await storage.findCardById(card.id);
+    expect(record).not.toBeNull();
+    await storage.saveCard({
+      ...(record as NonNullable<typeof record>),
+      updatedAt: "2025-01-01T00:00:00.000Z",
+      lastReferencedAt: null,
+    });
+
+    await expect(service.listFreshnessReminders("seed_1")).resolves.toEqual([
+      expect.objectContaining({
+        cardId: card.id,
+        title: "old card",
+        lastUpdatedAt: "2025-01-01T00:00:00.000Z",
+        lastReferencedAt: null,
+        reasons: expect.arrayContaining([
+          expect.any(String),
+          expect.any(String),
+        ]),
+      }),
+    ]);
+  });
+
+  it("suggests similar nutrient cards and merges content into an existing card", async () => {
+    const { service, storage } = await createFixture();
+    const card = await service.createCard("seed_1", {
+      title: "xiaohongshu wallpaper hooks",
+      markdown: "existing hooks",
+    });
+    await service.createCard("seed_1", {
+      title: "twitter launch notes",
+      markdown: "other notes",
+    });
+
+    await expect(
+      service.findSimilarCards("seed_1", {
+        title: "xiaohongshu wallpaper examples",
+        markdown: "hook examples",
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        cardId: card.id,
+        title: "xiaohongshu wallpaper hooks",
+      }),
+    ]);
+
+    const merged = await service.mergeIntoCard(card.id, {
+      title: "new hook",
+      markdown: "new hook markdown",
+      sourceCardId: "source_card_1",
+      mergeNote: "user confirmed",
+    });
+    const mergeRecords = await storage.listCardMergeRecordsByTarget(card.id);
+
+    expect(merged.markdown).toContain("new hook markdown");
+    expect(mergeRecords).toEqual([
+      expect.objectContaining({
+        sourceCardId: "source_card_1",
+        targetCardId: card.id,
+        sourceTitle: "new hook",
+        mergeNote: "user confirmed",
+      }),
+    ]);
   });
 });

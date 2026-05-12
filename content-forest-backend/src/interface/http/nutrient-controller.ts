@@ -4,10 +4,12 @@ import type {
   CreateNutrientContentInput,
   CreateNutrientLibraryInput,
   CreateNutrientResearchSessionInput,
+  FindSimilarNutrientCardsInput,
   ListNutrientGapSuggestionsInput,
   ListNutrientCardsInput,
   ListNutrientContentsInput,
   ListNutrientLibrariesInput,
+  MergeNutrientCardInput,
   NutrientService,
   SettleNutrientCardInput,
   SubmitNutrientResearchMessageInput,
@@ -224,6 +226,44 @@ export class NutrientController {
     return {
       status: 200,
       body: await this.nutrientService.clearDefaultForGrowth(cardId),
+    };
+  }
+
+  public async getCardUsageSummary(
+    cardId: string,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.getCardUsageSummary(cardId),
+    };
+  }
+
+  public async listFreshnessReminders(
+    seedId: string,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.listFreshnessReminders(seedId),
+    };
+  }
+
+  public async findSimilarCards(
+    seedId: string,
+    body: FindSimilarNutrientCardsInput,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.findSimilarCards(seedId, body),
+    };
+  }
+
+  public async mergeIntoCard(
+    cardId: string,
+    body: MergeNutrientCardInput,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.mergeIntoCard(cardId, body),
     };
   }
 

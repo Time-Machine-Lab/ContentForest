@@ -83,6 +83,8 @@ export interface NutrientCardSummary {
   settledContentId: string | null;
   defaultForGrowth: boolean;
   conversationId: string | null;
+  lastResearchedAt: string | null;
+  lastReferencedAt: string | null;
   createdAt: string;
   updatedAt: string;
   settledAt: string | null;
@@ -156,4 +158,43 @@ export interface ReferableNutrientContent extends NutrientContentSummary {
     scope: NutrientLibraryScope;
     seedId: string | null;
   };
+}
+
+export type NutrientUsageResourceType = "nutrient" | "nutrient_card";
+
+export interface NutrientUsageFruitSummary {
+  fruitId: string;
+  summary: string;
+  selectionState: string;
+  publicationRecordCount: number;
+  feedbackSnapshotCount: number;
+  usedAt: string;
+}
+
+export interface NutrientUsageSummary {
+  resourceType: NutrientUsageResourceType;
+  resourceId: string;
+  usageCount: number;
+  fruitCount: number;
+  selectedFruitCount: number;
+  eliminatedFruitCount: number;
+  publicationRecordCount: number;
+  feedbackSnapshotCount: number;
+  latestUsedAt: string | null;
+  fruits: NutrientUsageFruitSummary[];
+}
+
+export interface NutrientFreshnessReminder {
+  cardId: string;
+  title: string;
+  reasons: string[];
+  lastUpdatedAt: string | null;
+  lastReferencedAt: string | null;
+}
+
+export interface SimilarNutrientCard {
+  cardId: string;
+  title: string;
+  status: NutrientCardStatus;
+  reason: string;
 }

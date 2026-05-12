@@ -12,11 +12,14 @@ import type {
   NutrientGapSuggestionRecord,
   NutrientLibraryListFilter,
   NutrientLibraryRecord,
+  NutrientCardMergeRecord,
   NutrientResearchMessageRecord,
   NutrientResearchSessionRecord,
   NutrientStoragePort,
+  NutrientUsageRecord,
   ReferableNutrientContentRecord,
 } from "../ports/nutrient-storage-port.js";
+import type { NutrientUsageResourceType } from "../../modules/nutrient/domain/nutrient-types.js";
 
 export class InMemoryNutrientStorageAdapter implements NutrientStoragePort {
   private readonly libraries = new Map<string, NutrientLibraryRecord>();
@@ -26,6 +29,8 @@ export class InMemoryNutrientStorageAdapter implements NutrientStoragePort {
   private readonly researchMessages = new Map<string, NutrientResearchMessageRecord>();
   private readonly depositableBlocks = new Map<string, NutrientDepositableBlockRecord>();
   private readonly gapSuggestions = new Map<string, NutrientGapSuggestionRecord>();
+  private readonly usageRecords = new Map<string, NutrientUsageRecord>();
+  private readonly mergeRecords = new Map<string, NutrientCardMergeRecord>();
 
   public async createLibrary(record: NutrientLibraryRecord): Promise<void> {
     this.libraries.set(record.id, { ...record });
@@ -276,6 +281,38 @@ export class InMemoryNutrientStorageAdapter implements NutrientStoragePort {
     filter: NutrientGapSuggestionListFilter = {},
   ): Promise<number> {
     return (await this.listGapSuggestionsBySeed(seedId, filter)).length;
+  }
+
+  public async createUsageRecord(record: NutrientUsageRecord): Promise<void> {
+    this.usageRecords.set(record.id, { ...record });
+  }
+
+  public async listUsageRecordsByResource(
+    resourceType: NutrientUsageResourceType,
+    resourceId: string,
+  ): Promise<NutrientUsageRecord[]> {
+    return [...this.usageRecords.values()]
+      .filter(
+        (record) =>
+          record.resourceType === resourceType && record.resourceId === resourceId,
+      )
+      .sort((left, right) => right.usedAt.localeCompare(left.usedAt))
+      .map((record) => ({ ...record }));
+  }
+
+  public async createCardMergeRecord(
+    record: NutrientCardMergeRecord,
+  ): Promise<void> {
+    this.mergeRecords.set(record.id, { ...record });
+  }
+
+  public async listCardMergeRecordsByTarget(
+    cardId: string,
+  ): Promise<NutrientCardMergeRecord[]> {
+    return [...this.mergeRecords.values()]
+      .filter((record) => record.targetCardId === cardId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .map((record) => ({ ...record }));
   }
 
   private cloneMessage(

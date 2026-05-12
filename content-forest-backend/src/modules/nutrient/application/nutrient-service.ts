@@ -13,10 +13,15 @@ import type {
   NutrientLibraryRecord,
   NutrientGapSuggestionListFilter,
   NutrientGapSuggestionRecord,
+  NutrientCardMergeRecord,
   NutrientResearchMessageRecord,
   NutrientResearchSessionRecord,
   NutrientStoragePort,
+  NutrientUsageRecord,
 } from "../../../storage/ports/nutrient-storage-port.js";
+import type { FeedbackStoragePort } from "../../../storage/ports/feedback-storage-port.js";
+import type { FruitStoragePort } from "../../../storage/ports/fruit-storage-port.js";
+import type { PublicationStoragePort } from "../../../storage/ports/publication-storage-port.js";
 import type { SeedStoragePort } from "../../../storage/ports/seed-storage-port.js";
 import {
   NUTRIENT_ARCHIVE_STATES,
@@ -38,9 +43,13 @@ import {
   type NutrientLibraryDetail,
   type NutrientLibraryScope,
   type NutrientLibrarySummary,
+  type NutrientFreshnessReminder,
   type NutrientResearchMessage,
   type NutrientResearchSessionDetail,
   type NutrientResearchSessionSummary,
+  type NutrientUsageResourceType,
+  type NutrientUsageSummary,
+  type SimilarNutrientCard,
   type ReferableNutrientContent,
 } from "../domain/nutrient-types.js";
 
@@ -156,10 +165,36 @@ export interface TemporaryNutrientCardResourceRef {
   resourceId: string;
 }
 
+export interface RecordNutrientUsageInput {
+  seedId: string;
+  growthTaskId: string;
+  growthAttemptId: string;
+  fruitId: string;
+  refs: Array<{
+    resourceType: NutrientUsageResourceType;
+    resourceId: string;
+  }>;
+}
+
+export interface FindSimilarNutrientCardsInput {
+  title: string;
+  markdown?: string;
+}
+
+export interface MergeNutrientCardInput {
+  title: string;
+  markdown: string;
+  sourceCardId?: string | null;
+  mergeNote?: string;
+}
+
 export interface NutrientServiceDependencies {
   storage: NutrientStoragePort;
   contentAccess: NutrientMarkdownContentAccessPort;
   seedStorage: SeedStoragePort;
+  fruitStorage?: FruitStoragePort;
+  publicationStorage?: PublicationStoragePort;
+  feedbackStorage?: FeedbackStoragePort;
   agentPort?: AgentPort;
   idGenerator?: IdGenerator;
   now?: () => Date;
@@ -169,6 +204,9 @@ export class NutrientService {
   private readonly storage: NutrientStoragePort;
   private readonly contentAccess: NutrientMarkdownContentAccessPort;
   private readonly seedStorage: SeedStoragePort;
+  private readonly fruitStorage: FruitStoragePort | undefined;
+  private readonly publicationStorage: PublicationStoragePort | undefined;
+  private readonly feedbackStorage: FeedbackStoragePort | undefined;
   private readonly agentPort: AgentPort | undefined;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
@@ -177,6 +215,9 @@ export class NutrientService {
     this.storage = dependencies.storage;
     this.contentAccess = dependencies.contentAccess;
     this.seedStorage = dependencies.seedStorage;
+    this.fruitStorage = dependencies.fruitStorage;
+    this.publicationStorage = dependencies.publicationStorage;
+    this.feedbackStorage = dependencies.feedbackStorage;
     this.agentPort = dependencies.agentPort;
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
@@ -442,6 +483,8 @@ export class NutrientService {
       settledContentId: null,
       defaultForGrowth: false,
       conversationId: this.normalizeNullableText(input.conversationId),
+      lastResearchedAt: null,
+      lastReferencedAt: null,
       createdAt: timestamp,
       updatedAt: timestamp,
       settledAt: null,
@@ -1038,6 +1081,170 @@ export class NutrientService {
     }
   }
 
+  public async recordNutrientUsage(
+    input: RecordNutrientUsageInput,
+  ): Promise<void> {
+    const seedId = await this.requireSeed(input.seedId);
+    const timestamp = this.timestamp();
+    const seen = new Set<string>();
+    for (const ref of input.refs) {
+      const resourceId = this.requireNonBlank(ref.resourceId, "营养引用不能为空");
+      if (ref.resourceType !== "nutrient" && ref.resourceType !== "nutrient_card") {
+        throw new ApplicationError("VALIDATION_ERROR", "营养引用类型不正确", 400);
+      }
+      const key = `${ref.resourceType}:${resourceId}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      await this.storage.createUsageRecord({
+        id: this.idGenerator.nextId("nutrient-usage"),
+        seedId,
+        resourceType: ref.resourceType,
+        resourceId,
+        growthTaskId: this.requireNonBlank(input.growthTaskId, "生长任务不能为空"),
+        growthAttemptId: this.requireNonBlank(
+          input.growthAttemptId,
+          "生长尝试不能为空",
+        ),
+        fruitId: this.requireNonBlank(input.fruitId, "果实不能为空"),
+        usedAt: timestamp,
+        createdAt: timestamp,
+      });
+      await this.touchReferencedCard(ref.resourceType, resourceId, timestamp);
+    }
+  }
+
+  public async getCardUsageSummary(cardId: string): Promise<NutrientUsageSummary> {
+    const card = await this.requireCard(cardId);
+    const cardRecords = await this.storage.listUsageRecordsByResource(
+      "nutrient_card",
+      card.id,
+    );
+    const settledRecords =
+      card.settledContentId === null
+        ? []
+        : await this.storage.listUsageRecordsByResource(
+            "nutrient",
+            card.settledContentId,
+          );
+    return this.buildUsageSummaryFromRecords(
+      "nutrient_card",
+      card.id,
+      [...cardRecords, ...settledRecords].sort((left, right) =>
+        right.usedAt.localeCompare(left.usedAt),
+      ),
+    );
+  }
+
+  public async listFreshnessReminders(
+    seedId: string,
+  ): Promise<NutrientFreshnessReminder[]> {
+    const cards = await this.storage.listCardsBySeed(await this.requireSeed(seedId));
+    const now = this.now().getTime();
+    const staleUpdateMs = 1000 * 60 * 60 * 24 * 30;
+    const staleReferenceMs = 1000 * 60 * 60 * 24 * 14;
+    return cards.flatMap((card) => {
+      if (card.status === NUTRIENT_CARD_STATUSES.archived) {
+        return [];
+      }
+      const reasons: string[] = [];
+      if (this.isOlderThan(card.updatedAt, now, staleUpdateMs)) {
+        reasons.push("长期未更新，建议重新研究");
+      }
+      if (
+        card.lastReferencedAt === null ||
+        this.isOlderThan(card.lastReferencedAt, now, staleReferenceMs)
+      ) {
+        reasons.push("近期未被引用，建议检查是否仍有价值");
+      }
+      return reasons.length === 0
+        ? []
+        : [{
+            cardId: card.id,
+            title: card.title,
+            reasons,
+            lastUpdatedAt: card.updatedAt,
+            lastReferencedAt: card.lastReferencedAt,
+          }];
+    });
+  }
+
+  public async findSimilarCards(
+    seedId: string,
+    input: FindSimilarNutrientCardsInput,
+  ): Promise<SimilarNutrientCard[]> {
+    const normalizedSeedId = await this.requireSeed(seedId);
+    const title = this.requireNonBlank(input.title, "营养标题不能为空");
+    const words = this.tokenize(`${title} ${input.markdown ?? ""}`);
+    const cards = await this.storage.listCardsBySeed(normalizedSeedId);
+    return cards
+      .map((card) => ({
+        card,
+        overlap: this.countTokenOverlap(words, this.tokenize(card.title)),
+      }))
+      .filter((item) => item.overlap > 0 || item.card.title.includes(title))
+      .sort((left, right) => right.overlap - left.overlap)
+      .slice(0, 5)
+      .map(({ card }) => ({
+        cardId: card.id,
+        title: card.title,
+        status: card.status,
+        reason: "标题或关键词相似",
+      }));
+  }
+
+  public async mergeIntoCard(
+    cardId: string,
+    input: MergeNutrientCardInput,
+  ): Promise<NutrientCardDetail> {
+    const target = await this.requireCard(cardId);
+    if (target.status === NUTRIENT_CARD_STATUSES.archived) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "已归档营养卡片不能合并",
+        400,
+      );
+    }
+    const title = this.requireNonBlank(input.title, "合并来源标题不能为空");
+    const markdown = this.requireNonBlank(input.markdown, "合并内容不能为空");
+    const existingMarkdown = await this.contentAccess.readNutrientMarkdown(
+      target.contentLocation,
+    );
+    const mergedMarkdown = [
+      existingMarkdown.trim(),
+      "",
+      "## 合并补充",
+      "",
+      `### ${title}`,
+      "",
+      markdown,
+    ].join("\n").trim();
+    await this.contentAccess.updateNutrientMarkdown(
+      target.contentLocation,
+      mergedMarkdown,
+    );
+    const timestamp = this.timestamp();
+    const updated = {
+      ...target,
+      updatedAt: timestamp,
+    };
+    await this.storage.saveCard(updated);
+    await this.syncSettledContentFromCard(updated, mergedMarkdown);
+    await this.storage.createCardMergeRecord({
+      id: this.idGenerator.nextId("nutrient-card-merge"),
+      seedId: target.seedId,
+      sourceCardId: this.normalizeNullableText(input.sourceCardId),
+      targetCardId: target.id,
+      sourceTitle: title,
+      sourceContentLocation: null,
+      mergeNote: this.normalizeOptionalText(input.mergeNote),
+      mergedAt: timestamp,
+      createdAt: timestamp,
+    });
+    return this.getCard(target.id);
+  }
+
   private async resolveLibrarySeedId(
     scope: NutrientLibraryScope,
     seedId: string | null | undefined,
@@ -1130,6 +1337,111 @@ export class NutrientService {
     return record;
   }
 
+  private async touchReferencedCard(
+    resourceType: NutrientUsageResourceType,
+    resourceId: string,
+    referencedAt: string,
+  ): Promise<void> {
+    const cards =
+      resourceType === "nutrient_card"
+        ? [await this.storage.findCardById(resourceId)].filter(
+            (card): card is NutrientCardRecord => card !== null,
+          )
+        : await this.storage.findCardsBySettledContentIds([resourceId]);
+    for (const card of cards) {
+      await this.storage.saveCard({
+        ...card,
+        lastReferencedAt: referencedAt,
+      });
+    }
+  }
+
+  private async buildUsageSummary(
+    resourceType: NutrientUsageResourceType,
+    resourceId: string,
+  ): Promise<NutrientUsageSummary> {
+    const records = await this.storage.listUsageRecordsByResource(
+      resourceType,
+      resourceId,
+    );
+    return this.buildUsageSummaryFromRecords(resourceType, resourceId, records);
+  }
+
+  private async buildUsageSummaryFromRecords(
+    resourceType: NutrientUsageResourceType,
+    resourceId: string,
+    records: NutrientUsageRecord[],
+  ): Promise<NutrientUsageSummary> {
+    const fruitIds = [...new Set(records.map((record) => record.fruitId))];
+    const fruits = [];
+    let selectedFruitCount = 0;
+    let eliminatedFruitCount = 0;
+    let publicationRecordCount = 0;
+    let feedbackSnapshotCount = 0;
+    for (const fruitId of fruitIds) {
+      const fruit = await this.fruitStorage?.findFruitById(fruitId);
+      const usage = records.find((record) => record.fruitId === fruitId);
+      if (fruit?.selectionState === "selected") {
+        selectedFruitCount += 1;
+      }
+      if (fruit?.selectionState === "eliminated") {
+        eliminatedFruitCount += 1;
+      }
+      const publications =
+        (await this.publicationStorage?.listPublicationRecordsByFruit(fruitId)) ??
+        [];
+      publicationRecordCount += publications.length;
+      let fruitFeedbackCount = 0;
+      for (const publication of publications) {
+        const snapshots =
+          (await this.feedbackStorage?.listFeedbackSnapshotsByPublicationRecord(
+            publication.id,
+          )) ?? [];
+        fruitFeedbackCount += snapshots.length;
+      }
+      feedbackSnapshotCount += fruitFeedbackCount;
+      fruits.push({
+        fruitId,
+        summary: fruit?.summary ?? "",
+        selectionState: fruit?.selectionState ?? "unknown",
+        publicationRecordCount: publications.length,
+        feedbackSnapshotCount: fruitFeedbackCount,
+        usedAt: usage?.usedAt ?? "",
+      });
+    }
+    return {
+      resourceType,
+      resourceId,
+      usageCount: records.length,
+      fruitCount: fruitIds.length,
+      selectedFruitCount,
+      eliminatedFruitCount,
+      publicationRecordCount,
+      feedbackSnapshotCount,
+      latestUsedAt: records[0]?.usedAt ?? null,
+      fruits,
+    };
+  }
+
+  private isOlderThan(value: string, now: number, durationMs: number): boolean {
+    const time = Date.parse(value);
+    return Number.isFinite(time) && now - time > durationMs;
+  }
+
+  private tokenize(value: string): string[] {
+    return [...new Set(
+      value.toLowerCase()
+        .replace(/[^\p{L}\p{N}]+/gu, " ")
+        .split(/\s+/)
+        .filter((token) => token.length >= 2),
+    )];
+  }
+
+  private countTokenOverlap(left: string[], right: string[]): number {
+    const rightSet = new Set(right);
+    return left.filter((token) => rightSet.has(token)).length;
+  }
+
   private async requireResearchSession(
     sessionId: string,
   ): Promise<NutrientResearchSessionRecord> {
@@ -1209,10 +1521,20 @@ export class NutrientService {
   private async touchResearchSession(
     session: NutrientResearchSessionRecord,
   ): Promise<void> {
+    const timestamp = this.timestamp();
     await this.storage.saveResearchSession({
       ...session,
-      updatedAt: this.timestamp(),
+      updatedAt: timestamp,
     });
+    if (session.nutrientCardId !== null) {
+      const card = await this.storage.findCardById(session.nutrientCardId);
+      if (card !== null) {
+        await this.storage.saveCard({
+          ...card,
+          lastResearchedAt: timestamp,
+        });
+      }
+    }
   }
 
   private requireAgentPort(): AgentPort {
@@ -1463,6 +1785,8 @@ export class NutrientService {
       settledContentId: record.settledContentId,
       defaultForGrowth: record.defaultForGrowth,
       conversationId: record.conversationId,
+      lastResearchedAt: record.lastResearchedAt,
+      lastReferencedAt: record.lastReferencedAt,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       settledAt: record.settledAt,
