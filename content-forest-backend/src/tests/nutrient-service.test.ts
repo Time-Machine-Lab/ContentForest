@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { AgentPort } from "../agent/ports/agent-port.js";
+import type { AgentTask, AgentTaskResult } from "../agent/runtime/agent-task.js";
 import { InMemoryNutrientMarkdownContentAccessAdapter } from "../content-access/adapters/in-memory-nutrient-markdown-content-access-adapter.js";
 import { NutrientService } from "../modules/nutrient/application/nutrient-service.js";
 import { FEEDBACK_MONITOR_TYPES } from "../modules/feedback/domain/feedback-types.js";
@@ -38,7 +40,61 @@ function createNow(): () => Date {
   };
 }
 
-async function createFixture(): Promise<{
+function successResearchAgent(capturedTasks: AgentTask[] = []): AgentPort {
+  return {
+    async runTask(task: AgentTask): Promise<AgentTaskResult> {
+      capturedTasks.push(task);
+      return {
+        ok: true,
+        taskId: "agent-task_research",
+        output: {
+          taskType: "nutrient_research",
+          content: {
+            type: "nutrient_research_result",
+            message: "找到一个可沉淀方向。",
+            depositableBlocks: [
+              {
+                title: "小红书壁纸情绪钩子",
+                markdown: "围绕情绪场景组织壁纸内容。",
+              },
+            ],
+          },
+        },
+        trace: [
+          {
+            type: "task_started",
+            at: "2026-01-01T00:00:00.000Z",
+            message: "started",
+          },
+        ],
+      };
+    },
+  };
+}
+
+function failingResearchAgent(): AgentPort {
+  return {
+    async runTask(): Promise<AgentTaskResult> {
+      return {
+        ok: false,
+        taskId: "agent-task_failed",
+        error: {
+          code: "AGENT_TASK_FAILED",
+          message: "研究失败",
+        },
+        trace: [
+          {
+            type: "task_failed",
+            at: "2026-01-01T00:00:00.000Z",
+            message: "failed",
+          },
+        ],
+      };
+    },
+  };
+}
+
+async function createFixture(agentPort?: AgentPort): Promise<{
   service: NutrientService;
   storage: InMemoryNutrientStorageAdapter;
   contentAccess: InMemoryNutrientMarkdownContentAccessAdapter;
@@ -80,6 +136,7 @@ async function createFixture(): Promise<{
     fruitStorage,
     publicationStorage,
     feedbackStorage,
+    agentPort,
     idGenerator: createIdGenerator(),
     now: createNow(),
   });
@@ -681,6 +738,90 @@ describe("NutrientService", () => {
         sourceTitle: "new hook",
         mergeNote: "user confirmed",
       }),
+    ]);
+  });
+
+  it("streams research message facts, progress, assistant content and depositable blocks", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const { service } = await createFixture(successResearchAgent(capturedTasks));
+    const session = await service.createResearchSession({
+      seedId: "seed_1",
+      title: "平台研究",
+    });
+
+    const events = [];
+    for await (const event of service.streamResearchMessage(session.id, {
+      message: "研究小红书壁纸内容",
+    })) {
+      events.push(event);
+    }
+    const messages = await service.listResearchMessages(session.id);
+    const blocks = await service.listDepositableBlocks(session.id);
+
+    expect(events.map((event) => event.type)).toEqual([
+      "user_message",
+      "progress",
+      "progress",
+      "progress",
+      "progress",
+      "assistant_message_delta",
+      "depositable_block",
+      "done",
+    ]);
+    expect(events[0]).toMatchObject({
+      type: "user_message",
+      message: {
+        role: "user",
+        content: "研究小红书壁纸内容",
+      },
+    });
+    expect(events[5]).toMatchObject({
+      type: "assistant_message_delta",
+      delta: "找到一个可沉淀方向。",
+      done: true,
+    });
+    expect(events[6]).toMatchObject({
+      type: "depositable_block",
+      block: {
+        title: "小红书壁纸情绪钩子",
+        markdown: "围绕情绪场景组织壁纸内容。",
+      },
+    });
+    expect(messages).toMatchObject([
+      { role: "user", content: "研究小红书壁纸内容" },
+      { role: "assistant", content: "找到一个可沉淀方向。" },
+    ]);
+    expect(blocks).toHaveLength(1);
+    expect(capturedTasks).toHaveLength(1);
+  });
+
+  it("streams research errors while keeping saved user facts recoverable", async () => {
+    const { service } = await createFixture(failingResearchAgent());
+    const session = await service.createResearchSession({
+      seedId: "seed_1",
+      title: "平台研究",
+    });
+
+    const events = [];
+    for await (const event of service.streamResearchMessage(session.id, {
+      message: "研究失败案例",
+    })) {
+      events.push(event);
+    }
+    const messages = await service.listResearchMessages(session.id);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      code: "AGENT_TASK_FAILED",
+      message: "研究失败",
+      assistantMessage: {
+        role: "assistant",
+        failureReason: "研究失败",
+      },
+    });
+    expect(messages).toMatchObject([
+      { role: "user", content: "研究失败案例" },
+      { role: "assistant", content: "研究失败", failureReason: "研究失败" },
     ]);
   });
 });

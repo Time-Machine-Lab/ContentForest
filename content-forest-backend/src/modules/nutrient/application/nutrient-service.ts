@@ -1,7 +1,11 @@
 import type { AgentPort } from "../../../agent/ports/agent-port.js";
+import type { AgentTaskSuccessResult } from "../../../agent/runtime/agent-task.js";
 import { validateNutrientResearchOutput } from "../../../agent/skills/nutrient-research-output.js";
 import type { NutrientMarkdownContentAccessPort } from "../../../content-access/ports/nutrient-markdown-content-access-port.js";
-import { ApplicationError } from "../../../shared/errors/application-error.js";
+import {
+  ApplicationError,
+  isApplicationError,
+} from "../../../shared/errors/application-error.js";
 import type { IdGenerator } from "../../../shared/utils/id-generator.js";
 import { RandomIdGenerator } from "../../../shared/utils/id-generator.js";
 import type {
@@ -13,7 +17,6 @@ import type {
   NutrientLibraryRecord,
   NutrientGapSuggestionListFilter,
   NutrientGapSuggestionRecord,
-  NutrientCardMergeRecord,
   NutrientResearchMessageRecord,
   NutrientResearchSessionRecord,
   NutrientStoragePort,
@@ -120,6 +123,43 @@ export interface SubmitNutrientResearchMessageInput {
 
 export interface SubmitNutrientResearchMessageResult {
   userMessage: NutrientResearchMessage;
+  assistantMessage: NutrientResearchMessage;
+  depositableBlocks: NutrientDepositableBlock[];
+}
+
+export type NutrientResearchStreamEvent =
+  | {
+    type: "user_message";
+    message: NutrientResearchMessage;
+  }
+  | {
+    type: "progress";
+    stage: "message_saved" | "agent_started" | "agent_completed" | "saving_result";
+    message: string;
+  }
+  | {
+    type: "assistant_message_delta";
+    message: NutrientResearchMessage;
+    delta: string;
+    done: boolean;
+  }
+  | {
+    type: "depositable_block";
+    block: NutrientDepositableBlock;
+  }
+  | {
+    type: "done";
+    assistantMessage: NutrientResearchMessage;
+    depositableBlocks: NutrientDepositableBlock[];
+  }
+  | {
+    type: "error";
+    code: string;
+    message: string;
+    assistantMessage?: NutrientResearchMessage;
+  };
+
+interface PersistedNutrientResearchResult {
   assistantMessage: NutrientResearchMessage;
   depositableBlocks: NutrientDepositableBlock[];
 }
@@ -740,32 +780,14 @@ export class NutrientService {
   ): Promise<SubmitNutrientResearchMessageResult> {
     const session = await this.requireResearchSession(sessionId);
     const message = this.requireNonBlank(input.message, "研究消息不能为空");
-    const timestamp = this.timestamp();
-    const userMessageRecord: NutrientResearchMessageRecord = {
-      id: this.idGenerator.nextId("nutrient-research-message"),
-      sessionId: session.id,
-      role: "user",
-      content: message,
-      agentTaskId: null,
-      trace: [],
-      failureReason: null,
-      createdAt: timestamp,
-    };
-    await this.storage.createResearchMessage(userMessageRecord);
-
-    const agent = this.requireAgentPort();
-    const agentResult = await agent.runTask({
-      type: "nutrient_research",
-      input: await this.buildResearchAgentInput(session, message),
-      metadata: {
-        seedId: session.seedId,
-        nutrientCardId: session.nutrientCardId,
-        sessionId: session.id,
-      },
-    });
+    const userMessageRecord = await this.createUserResearchMessage(
+      session,
+      message,
+    );
+    const agentResult = await this.runNutrientResearchAgent(session, message);
 
     if (!agentResult.ok) {
-      const assistant = await this.saveAssistantResearchMessage({
+      await this.saveAssistantResearchMessage({
         session,
         content: agentResult.error.message,
         agentTaskId: agentResult.taskId,
@@ -779,33 +801,114 @@ export class NutrientService {
       );
     }
 
-    const output = validateNutrientResearchOutput(agentResult.output.content);
-    const assistant = await this.saveAssistantResearchMessage({
+    const result = await this.persistSuccessfulResearchResult(
       session,
-      content: output.message,
-      agentTaskId: agentResult.taskId,
-      trace: agentResult.trace.map((event) => ({ ...event })),
-      failureReason: null,
-    });
-    const blocks: NutrientDepositableBlock[] = [];
-    for (const block of output.depositableBlocks) {
-      const record: NutrientDepositableBlockRecord = {
-        id: this.idGenerator.nextId("nutrient-depositable-block"),
-        sessionId: session.id,
-        messageId: assistant.id,
-        title: block.title,
-        markdown: block.markdown,
-        createdAt: this.timestamp(),
-      };
-      await this.storage.createDepositableBlock(record);
-      blocks.push(this.toDepositableBlock(record));
-    }
-    await this.touchResearchSession(session);
+      agentResult,
+    );
     return {
       userMessage: this.toResearchMessage(userMessageRecord),
-      assistantMessage: assistant,
-      depositableBlocks: blocks,
+      assistantMessage: result.assistantMessage,
+      depositableBlocks: result.depositableBlocks,
     };
+  }
+
+  public async *streamResearchMessage(
+    sessionId: string,
+    input: SubmitNutrientResearchMessageInput,
+  ): AsyncGenerator<NutrientResearchStreamEvent> {
+    const session = await this.requireResearchSession(sessionId);
+    const message = this.requireNonBlank(input.message, "研究消息不能为空");
+    const userMessageRecord = await this.createUserResearchMessage(
+      session,
+      message,
+    );
+    yield {
+      type: "user_message",
+      message: this.toResearchMessage(userMessageRecord),
+    };
+    yield {
+      type: "progress",
+      stage: "message_saved",
+      message: "用户消息已保存",
+    };
+    yield {
+      type: "progress",
+      stage: "agent_started",
+      message: "Agent 正在研究营养资料",
+    };
+
+    try {
+      const agentResult = await this.runNutrientResearchAgent(session, message);
+      if (!agentResult.ok) {
+        const assistantMessage = await this.saveAssistantResearchMessage({
+          session,
+          content: agentResult.error.message,
+          agentTaskId: agentResult.taskId,
+          trace: agentResult.trace.map((event) => ({ ...event })),
+          failureReason: agentResult.error.message,
+        });
+        yield {
+          type: "error",
+          code: agentResult.error.code,
+          message: agentResult.error.message,
+          assistantMessage,
+        };
+        return;
+      }
+
+      yield {
+        type: "progress",
+        stage: "agent_completed",
+        message: "Agent 研究完成，正在保存结果",
+      };
+      const result = await this.persistSuccessfulResearchResult(
+        session,
+        agentResult,
+      );
+      yield {
+        type: "progress",
+        stage: "saving_result",
+        message: "研究结果已保存",
+      };
+      yield {
+        type: "assistant_message_delta",
+        message: result.assistantMessage,
+        delta: result.assistantMessage.content,
+        done: true,
+      };
+      for (const block of result.depositableBlocks) {
+        yield {
+          type: "depositable_block",
+          block,
+        };
+      }
+      yield {
+        type: "done",
+        assistantMessage: result.assistantMessage,
+        depositableBlocks: result.depositableBlocks,
+      };
+    } catch (error) {
+      const failureMessage =
+        error instanceof Error ? error.message : "营养研究失败";
+      let assistantMessage: NutrientResearchMessage | undefined;
+      try {
+        assistantMessage = await this.saveAssistantResearchMessage({
+          session,
+          content: failureMessage,
+          agentTaskId: "nutrient-research-stream-error",
+          trace: [],
+          failureReason: failureMessage,
+        });
+      } catch {
+        assistantMessage = undefined;
+      }
+      yield {
+        type: "error",
+        code: isApplicationError(error) ? error.code : "AGENT_TASK_FAILED",
+        message: failureMessage,
+        assistantMessage,
+      };
+    }
   }
 
   public async createGapSuggestion(
@@ -1465,6 +1568,72 @@ export class NutrientService {
       throw new ApplicationError("NOT_FOUND", "营养汲取建议不存在", 404);
     }
     return record;
+  }
+
+  private async createUserResearchMessage(
+    session: NutrientResearchSessionRecord,
+    message: string,
+  ): Promise<NutrientResearchMessageRecord> {
+    const record: NutrientResearchMessageRecord = {
+      id: this.idGenerator.nextId("nutrient-research-message"),
+      sessionId: session.id,
+      role: "user",
+      content: message,
+      agentTaskId: null,
+      trace: [],
+      failureReason: null,
+      createdAt: this.timestamp(),
+    };
+    await this.storage.createResearchMessage(record);
+    return record;
+  }
+
+  private async runNutrientResearchAgent(
+    session: NutrientResearchSessionRecord,
+    message: string,
+  ) {
+    const agent = this.requireAgentPort();
+    return agent.runTask({
+      type: "nutrient_research",
+      input: await this.buildResearchAgentInput(session, message),
+      metadata: {
+        seedId: session.seedId,
+        nutrientCardId: session.nutrientCardId,
+        sessionId: session.id,
+      },
+    });
+  }
+
+  private async persistSuccessfulResearchResult(
+    session: NutrientResearchSessionRecord,
+    agentResult: AgentTaskSuccessResult,
+  ): Promise<PersistedNutrientResearchResult> {
+    const output = validateNutrientResearchOutput(agentResult.output.content);
+    const assistantMessage = await this.saveAssistantResearchMessage({
+      session,
+      content: output.message,
+      agentTaskId: agentResult.taskId,
+      trace: agentResult.trace.map((event) => ({ ...event })),
+      failureReason: null,
+    });
+    const depositableBlocks: NutrientDepositableBlock[] = [];
+    for (const block of output.depositableBlocks) {
+      const record: NutrientDepositableBlockRecord = {
+        id: this.idGenerator.nextId("nutrient-depositable-block"),
+        sessionId: session.id,
+        messageId: assistantMessage.id,
+        title: block.title,
+        markdown: block.markdown,
+        createdAt: this.timestamp(),
+      };
+      await this.storage.createDepositableBlock(record);
+      depositableBlocks.push(this.toDepositableBlock(record));
+    }
+    await this.touchResearchSession(session);
+    return {
+      assistantMessage,
+      depositableBlocks,
+    };
   }
 
   private async buildResearchAgentInput(

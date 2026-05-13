@@ -2,6 +2,10 @@
 import { createNutrientApi, NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES, type NutrientCardDetail, type NutrientCardStatus, type NutrientCardSummary, type NutrientDepositableBlock, type NutrientFetcher, type NutrientGapSuggestion, type NutrientGapSuggestionSourceType, type NutrientResearchMessage, type NutrientResearchSessionDetail, type NutrientResearchTemplate, type NutrientWorkbenchPane, type NutrientWorkbenchState } from '../../../src/modules/nutrient'
 import MarkdownViewer from '../markdown/MarkdownViewer.vue'
 
+type ResearchMessageView = NutrientResearchMessage & {
+  localStatus?: 'pending' | 'failed'
+}
+
 const props = defineProps<{
   open: boolean
   seedId: string
@@ -41,7 +45,7 @@ const cards = ref<NutrientCardSummary[]>([])
 const nutrientSuggestions = ref<NutrientGapSuggestion[]>([])
 const selectedCard = ref<NutrientCardDetail | null>(null)
 const researchSession = ref<NutrientResearchSessionDetail | null>(null)
-const researchMessages = ref<NutrientResearchMessage[]>([])
+const researchMessages = ref<ResearchMessageView[]>([])
 const depositableBlocks = ref<NutrientDepositableBlock[]>([])
 const cardsLoading = ref(false)
 const suggestionsLoading = ref(false)
@@ -54,6 +58,7 @@ const researchError = ref('')
 const lastSubmittedMessage = ref('')
 const settleLibraryId = ref('')
 const ignoredBlockIds = ref<string[]>([])
+let localMessageSequence = 0
 
 const researchTemplates: NutrientResearchTemplate[] = [
   {
@@ -88,8 +93,11 @@ const researchTemplates: NutrientResearchTemplate[] = [
   },
 ]
 
-const suggestionDependencies = computed(() => NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES.filter((item) => item.status === '依赖后端更新'))
 const pendingNutrientSuggestions = computed(() => nutrientSuggestions.value.filter((suggestion) => suggestion.status === 'pending'))
+const feedbackDependencyNames = computed(() => NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES
+  .filter((item) => item.status === '依赖后端更新')
+  .map((item) => item.name)
+  .join('、'))
 const settledCardsCount = computed(() => cards.value.filter((card) => card.status === 'settled').length)
 const visibleDepositableBlocks = computed(() => depositableBlocks.value.filter((block) => !ignoredBlockIds.value.includes(block.id)))
 const hasActiveConversation = computed(() => researchMessages.value.length > 0 || visibleDepositableBlocks.value.length > 0)
@@ -214,6 +222,33 @@ function applyResearchSession(session: NutrientResearchSessionDetail) {
   localState.sessionStatus = 'ready'
 }
 
+async function startNewResearchSession() {
+  if (!props.seedId || sessionLoading.value || submitLoading.value) return
+  selectedCard.value = null
+  localState.selectedCardId = ''
+  localState.composingMessage = ''
+  resetResearchState()
+  activePane.value = 'agent'
+  sessionLoading.value = true
+  localState.sessionStatus = 'loading'
+  researchError.value = ''
+  try {
+    const session = await nutrientApi.createResearchSession({
+      seedId: props.seedId,
+      nutrientCardId: null,
+      title: `${props.seedTitle || '当前种子'} / 新研究`,
+    })
+    applyResearchSession(session)
+  }
+  catch (error) {
+    localState.sessionStatus = 'failed'
+    researchError.value = errorMessage(error)
+  }
+  finally {
+    sessionLoading.value = false
+  }
+}
+
 async function ensureResearchSession() {
   if (researchSession.value) return researchSession.value
   const session = await nutrientApi.createResearchSession({
@@ -239,12 +274,22 @@ async function submitResearchMessage() {
   localState.sessionStatus = 'submitting'
   researchError.value = ''
   lastSubmittedMessage.value = message
+  let optimisticUserId = ''
+  let optimisticAssistantId = ''
   try {
     const session = await ensureResearchSession()
     localState.composingMessage = ''
-    const result = await nutrientApi.submitResearchMessage(session.id, { message })
+    const optimistic = createOptimisticResearchTurn(session.id, message)
+    optimisticUserId = optimistic.user.id
+    optimisticAssistantId = optimistic.assistant.id
     researchMessages.value = [
       ...researchMessages.value,
+      optimistic.user,
+      optimistic.assistant,
+    ]
+    const result = await nutrientApi.submitResearchMessage(session.id, { message })
+    researchMessages.value = [
+      ...researchMessages.value.filter((item) => item.id !== optimisticUserId && item.id !== optimisticAssistantId),
       result.userMessage,
       result.assistantMessage,
     ]
@@ -258,9 +303,51 @@ async function submitResearchMessage() {
     localState.sessionStatus = 'failed'
     researchError.value = errorMessage(error)
     localState.composingMessage = message
+    if (optimisticAssistantId) {
+      researchMessages.value = researchMessages.value.map((item) => item.id === optimisticAssistantId
+        ? {
+            ...item,
+            localStatus: 'failed',
+            content: '研究没有成功完成，已保留你的输入，可以直接重试。',
+            failureReason: errorMessage(error),
+          }
+        : item)
+    }
   }
   finally {
     submitLoading.value = false
+  }
+}
+
+function createOptimisticResearchTurn(sessionId: string, message: string): {
+  user: ResearchMessageView
+  assistant: ResearchMessageView
+} {
+  localMessageSequence += 1
+  const createdAt = new Date().toISOString()
+  return {
+    user: {
+      id: `local-user-${localMessageSequence}`,
+      sessionId,
+      role: 'user',
+      content: message,
+      agentTaskId: null,
+      trace: [],
+      failureReason: null,
+      createdAt,
+      localStatus: 'pending',
+    },
+    assistant: {
+      id: `local-agent-${localMessageSequence}`,
+      sessionId,
+      role: 'assistant',
+      content: '正在研究资料、提炼规律和整理可沉淀营养。',
+      agentTaskId: null,
+      trace: [],
+      failureReason: null,
+      createdAt,
+      localStatus: 'pending',
+    },
   }
 }
 
@@ -554,7 +641,7 @@ function errorMessage(error: unknown) {
           <aside class="cf-nutrient-card-rail" :class="{ 'is-active-pane': activePane === 'cards' }" aria-label="营养卡片">
             <header class="cf-nutrient-pane-head">
               <strong>营养卡片</strong>
-              <button type="button" :disabled="cardsLoading" @click="loadCards">刷新</button>
+              <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" :disabled="cardsLoading" @click="loadCards">刷新</button>
             </header>
 
             <div v-if="cardsLoading" class="cf-nutrient-workbench-empty">读取卡片中</div>
@@ -575,33 +662,41 @@ function errorMessage(error: unknown) {
                 type="button"
                 @click="selectCard(card.id)"
               >
-                <span class="cf-nutrient-card-status" :class="`is-${card.status}`">{{ statusLabel(card.status) }}</span>
+                <span class="cf-nutrient-card-item-top">
+                  <span class="cf-nutrient-card-status" :class="`is-${card.status}`">{{ statusLabel(card.status) }}</span>
+                  <span>{{ card.defaultForGrowth ? '常驻' : formatDate(card.updatedAt) }}</span>
+                </span>
                 <strong>{{ card.title }}</strong>
-                <span>{{ card.defaultForGrowth ? '默认带入' : '更新于 ' + formatDate(card.updatedAt) }}</span>
               </button>
             </div>
           </aside>
 
           <main class="cf-nutrient-agent-panel" :class="{ 'is-active-pane': activePane === 'agent' }" aria-label="Agent 工作区">
             <header class="cf-nutrient-pane-head">
-              <strong>Agent 研究</strong>
-              <span>{{ researchSession ? researchSession.title : selectedCard ? '卡片会话' : '种子会话' }}</span>
+              <div class="cf-nutrient-pane-title">
+                <strong>Agent 研究</strong>
+                <span>{{ researchSession ? researchSession.title : selectedCard ? '卡片会话' : '种子会话' }}</span>
+              </div>
+              <button class="cf-nutrient-btn cf-nutrient-btn-secondary" type="button" :disabled="sessionLoading || submitLoading" @click="startNewResearchSession">
+                {{ sessionLoading ? '创建中' : '新会话' }}
+              </button>
             </header>
 
             <section class="cf-nutrient-agent-thread">
               <div v-if="detailLoading" class="cf-nutrient-workbench-empty">读取卡片内容中</div>
               <template v-else>
-                <article v-if="selectedCard" class="cf-nutrient-card-preview">
+                <article v-if="selectedCard" class="cf-nutrient-card-preview cf-nutrient-card-context">
                   <header>
                     <div>
-                      <span>{{ selectedCard.defaultForGrowth ? '默认带入' : statusLabel(selectedCard.status) }}</span>
+                      <span class="cf-nutrient-card-status" :class="`is-${selectedCard.status}`">{{ selectedCard.defaultForGrowth ? '常驻营养' : statusLabel(selectedCard.status) }}</span>
                       <h3>{{ selectedCard.title }}</h3>
                     </div>
-                    <button type="button" @click="activePane = 'cards'">查看卡片</button>
+                    <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="activePane = 'cards'">定位卡片</button>
                   </header>
                   <div class="cf-nutrient-card-actions" aria-label="营养卡片操作">
                     <button
                       v-if="selectedCard.status === 'unsettled'"
+                      class="cf-nutrient-btn cf-nutrient-btn-primary"
                       type="button"
                       :disabled="Boolean(operationLoading)"
                       @click="settleSelectedCard"
@@ -609,6 +704,7 @@ function errorMessage(error: unknown) {
                       {{ operationLoading === 'settle' ? '沉淀中' : '沉淀' }}
                     </button>
                     <button
+                      class="cf-nutrient-btn cf-nutrient-btn-secondary"
                       type="button"
                       :disabled="selectedCard.status === 'archived'"
                       @click="referenceSelectedCard"
@@ -617,6 +713,7 @@ function errorMessage(error: unknown) {
                     </button>
                     <button
                       v-if="selectedCard.status === 'settled'"
+                      class="cf-nutrient-btn cf-nutrient-btn-secondary"
                       type="button"
                       :class="{ 'is-active': selectedCard.defaultForGrowth }"
                       :disabled="Boolean(operationLoading)"
@@ -626,13 +723,14 @@ function errorMessage(error: unknown) {
                     </button>
                     <button
                       v-if="selectedCard.status !== 'archived'"
+                      class="cf-nutrient-btn cf-nutrient-btn-danger"
                       type="button"
                       :disabled="Boolean(operationLoading)"
                       @click="archiveSelectedCard"
                     >
                       {{ operationLoading === 'archive' ? '归档中' : '归档' }}
                     </button>
-                    <button v-else type="button" disabled title="依赖后端更新">回档</button>
+                    <button v-else class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" disabled title="依赖后端更新">回档</button>
                   </div>
                   <p v-if="selectedCard.status === 'archived'" class="cf-nutrient-dependency-note">回档营养卡片依赖后端更新</p>
                   <p v-if="selectedCard.conversationId" class="cf-nutrient-conversation-note">会话 {{ selectedCard.conversationId }}</p>
@@ -647,7 +745,7 @@ function errorMessage(error: unknown) {
                     </section>
                   </div>
                   <details class="cf-nutrient-card-markdown">
-                    <summary>查看卡片内容</summary>
+                    <summary>展开内容</summary>
                     <MarkdownViewer :markdown="selectedCard.markdown" />
                   </details>
                 </article>
@@ -663,14 +761,15 @@ function errorMessage(error: unknown) {
                     v-for="message in researchMessages"
                     :key="message.id"
                     class="cf-nutrient-message"
-                    :class="`is-${message.role}`"
+                    :class="[`is-${message.role}`, message.localStatus ? `is-${message.localStatus}` : '']"
                   >
                     <header>
                       <strong>{{ message.role === 'user' ? '你' : 'Agent' }}</strong>
-                      <span>{{ formatTime(message.createdAt) }}</span>
+                      <span>{{ message.localStatus === 'pending' ? '处理中' : formatTime(message.createdAt) }}</span>
                     </header>
                     <MarkdownViewer :markdown="message.content" />
                     <p v-if="message.failureReason" class="cf-nutrient-message-failure">{{ message.failureReason }}</p>
+                    <span v-if="message.localStatus === 'pending' && message.role === 'assistant'" class="cf-nutrient-message-pulse" />
                   </article>
 
                   <article
@@ -679,16 +778,15 @@ function errorMessage(error: unknown) {
                     class="cf-nutrient-depositable-block"
                   >
                     <header>
-                      <span>可沉淀营养</span>
-                      <strong>{{ block.title }}</strong>
+                      <div>
+                        <span>可沉淀营养</span>
+                        <strong>{{ block.title }}</strong>
+                      </div>
                     </header>
                     <MarkdownViewer :markdown="block.markdown" />
-                    <div v-if="selectedCard && selectedCard.status !== 'archived'" class="cf-nutrient-similar-hint">
-                      <strong>相似营养提示</strong>
-                      <p>这段内容可能适合合并进当前卡片，也可以保留为新的营养方向。</p>
-                    </div>
                     <div class="cf-nutrient-block-actions">
                       <button
+                        class="cf-nutrient-btn cf-nutrient-btn-primary"
                         type="button"
                         :disabled="Boolean(operationLoading)"
                         @click="keepSuggestionAsNewCard(block)"
@@ -696,13 +794,14 @@ function errorMessage(error: unknown) {
                         {{ operationLoading === `create-block:${block.id}` ? '生成中' : '保留为新卡片' }}
                       </button>
                       <button
+                        class="cf-nutrient-btn cf-nutrient-btn-secondary"
                         type="button"
                         :disabled="!selectedCard || selectedCard.status === 'archived' || Boolean(operationLoading)"
                         @click="mergeSuggestionIntoCard(block)"
                       >
                         {{ operationLoading === `merge-block:${block.id}` ? '合并中' : '合并到当前卡片' }}
                       </button>
-                      <button type="button" @click="ignoreDepositableBlock(block.id)">忽略</button>
+                      <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="ignoreDepositableBlock(block.id)">忽略</button>
                     </div>
                   </article>
                 </div>
@@ -723,6 +822,7 @@ function errorMessage(error: unknown) {
                 <button
                   v-for="template in researchTemplates"
                   :key="template.id"
+                  class="cf-nutrient-btn cf-nutrient-btn-ghost"
                   type="button"
                   @click="applyResearchTemplate(template)"
                 >
@@ -732,11 +832,11 @@ function errorMessage(error: unknown) {
               <div class="cf-nutrient-composer-row">
                 <textarea
                   v-model="localState.composingMessage"
-                  placeholder="和营养研究 Agent 继续交流"
+                  placeholder="描述要研究的平台、方向或缺口"
                   :disabled="submitLoading"
                   @keydown.enter="submitComposerKeyboard"
                 />
-                <button type="button" :disabled="submitLoading || !localState.composingMessage.trim()" @click="submitResearchMessage">
+                <button class="cf-nutrient-btn cf-nutrient-btn-primary cf-nutrient-send-btn" type="button" :disabled="submitLoading || !localState.composingMessage.trim()" @click="submitResearchMessage">
                   {{ submitLoading ? '发送中' : '发送' }}
                 </button>
               </div>
@@ -746,7 +846,7 @@ function errorMessage(error: unknown) {
           <aside class="cf-nutrient-suggestion-rail" :class="{ 'is-active-pane': activePane === 'suggestions' }" aria-label="营养汲取建议">
             <header class="cf-nutrient-pane-head">
               <strong>汲取建议</strong>
-              <span>{{ pendingNutrientSuggestions.length }}</span>
+              <span>{{ pendingNutrientSuggestions.length }} 条</span>
             </header>
 
             <div class="cf-nutrient-suggestion-list">
@@ -757,6 +857,7 @@ function errorMessage(error: unknown) {
                 <p>{{ suggestionSummary(suggestion) }}</p>
                 <div>
                   <button
+                    class="cf-nutrient-btn cf-nutrient-btn-primary"
                     type="button"
                     :disabled="Boolean(operationLoading)"
                     @click="acceptNutrientSuggestion(suggestion)"
@@ -764,6 +865,7 @@ function errorMessage(error: unknown) {
                     {{ operationLoading === `adopt-suggestion:${suggestion.id}` ? '采纳中' : '采纳' }}
                   </button>
                   <button
+                    class="cf-nutrient-btn cf-nutrient-btn-ghost"
                     type="button"
                     :disabled="Boolean(operationLoading)"
                     @click="ignoreNutrientSuggestion(suggestion)"
@@ -772,19 +874,13 @@ function errorMessage(error: unknown) {
                   </button>
                 </div>
               </article>
-              <article v-for="dependency in suggestionDependencies" :key="dependency.name" class="cf-nutrient-suggestion-card">
-                <span>依赖后端更新</span>
-                <strong>{{ dependency.name }}</strong>
-                <p>{{ dependency.note }}</p>
-                <div>
-                  <button type="button" disabled>采纳</button>
-                  <button type="button" disabled>忽略</button>
-                </div>
-              </article>
-              <div v-if="!suggestionsLoading && pendingNutrientSuggestions.length === 0 && suggestionDependencies.length === 0" class="cf-nutrient-workbench-empty">
+              <div v-if="!suggestionsLoading && pendingNutrientSuggestions.length === 0" class="cf-nutrient-workbench-empty">
                 <strong>暂无建议</strong>
-                <span>新的缺口建议会进入这里。</span>
+                <span>枝化生长或营养研究发现缺口后会进入这里。</span>
               </div>
+              <p v-if="feedbackDependencyNames" class="cf-nutrient-suggestion-footnote">
+                待后端接入：{{ feedbackDependencyNames }}
+              </p>
             </div>
           </aside>
         </div>
@@ -801,9 +897,7 @@ function errorMessage(error: unknown) {
   display: grid;
   place-items: center;
   padding: 28px;
-  background:
-    radial-gradient(circle at 26% 18%, rgba(64, 108, 255, .16), transparent 28%),
-    rgba(4, 6, 11, .72);
+  background: rgba(4, 6, 11, .76);
   backdrop-filter: blur(10px);
 }
 
@@ -816,9 +910,7 @@ function errorMessage(error: unknown) {
   overflow: hidden;
   border: 1px solid rgba(138, 154, 255, .22);
   border-radius: 10px;
-  background:
-    linear-gradient(180deg, rgba(20, 24, 34, .98), rgba(8, 10, 16, .98)),
-    #090b10;
+  background: #0a0d13;
   box-shadow: 0 24px 72px rgba(0, 0, 0, .48);
   color: #edf1ff;
 }
@@ -900,6 +992,82 @@ function errorMessage(error: unknown) {
   cursor: pointer;
 }
 
+.cf-nutrient-btn {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, .11);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .055);
+  color: #eef2ff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  transition: border-color .14s ease, background .14s ease, color .14s ease, transform .14s ease, box-shadow .14s ease;
+}
+
+.cf-nutrient-btn:hover:not(:disabled) {
+  border-color: rgba(165, 181, 255, .34);
+  background: rgba(255, 255, 255, .085);
+  transform: translateY(-1px);
+}
+
+.cf-nutrient-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, .36);
+}
+
+.cf-nutrient-btn:focus-visible {
+  outline: 2px solid rgba(128, 166, 255, .74);
+  outline-offset: 2px;
+}
+
+.cf-nutrient-btn:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+}
+
+.cf-nutrient-btn-primary {
+  border-color: rgba(104, 214, 197, .32);
+  background: rgba(69, 184, 164, .16);
+  color: #d8fff8;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 1px 0 rgba(0, 0, 0, .35);
+}
+
+.cf-nutrient-btn-primary:hover:not(:disabled),
+.cf-nutrient-btn-primary.is-active {
+  border-color: rgba(115, 238, 217, .48);
+  background: rgba(69, 184, 164, .22);
+}
+
+.cf-nutrient-btn-secondary {
+  border-color: rgba(130, 154, 255, .28);
+  background: rgba(88, 112, 214, .14);
+  color: #edf1ff;
+}
+
+.cf-nutrient-btn-secondary:hover:not(:disabled),
+.cf-nutrient-btn-secondary.is-active {
+  border-color: rgba(148, 170, 255, .48);
+  background: rgba(88, 112, 214, .22);
+}
+
+.cf-nutrient-btn-danger {
+  border-color: rgba(255, 130, 130, .22);
+  background: rgba(150, 54, 54, .12);
+  color: #ffd7d7;
+}
+
+.cf-nutrient-btn-danger:hover:not(:disabled) {
+  border-color: rgba(255, 145, 145, .44);
+  background: rgba(150, 54, 54, .2);
+}
+
+.cf-nutrient-btn-ghost {
+  background: rgba(255, 255, 255, .035);
+  color: rgba(238, 242, 255, .82);
+}
+
 .cf-nutrient-workbench-close {
   width: 36px;
   padding: 0;
@@ -935,7 +1103,7 @@ function errorMessage(error: unknown) {
 
 .cf-nutrient-workbench-layout {
   display: grid;
-  grid-template-columns: minmax(250px, 300px) minmax(0, 1fr) minmax(250px, 320px);
+  grid-template-columns: minmax(240px, 280px) minmax(460px, 1fr) minmax(240px, 300px);
   min-height: 0;
 }
 
@@ -970,6 +1138,12 @@ function errorMessage(error: unknown) {
   padding-bottom: 12px;
 }
 
+.cf-nutrient-pane-title {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
 .cf-nutrient-agent-panel > .cf-nutrient-pane-head {
   padding: 14px 16px;
   border-bottom: 1px solid rgba(139, 156, 255, .12);
@@ -992,19 +1166,31 @@ function errorMessage(error: unknown) {
 
 .cf-nutrient-card-item {
   display: grid;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
   min-width: 0;
-  padding: 12px;
+  padding: 12px 13px;
   color: inherit;
   text-align: left;
   cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
 }
 
 .cf-nutrient-card-item:hover,
 .cf-nutrient-card-item.is-selected {
   border-color: rgba(122, 158, 255, .48);
   background: rgba(73, 104, 214, .18);
+}
+
+.cf-nutrient-card-item:active {
+  transform: translateY(1px);
+}
+
+.cf-nutrient-card-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .cf-nutrient-card-item.is-archived {
@@ -1046,17 +1232,23 @@ function errorMessage(error: unknown) {
 .cf-nutrient-agent-thread {
   min-height: 0;
   overflow: auto;
-  padding: 16px;
+  padding: 14px 16px 18px;
 }
 
 .cf-nutrient-card-preview {
-  padding: 16px;
+  padding: 12px;
 }
 
 .cf-nutrient-card-preview header {
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
+}
+
+.cf-nutrient-card-context {
+  margin-bottom: 12px;
+  border-color: rgba(130, 154, 255, .2);
+  background: rgba(18, 23, 35, .72);
 }
 
 .cf-nutrient-card-markdown {
@@ -1079,14 +1271,14 @@ function errorMessage(error: unknown) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 0 0 14px;
+  margin: 0 0 10px;
 }
 
 .cf-nutrient-feedback-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin: 0 0 14px;
+  gap: 8px;
+  margin: 0 0 10px;
 }
 
 .cf-nutrient-freshness,
@@ -1094,7 +1286,7 @@ function errorMessage(error: unknown) {
 .cf-nutrient-similar-hint {
   display: grid;
   gap: 5px;
-  padding: 10px;
+  padding: 9px;
   border: 1px solid rgba(127, 247, 221, .14);
   border-radius: 8px;
   background: rgba(127, 247, 221, .055);
@@ -1118,19 +1310,11 @@ function errorMessage(error: unknown) {
 
 .cf-nutrient-card-actions button {
   min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid rgba(255, 255, 255, .11);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, .05);
-  color: #eef2ff;
-  cursor: pointer;
 }
 
 .cf-nutrient-card-actions button:hover:not(:disabled),
 .cf-nutrient-card-actions button.is-active {
-  border-color: rgba(94, 215, 197, .36);
-  background: rgba(94, 215, 197, .12);
-  color: #c8fff4;
+  color: #f4f7ff;
 }
 
 .cf-nutrient-card-actions button:disabled {
@@ -1152,7 +1336,7 @@ function errorMessage(error: unknown) {
 
 .cf-nutrient-message-list {
   display: grid;
-  gap: 12px;
+  gap: 13px;
 }
 
 .cf-nutrient-message,
@@ -1160,17 +1344,31 @@ function errorMessage(error: unknown) {
   display: grid;
   gap: 10px;
   max-width: min(760px, 100%);
-  padding: 13px;
+  padding: 14px;
   border: 1px solid rgba(255, 255, 255, .08);
   border-radius: 8px;
-  background: rgba(255, 255, 255, .04);
+  background: rgba(18, 21, 30, .72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
 }
 
 .cf-nutrient-message.is-user {
   justify-self: end;
   width: min(620px, 92%);
   border-color: rgba(122, 158, 255, .24);
-  background: rgba(88, 122, 255, .11);
+  background: rgba(52, 70, 145, .28);
+}
+
+.cf-nutrient-message.is-assistant {
+  justify-self: start;
+}
+
+.cf-nutrient-message.is-pending {
+  border-color: rgba(127, 247, 221, .22);
+}
+
+.cf-nutrient-message.is-failed {
+  border-color: rgba(255, 120, 120, .28);
+  background: rgba(88, 18, 18, .2);
 }
 
 .cf-nutrient-message header,
@@ -1199,9 +1397,27 @@ function errorMessage(error: unknown) {
   font-size: 12px;
 }
 
+.cf-nutrient-message-pulse {
+  width: 34px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(127, 247, 221, .14);
+}
+
+.cf-nutrient-message-pulse::after {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(127, 247, 221, .78);
+  animation: cf-nutrient-loading-line 1.1s ease-in-out infinite;
+  content: "";
+}
+
 .cf-nutrient-depositable-block {
-  border-color: rgba(94, 215, 197, .26);
-  background: rgba(42, 166, 143, .08);
+  border-color: rgba(94, 215, 197, .32);
+  background: rgba(31, 84, 77, .22);
 }
 
 .cf-nutrient-block-actions {
@@ -1221,12 +1437,6 @@ function errorMessage(error: unknown) {
 
 .cf-nutrient-block-actions button {
   min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid rgba(94, 215, 197, .22);
-  border-radius: 7px;
-  background: rgba(94, 215, 197, .08);
-  color: #d7fff8;
-  cursor: pointer;
 }
 
 .cf-nutrient-block-actions button:disabled {
@@ -1262,11 +1472,22 @@ function errorMessage(error: unknown) {
   }
 }
 
+@keyframes cf-nutrient-loading-line {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(250%);
+  }
+}
+
 .cf-nutrient-agent-composer {
   display: grid;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: 9px;
+  padding: 12px 16px 14px;
   border-top: 1px solid rgba(139, 156, 255, .12);
+  background: rgba(7, 10, 16, .86);
 }
 
 .cf-nutrient-template-strip,
@@ -1283,30 +1504,38 @@ function errorMessage(error: unknown) {
 .cf-nutrient-template-strip button {
   flex: 0 0 auto;
   min-height: 28px;
-  padding: 0 9px;
-  border: 1px solid rgba(255, 255, 255, .09);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, .04);
-  color: rgba(238, 242, 255, .82);
-  cursor: pointer;
   font-size: 12px;
 }
 
 .cf-nutrient-composer-row {
   align-items: center;
+  padding: 8px;
+  border: 1px solid rgba(139, 156, 255, .16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .035);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
 }
 
 .cf-nutrient-agent-composer textarea {
   flex: 1;
-  min-height: 54px;
+  min-height: 52px;
   max-height: 120px;
   resize: vertical;
-  border: 1px solid rgba(255, 255, 255, .1);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, .045);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
   color: #f5f7ff;
-  padding: 10px 12px;
+  padding: 8px 10px;
   outline: 0;
+}
+
+.cf-nutrient-agent-composer textarea::placeholder {
+  color: rgba(210, 218, 242, .45);
+}
+
+.cf-nutrient-send-btn {
+  align-self: stretch;
+  min-width: 68px;
 }
 
 .cf-nutrient-agent-composer textarea:disabled {
@@ -1323,10 +1552,21 @@ function errorMessage(error: unknown) {
   display: grid;
   gap: 9px;
   padding: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
 }
 
 .cf-nutrient-suggestion-card p {
   margin: 0;
+}
+
+.cf-nutrient-suggestion-footnote {
+  margin: 2px 0 0;
+  padding: 10px;
+  border: 1px dashed rgba(255, 255, 255, .1);
+  border-radius: 8px;
+  color: rgba(210, 218, 242, .5);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .cf-nutrient-suggestion-card div {
@@ -1390,6 +1630,20 @@ function errorMessage(error: unknown) {
 
   .cf-nutrient-feedback-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cf-nutrient-btn,
+  .cf-nutrient-message-pulse::after,
+  .cf-nutrient-research-loading span {
+    animation: none;
+    transition: none;
+  }
+
+  .cf-nutrient-btn:hover:not(:disabled),
+  .cf-nutrient-btn:active:not(:disabled) {
+    transform: none;
   }
 }
 </style>

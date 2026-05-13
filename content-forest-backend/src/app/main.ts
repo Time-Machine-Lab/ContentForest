@@ -27,6 +27,7 @@ import {
   NUTRIENT_CARD_STATUSES,
   NUTRIENT_GAP_SUGGESTION_STATUSES,
 } from "../modules/nutrient/domain/nutrient-types.js";
+import type { NutrientResearchStreamEvent } from "../modules/nutrient/application/nutrient-service.js";
 
 await loadLocalEnvFile();
 const app = await bootstrapApp();
@@ -417,6 +418,18 @@ async function handleApiRequest(
       toSubmitNutrientResearchMessageInput(await readJsonBody(request)),
     );
     sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const researchSessionMessagesStreamMatch = pathname.match(
+    /^\/api\/nutrient-research-sessions\/([^/]+)\/messages\/stream$/,
+  );
+  if (researchSessionMessagesStreamMatch && method === "POST") {
+    const events = app.nutrientController.streamResearchMessage(
+      decodeURIComponent(researchSessionMessagesStreamMatch[1] ?? ""),
+      toSubmitNutrientResearchMessageInput(await readJsonBody(request)),
+    );
+    await sendSse(response, events);
     return true;
   }
 
@@ -1960,6 +1973,43 @@ function rejectUnexpectedFields(
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function sendSse(
+  response: ServerResponse,
+  events: AsyncIterable<NutrientResearchStreamEvent>,
+): Promise<void> {
+  const iterator = events[Symbol.asyncIterator]();
+  let first = await iterator.next();
+  response.writeHead(200, {
+    ...corsHeaders,
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+    "x-accel-buffering": "no",
+  });
+  try {
+    while (!first.done) {
+      writeSseEvent(response, first.value);
+      first = await iterator.next();
+    }
+  } catch (error) {
+    writeSseEvent(response, {
+      type: "error",
+      code: isApplicationError(error) ? error.code : "INTERNAL_ERROR",
+      message: error instanceof Error ? error.message : "Internal Server Error",
+    });
+  } finally {
+    response.end();
+  }
+}
+
+function writeSseEvent(
+  response: ServerResponse,
+  event: NutrientResearchStreamEvent,
+): void {
+  response.write(`event: ${event.type}\n`);
+  response.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {

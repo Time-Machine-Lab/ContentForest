@@ -40,7 +40,7 @@ test('nutrient workbench dialog has three panes and narrow screen tabs', () => {
   assert.equal(dialog.includes('cf-nutrient-suggestion-rail'), true)
   assert.equal(dialog.includes('cf-nutrient-workbench-tabs'), true)
   assert.equal(dialog.includes('@media (max-width: 900px)'), true)
-  assert.equal(dialog.includes('grid-template-columns: minmax(250px, 300px) minmax(0, 1fr) minmax(250px, 320px)'), true)
+  assert.equal(dialog.includes('grid-template-columns: minmax(240px, 280px) minmax(460px, 1fr) minmax(240px, 300px)'), true)
 })
 
 test('nutrient workbench tracks available suggestions and missing feedback dependencies', () => {
@@ -78,9 +78,19 @@ test('nutrient research chat loads sessions and submits messages', () => {
 
   assert.equal(dialog.includes('loadResearchSession'), true)
   assert.equal(dialog.includes('createResearchSession'), true)
+  assert.equal(dialog.includes('startNewResearchSession'), true)
+  assert.equal(dialog.includes('nutrientCardId: null'), true)
+  assert.equal(dialog.includes("selectedCard.value = null"), true)
+  assert.equal(dialog.includes('新会话'), true)
   assert.equal(dialog.includes('bindCardConversation'), true)
   assert.equal(dialog.includes('submitResearchMessage'), true)
   assert.equal(dialog.includes('submitResearchMessage(session.id, { message })'), true)
+  assert.equal(dialog.includes('ResearchMessageView'), true)
+  assert.equal(dialog.includes('createOptimisticResearchTurn'), true)
+  assert.equal(dialog.includes("localStatus?: 'pending' | 'failed'"), true)
+  assert.equal(dialog.includes("localStatus: 'pending'"), true)
+  assert.equal(dialog.includes("localStatus: 'failed'"), true)
+  assert.equal(dialog.includes('cf-nutrient-message-pulse'), true)
   assert.equal(dialog.includes('retryLastResearchMessage'), true)
   assert.equal(dialog.includes('@keydown.enter="submitComposerKeyboard"'), true)
   assert.equal(dialog.includes('cf-nutrient-message-list'), true)
@@ -93,6 +103,11 @@ test('nutrient research chat renders depositable blocks with actions', () => {
 
   assert.equal(dialog.includes('visibleDepositableBlocks'), true)
   assert.equal(dialog.includes('cf-nutrient-depositable-block'), true)
+  assert.equal(dialog.includes('cf-nutrient-card-context'), true)
+  assert.equal(dialog.includes('cf-nutrient-btn-primary'), true)
+  assert.equal(dialog.includes('cf-nutrient-btn-secondary'), true)
+  assert.equal(dialog.includes('cf-nutrient-btn-danger'), true)
+  assert.equal(dialog.includes('cf-nutrient-btn-ghost'), true)
   assert.equal(dialog.includes('createCardFromBlock'), true)
   assert.equal(dialog.includes('mergeBlockIntoSelectedCard'), true)
   assert.equal(dialog.includes('keepSuggestionAsNewCard'), true)
@@ -108,6 +123,7 @@ test('nutrient workbench accepts and ignores nutrient suggestions', () => {
 
   assert.equal(dialog.includes('nutrientSuggestions'), true)
   assert.equal(dialog.includes('pendingNutrientSuggestions'), true)
+  assert.equal(dialog.includes('feedbackDependencyNames'), true)
   assert.equal(dialog.includes('loadGapSuggestions'), true)
   assert.equal(dialog.includes('acceptNutrientSuggestion'), true)
   assert.equal(dialog.includes('ignoreNutrientSuggestion'), true)
@@ -115,17 +131,18 @@ test('nutrient workbench accepts and ignores nutrient suggestions', () => {
   assert.equal(dialog.includes('ignoreGapSuggestion'), true)
   assert.equal(dialog.includes('localState.composingMessage = suggestion.bodyMarkdown'), true)
   assert.equal(dialog.includes('cf-nutrient-suggestion-card'), true)
+  assert.equal(dialog.includes('cf-nutrient-suggestion-footnote'), true)
   assert.equal(dialog.includes('suggestionSourceLabel'), true)
 })
 
-test('nutrient workbench shows freshness usage summary and merge hints without quality scoring', () => {
+test('nutrient workbench shows feedback placeholders without quality scoring', () => {
   const dialog = readProjectFile('app/components/nutrient/NutrientWorkbenchDialog.vue')
+  const nutrientTypes = readProjectFile('src/modules/nutrient/types.ts')
 
   assert.equal(dialog.includes('cf-nutrient-freshness'), true)
   assert.equal(dialog.includes('cf-nutrient-usage-summary'), true)
   assert.equal(dialog.includes('使用表现摘要'), true)
-  assert.equal(dialog.includes('cf-nutrient-similar-hint'), true)
-  assert.equal(dialog.includes('相似营养提示'), true)
+  assert.equal(nutrientTypes.includes('相似营养检测'), true)
   assert.equal(dialog.includes('质量评分'), false)
 })
 

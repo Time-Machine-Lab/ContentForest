@@ -161,13 +161,20 @@ describe("Nutrient module integration", () => {
       const submitResult = await controller.submitResearchMessage(session.id, {
         message: "研究小红书壁纸内容",
       });
+      const streamEvents = [];
+      for await (const event of controller.streamResearchMessage(session.id, {
+        message: "继续研究小红书封面",
+      })) {
+        streamEvents.push(event);
+      }
       const messages = await controller.listResearchMessages(session.id);
       const blocks = await controller.listDepositableBlocks(session.id);
       const referable = await controller.listReferableContents("seed_integration");
 
       expect(sessionResult.status).toBe(201);
       expect(submitResult.status).toBe(201);
-      expect(capturedTasks).toHaveLength(1);
+      expect(streamEvents.map((event) => event.type)).toContain("done");
+      expect(capturedTasks).toHaveLength(2);
       expect(capturedTasks[0]).toMatchObject({
         type: "nutrient_research",
         input: {
@@ -179,8 +186,14 @@ describe("Nutrient module integration", () => {
       expect(messages.body).toMatchObject([
         { role: "user", content: "研究小红书壁纸内容" },
         { role: "assistant", content: "找到一个可沉淀方向。" },
+        { role: "user", content: "继续研究小红书封面" },
+        { role: "assistant", content: "找到一个可沉淀方向。" },
       ]);
       expect(blocks.body).toMatchObject([
+        {
+          title: "小红书壁纸情绪钩子",
+          markdown: "围绕情绪场景组织壁纸内容。",
+        },
         {
           title: "小红书壁纸情绪钩子",
           markdown: "围绕情绪场景组织壁纸内容。",

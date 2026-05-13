@@ -535,6 +535,53 @@ paths:
           $ref: '#/components/responses/NotFound'
         '502':
           $ref: '#/components/responses/AgentFailure'
+  /api/nutrient-research-sessions/{sessionId}/messages/stream:
+    post:
+      tags: [Nutrient]
+      summary: 流式提交用户研究消息并触发营养研究 Agent
+      description: |
+        使用 Server-Sent Events 返回营养研究执行过程。事件格式遵循 SSE 标准：
+        `event: <type>` 与 `data: <json>`。当前接口保留非流式消息提交接口，
+        适用于需要立即获得用户消息确认、Agent 进度、Assistant 内容、可沉淀营养块和失败事件的前端工作台。
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitNutrientResearchMessageRequest'
+      responses:
+        '200':
+          description: SSE 事件流
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              examples:
+                success:
+                  summary: 成功事件序列示例
+                  value: |
+                    event: user_message
+                    data: {"type":"user_message","message":{"id":"message_1","sessionId":"session_1","role":"user","content":"研究小红书壁纸内容","agentTaskId":null,"trace":[],"failureReason":null,"createdAt":"2026-01-01T00:00:00.000Z"}}
+
+                    event: progress
+                    data: {"type":"progress","stage":"agent_started","message":"Agent 正在研究营养资料"}
+
+                    event: assistant_message_delta
+                    data: {"type":"assistant_message_delta","message":{"id":"message_2","sessionId":"session_1","role":"assistant","content":"找到一个可沉淀方向。","agentTaskId":"agent-task_1","trace":[],"failureReason":null,"createdAt":"2026-01-01T00:00:01.000Z"},"delta":"找到一个可沉淀方向。","done":true}
+
+                    event: depositable_block
+                    data: {"type":"depositable_block","block":{"id":"block_1","sessionId":"session_1","messageId":"message_2","title":"小红书壁纸情绪钩子","markdown":"围绕情绪场景组织壁纸内容。","createdAt":"2026-01-01T00:00:02.000Z"}}
+
+                    event: done
+                    data: {"type":"done","assistantMessage":{"id":"message_2","sessionId":"session_1","role":"assistant","content":"找到一个可沉淀方向。","agentTaskId":"agent-task_1","trace":[],"failureReason":null,"createdAt":"2026-01-01T00:00:01.000Z"},"depositableBlocks":[]}
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/AgentFailure'
   /api/nutrient-research-sessions/{sessionId}/depositable-blocks:
     get:
       tags: [Nutrient]
@@ -917,6 +964,83 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/NutrientDepositableBlock'
+    NutrientResearchStreamEvent:
+      oneOf:
+        - $ref: '#/components/schemas/NutrientResearchUserMessageEvent'
+        - $ref: '#/components/schemas/NutrientResearchProgressEvent'
+        - $ref: '#/components/schemas/NutrientResearchAssistantMessageDeltaEvent'
+        - $ref: '#/components/schemas/NutrientResearchDepositableBlockEvent'
+        - $ref: '#/components/schemas/NutrientResearchDoneEvent'
+        - $ref: '#/components/schemas/NutrientResearchErrorEvent'
+    NutrientResearchUserMessageEvent:
+      type: object
+      required: [type, message]
+      properties:
+        type:
+          type: string
+          enum: [user_message]
+        message:
+          $ref: '#/components/schemas/NutrientResearchMessage'
+    NutrientResearchProgressEvent:
+      type: object
+      required: [type, stage, message]
+      properties:
+        type:
+          type: string
+          enum: [progress]
+        stage:
+          type: string
+          enum: [message_saved, agent_started, agent_completed, saving_result]
+        message:
+          type: string
+    NutrientResearchAssistantMessageDeltaEvent:
+      type: object
+      required: [type, message, delta, done]
+      properties:
+        type:
+          type: string
+          enum: [assistant_message_delta]
+        message:
+          $ref: '#/components/schemas/NutrientResearchMessage'
+        delta:
+          type: string
+        done:
+          type: boolean
+    NutrientResearchDepositableBlockEvent:
+      type: object
+      required: [type, block]
+      properties:
+        type:
+          type: string
+          enum: [depositable_block]
+        block:
+          $ref: '#/components/schemas/NutrientDepositableBlock'
+    NutrientResearchDoneEvent:
+      type: object
+      required: [type, assistantMessage, depositableBlocks]
+      properties:
+        type:
+          type: string
+          enum: [done]
+        assistantMessage:
+          $ref: '#/components/schemas/NutrientResearchMessage'
+        depositableBlocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/NutrientDepositableBlock'
+    NutrientResearchErrorEvent:
+      type: object
+      required: [type, code, message]
+      properties:
+        type:
+          type: string
+          enum: [error]
+        code:
+          type: string
+        message:
+          type: string
+        assistantMessage:
+          $ref: '#/components/schemas/NutrientResearchMessage'
     NutrientGapSuggestion:
       type: object
       required:

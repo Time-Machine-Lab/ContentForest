@@ -10,6 +10,7 @@ import type {
   ListNutrientContentsInput,
   ListNutrientLibrariesInput,
   MergeNutrientCardInput,
+  NutrientResearchStreamEvent,
   NutrientService,
   SettleNutrientCardInput,
   SubmitNutrientResearchMessageInput,
@@ -312,6 +313,13 @@ export class NutrientController {
       status: 201,
       body: await this.nutrientService.submitResearchMessage(sessionId, body),
     };
+  }
+
+  public streamResearchMessage(
+    sessionId: string,
+    body: SubmitNutrientResearchMessageInput,
+  ): AsyncGenerator<NutrientResearchStreamEvent> {
+    return this.nutrientService.streamResearchMessage(sessionId, body);
   }
 
   public async listDepositableBlocks(
