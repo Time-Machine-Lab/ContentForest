@@ -183,6 +183,19 @@ export type NutrientResearchStreamEvent =
     message: string
   }
   | {
+    type: 'thought_delta'
+    delta: string
+  }
+  | {
+    type: 'message_delta'
+    delta: string
+  }
+  | {
+    type: 'nutrient_block_delta'
+    title: string
+    delta: string
+  }
+  | {
     type: 'assistant_message_delta'
     message: NutrientResearchMessage
     delta: string

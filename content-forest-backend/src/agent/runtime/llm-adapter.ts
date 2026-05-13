@@ -16,6 +16,13 @@ export interface LlmCompletionResult {
   raw?: unknown;
 }
 
+export interface LlmCompletionStreamChunk {
+  contentDelta?: string;
+  thinkingDelta?: string;
+  raw?: unknown;
+}
+
 export interface LlmAdapter {
   complete(input: LlmCompletionInput): Promise<LlmCompletionResult>;
+  streamComplete?(input: LlmCompletionInput): AsyncIterable<LlmCompletionStreamChunk>;
 }

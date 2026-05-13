@@ -602,6 +602,15 @@ paths:
                     event: progress
                     data: {"type":"progress","stage":"agent_started","message":"Agent 正在研究营养资料"}
 
+                    event: thought_delta
+                    data: {"type":"thought_delta","delta":"正在比较平台资料和用户问题。"}
+
+                    event: message_delta
+                    data: {"type":"message_delta","delta":"我先给你一个可执行方向："}
+
+                    event: nutrient_block_delta
+                    data: {"type":"nutrient_block_delta","title":"小红书壁纸情绪钩子","delta":"围绕情绪场景组织壁纸内容。"}
+
                     event: assistant_message_delta
                     data: {"type":"assistant_message_delta","message":{"id":"message_2","sessionId":"session_1","role":"assistant","content":"找到一个可沉淀方向。","agentTaskId":"agent-task_1","trace":[],"failureReason":null,"createdAt":"2026-01-01T00:00:01.000Z"},"delta":"找到一个可沉淀方向。","done":true}
 
@@ -1001,6 +1010,9 @@ components:
       oneOf:
         - $ref: '#/components/schemas/NutrientResearchUserMessageEvent'
         - $ref: '#/components/schemas/NutrientResearchProgressEvent'
+        - $ref: '#/components/schemas/NutrientResearchThoughtDeltaEvent'
+        - $ref: '#/components/schemas/NutrientResearchMessageDeltaEvent'
+        - $ref: '#/components/schemas/NutrientResearchBlockDeltaEvent'
         - $ref: '#/components/schemas/NutrientResearchAssistantMessageDeltaEvent'
         - $ref: '#/components/schemas/NutrientResearchDepositableBlockEvent'
         - $ref: '#/components/schemas/NutrientResearchDoneEvent'
@@ -1025,6 +1037,35 @@ components:
           type: string
           enum: [message_saved, agent_started, agent_completed, saving_result]
         message:
+          type: string
+    NutrientResearchThoughtDeltaEvent:
+      type: object
+      required: [type, delta]
+      properties:
+        type:
+          type: string
+          enum: [thought_delta]
+        delta:
+          type: string
+    NutrientResearchMessageDeltaEvent:
+      type: object
+      required: [type, delta]
+      properties:
+        type:
+          type: string
+          enum: [message_delta]
+        delta:
+          type: string
+    NutrientResearchBlockDeltaEvent:
+      type: object
+      required: [type, title, delta]
+      properties:
+        type:
+          type: string
+          enum: [nutrient_block_delta]
+        title:
+          type: string
+        delta:
           type: string
     NutrientResearchAssistantMessageDeltaEvent:
       type: object

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPort } from "../agent/ports/agent-port.js";
-import type { AgentTask, AgentTaskResult } from "../agent/runtime/agent-task.js";
+import type { AgentTask, AgentTaskResult, AgentTaskStreamEvent } from "../agent/runtime/agent-task.js";
 import { InMemoryNutrientMarkdownContentAccessAdapter } from "../content-access/adapters/in-memory-nutrient-markdown-content-access-adapter.js";
 import { NutrientService } from "../modules/nutrient/application/nutrient-service.js";
 import { FEEDBACK_MONITOR_TYPES } from "../modules/feedback/domain/feedback-types.js";
@@ -91,6 +91,68 @@ function failingResearchAgent(): AgentPort {
         ],
       };
     },
+  };
+}
+
+function streamingResearchAgent(capturedTasks: AgentTask[] = []): AgentPort {
+  return {
+    async runTask(task: AgentTask): Promise<AgentTaskResult> {
+      capturedTasks.push(task);
+      return successfulStreamingResearchResult();
+    },
+    async *streamTask(task: AgentTask): AsyncGenerator<AgentTaskStreamEvent, AgentTaskResult> {
+      capturedTasks.push(task);
+      yield {
+        type: "thought_delta",
+        delta: "comparing research material",
+      };
+      yield {
+        type: "message_delta",
+        delta: "found one direction: ",
+      };
+      yield {
+        type: "message_delta",
+        delta: "emotional scenes.",
+      };
+      yield {
+        type: "nutrient_block_delta",
+        title: "XHS wallpaper emotional hook",
+        delta: "package around emotions",
+      };
+      yield {
+        type: "nutrient_block_delta",
+        title: "XHS wallpaper emotional hook",
+        delta: " and scenes.",
+      };
+      return successfulStreamingResearchResult();
+    },
+  };
+}
+
+function successfulStreamingResearchResult(): AgentTaskResult {
+  return {
+    ok: true,
+    taskId: "agent-task_streaming_research",
+    output: {
+      taskType: "nutrient_research",
+      content: {
+        type: "nutrient_research_result",
+        message: "found one direction: emotional scenes.",
+        depositableBlocks: [
+          {
+            title: "XHS wallpaper emotional hook",
+            markdown: "package wallpaper content around emotions and scenes.",
+          },
+        ],
+      },
+    },
+    trace: [
+      {
+        type: "task_started",
+        at: "2026-01-01T00:00:00.000Z",
+        message: "started",
+      },
+    ],
   };
 }
 
@@ -870,6 +932,64 @@ describe("NutrientService", () => {
       { role: "assistant", content: "找到一个可沉淀方向。" },
     ]);
     expect(blocks).toHaveLength(1);
+    expect(capturedTasks).toHaveLength(1);
+  });
+
+  it("streams AI generated thought, message and nutrient deltas before final persistence", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const { service } = await createFixture(streamingResearchAgent(capturedTasks));
+    const session = await service.createResearchSession({
+      seedId: "seed_1",
+      title: "platform research",
+    });
+
+    const events = [];
+    for await (const event of service.streamResearchMessage(session.id, {
+      message: "research XHS wallpaper content",
+    })) {
+      events.push(event);
+    }
+    const messages = await service.listResearchMessages(session.id);
+    const blocks = await service.listDepositableBlocks(session.id);
+
+    expect(events.map((event) => event.type)).toEqual([
+      "user_message",
+      "progress",
+      "progress",
+      "thought_delta",
+      "message_delta",
+      "message_delta",
+      "nutrient_block_delta",
+      "nutrient_block_delta",
+      "progress",
+      "progress",
+      "assistant_message_delta",
+      "depositable_block",
+      "done",
+    ]);
+    expect(events[3]).toMatchObject({
+      type: "thought_delta",
+      delta: "comparing research material",
+    });
+    expect(events[4]).toMatchObject({
+      type: "message_delta",
+      delta: "found one direction: ",
+    });
+    expect(events[6]).toMatchObject({
+      type: "nutrient_block_delta",
+      title: "XHS wallpaper emotional hook",
+      delta: "package around emotions",
+    });
+    expect(messages).toMatchObject([
+      { role: "user" },
+      { role: "assistant", content: "found one direction: emotional scenes." },
+    ]);
+    expect(blocks).toMatchObject([
+      {
+        title: "XHS wallpaper emotional hook",
+        markdown: "package wallpaper content around emotions and scenes.",
+      },
+    ]);
     expect(capturedTasks).toHaveLength(1);
   });
 

@@ -5,6 +5,7 @@ import {
   type AgentExchangeLogRecorder,
 } from "./agent-exchange-log.js";
 import type { AgentTask, AgentTaskContext, AgentTaskOutput } from "./agent-task.js";
+import type { AgentTaskStreamEvent } from "./agent-task.js";
 import type { AgentTrace } from "./agent-trace.js";
 import type {
   LlmAdapter,
@@ -80,6 +81,7 @@ export class SkillRuntime {
   public async executeTask(
     task: AgentTask,
     context: AgentTaskContext,
+    emit?: (event: AgentTaskStreamEvent) => void | Promise<void>,
   ): Promise<AgentTaskOutput> {
     const skill = this.registry.findForTask(task, context);
     this.trace.record("skill_called", `Skill called: ${skill.name}`, {
@@ -92,6 +94,7 @@ export class SkillRuntime {
         tools: this.toolRuntime,
         llm: new TracedLlmAdapter(this.llm, this.trace, this.exchangeLog),
         trace: this.trace,
+        emit,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Skill execution failed";
@@ -157,6 +160,54 @@ class TracedLlmAdapter implements LlmAdapter {
     } catch (error) {
       const message = error instanceof Error ? error.message : "LLM call failed";
       this.trace.record("llm_failed", "LLM call failed", { reason: message });
+      this.exchangeLog?.record("llm_output", {
+        name: input.model ?? "default",
+        content: { reason: message },
+      });
+      throw error;
+    }
+  }
+
+  public async *streamComplete(input: LlmCompletionInput) {
+    this.trace.record("llm_called", "LLM stream called", {
+      model: input.model,
+      messageCount: input.messages.length,
+    });
+    this.exchangeLog?.record("llm_input", {
+      name: input.model ?? "default",
+      content: input,
+    });
+
+    if (this.inner.streamComplete === undefined) {
+      const output = await this.complete(input);
+      yield {
+        contentDelta: output.content,
+        raw: output.raw,
+      };
+      return;
+    }
+
+    let content = "";
+    let thinking = "";
+    try {
+      for await (const chunk of this.inner.streamComplete(input)) {
+        content += chunk.contentDelta ?? "";
+        thinking += chunk.thinkingDelta ?? "";
+        yield chunk;
+      }
+      if (thinking.length > 0) {
+        this.exchangeLog?.record("llm_think", {
+          name: input.model ?? "default",
+          content: thinking,
+        });
+      }
+      this.exchangeLog?.record("llm_output", {
+        name: input.model ?? "default",
+        content: { content },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "LLM stream failed";
+      this.trace.record("llm_failed", "LLM stream failed", { reason: message });
       this.exchangeLog?.record("llm_output", {
         name: input.model ?? "default",
         content: { reason: message },

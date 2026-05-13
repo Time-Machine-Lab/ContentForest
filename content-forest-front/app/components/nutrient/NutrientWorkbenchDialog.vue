@@ -4,6 +4,7 @@ import MarkdownViewer from '../markdown/MarkdownViewer.vue'
 
 type ResearchMessageView = NutrientResearchMessage & {
   localStatus?: 'pending' | 'failed'
+  localKind?: 'thought' | 'assistant_stream'
 }
 
 const props = defineProps<{
@@ -285,6 +286,9 @@ async function submitResearchMessage() {
     optimisticAssistantId = optimistic.assistant.id
     let userMessageId = optimisticUserId
     let assistantMessageId = optimisticAssistantId
+    let thoughtMessageId = ''
+    let assistantContentStarted = false
+    const streamBlockIds = new Map<string, string>()
     researchMessages.value = [
       ...researchMessages.value,
       optimistic.user,
@@ -301,6 +305,42 @@ async function submitResearchMessage() {
           : item)
         return
       }
+      if (event.type === 'thought_delta') {
+        if (!thoughtMessageId) {
+          thoughtMessageId = `local-thought-${Date.now()}`
+          researchMessages.value = [
+            ...researchMessages.value,
+            {
+              id: thoughtMessageId,
+              sessionId: session.id,
+              role: 'assistant',
+              content: '',
+              agentTaskId: null,
+              trace: [],
+              failureReason: null,
+              createdAt: new Date().toISOString(),
+              localStatus: 'pending',
+              localKind: 'thought',
+            },
+          ]
+        }
+        appendResearchMessageDelta(thoughtMessageId, event.delta)
+        return
+      }
+      if (event.type === 'message_delta') {
+        if (!assistantContentStarted) {
+          assistantContentStarted = true
+          researchMessages.value = researchMessages.value.map((item) => item.id === assistantMessageId
+            ? { ...item, content: '', localStatus: 'pending', localKind: 'assistant_stream' }
+            : item)
+        }
+        appendResearchMessageDelta(assistantMessageId, event.delta)
+        return
+      }
+      if (event.type === 'nutrient_block_delta') {
+        appendStreamDepositableBlock(streamBlockIds, session.id, assistantMessageId, event.title, event.delta)
+        return
+      }
       if (event.type === 'assistant_message_delta') {
         assistantMessageId = upsertResearchMessage(
           assistantMessageId,
@@ -315,6 +355,8 @@ async function submitResearchMessage() {
       }
       if (event.type === 'done') {
         assistantMessageId = upsertResearchMessage(assistantMessageId, event.assistantMessage)
+        const localIds = new Set(streamBlockIds.values())
+        depositableBlocks.value = depositableBlocks.value.filter((block) => !localIds.has(block.id))
         depositableBlocks.value = mergeDepositableBlocks(
           depositableBlocks.value,
           event.depositableBlocks,
@@ -357,6 +399,42 @@ async function submitResearchMessage() {
   finally {
     submitLoading.value = false
   }
+}
+
+function appendResearchMessageDelta(messageId: string, delta: string) {
+  researchMessages.value = researchMessages.value.map((item) => item.id === messageId
+    ? { ...item, content: `${item.content}${delta}` }
+    : item)
+}
+
+function appendStreamDepositableBlock(
+  streamBlockIds: Map<string, string>,
+  sessionId: string,
+  assistantMessageId: string,
+  title: string,
+  delta: string,
+) {
+  const key = title.trim() || '可沉淀营养'
+  const existingId = streamBlockIds.get(key)
+  if (existingId) {
+    depositableBlocks.value = depositableBlocks.value.map((block) => block.id === existingId
+      ? { ...block, markdown: `${block.markdown}${delta}` }
+      : block)
+    return
+  }
+  const id = `local-nutrient-${Date.now()}-${streamBlockIds.size}`
+  streamBlockIds.set(key, id)
+  depositableBlocks.value = [
+    ...depositableBlocks.value,
+    {
+      id,
+      sessionId,
+      messageId: assistantMessageId,
+      title: key,
+      markdown: delta,
+      createdAt: new Date().toISOString(),
+    },
+  ]
 }
 
 function upsertResearchMessage(
@@ -819,10 +897,10 @@ function errorMessage(error: unknown) {
                     v-for="message in researchMessages"
                     :key="message.id"
                     class="cf-nutrient-message"
-                    :class="[`is-${message.role}`, message.localStatus ? `is-${message.localStatus}` : '']"
+                    :class="[`is-${message.role}`, message.localStatus ? `is-${message.localStatus}` : '', message.localKind ? `is-${message.localKind}` : '']"
                   >
                     <header>
-                      <strong>{{ message.role === 'user' ? '你' : 'Agent' }}</strong>
+                      <strong>{{ message.role === 'user' ? '你' : message.localKind === 'thought' ? 'Think' : 'Agent' }}</strong>
                       <span>{{ message.localStatus === 'pending' ? '处理中' : formatTime(message.createdAt) }}</span>
                     </header>
                     <MarkdownViewer :markdown="message.content" />
@@ -1429,6 +1507,13 @@ function errorMessage(error: unknown) {
 
 .cf-nutrient-message.is-assistant {
   justify-self: start;
+}
+
+.cf-nutrient-message.is-thought {
+  max-width: min(680px, 100%);
+  border-color: rgba(190, 172, 255, .18);
+  background: rgba(53, 45, 84, .24);
+  color: rgba(232, 228, 255, .82);
 }
 
 .cf-nutrient-message.is-pending {

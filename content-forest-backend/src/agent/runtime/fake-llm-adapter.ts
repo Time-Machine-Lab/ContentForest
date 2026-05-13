@@ -2,6 +2,7 @@ import type {
   LlmAdapter,
   LlmCompletionInput,
   LlmCompletionResult,
+  LlmCompletionStreamChunk,
 } from "./llm-adapter.js";
 
 export class FakeLlmAdapter implements LlmAdapter {
@@ -15,5 +16,14 @@ export class FakeLlmAdapter implements LlmAdapter {
     return {
       content: this.content,
     };
+  }
+
+  public async *streamComplete(_input: LlmCompletionInput): AsyncIterable<LlmCompletionStreamChunk> {
+    const size = 8;
+    for (let index = 0; index < this.content.length; index += size) {
+      yield {
+        contentDelta: this.content.slice(index, index + size),
+      };
+    }
   }
 }

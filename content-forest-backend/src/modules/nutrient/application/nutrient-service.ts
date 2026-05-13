@@ -1,5 +1,9 @@
 import type { AgentPort } from "../../../agent/ports/agent-port.js";
-import type { AgentTaskSuccessResult } from "../../../agent/runtime/agent-task.js";
+import type {
+  AgentTask,
+  AgentTaskResult,
+  AgentTaskSuccessResult,
+} from "../../../agent/runtime/agent-task.js";
 import { validateNutrientResearchOutput } from "../../../agent/skills/nutrient-research-output.js";
 import type { NutrientMarkdownContentAccessPort } from "../../../content-access/ports/nutrient-markdown-content-access-port.js";
 import {
@@ -138,6 +142,19 @@ export type NutrientResearchStreamEvent =
     type: "progress";
     stage: "message_saved" | "agent_started" | "agent_completed" | "saving_result";
     message: string;
+  }
+  | {
+    type: "thought_delta";
+    delta: string;
+  }
+  | {
+    type: "message_delta";
+    delta: string;
+  }
+  | {
+    type: "nutrient_block_delta";
+    title: string;
+    delta: string;
   }
   | {
     type: "assistant_message_delta";
@@ -867,7 +884,16 @@ export class NutrientService {
     };
 
     try {
-      const agentResult = await this.runNutrientResearchAgent(session, message);
+      const stream = this.streamNutrientResearchAgent(session, message);
+      let agentResult: AgentTaskResult;
+      while (true) {
+        const event = await stream.next();
+        if (event.done === true) {
+          agentResult = event.value;
+          break;
+        }
+        yield event.value;
+      }
       if (!agentResult.ok) {
         const assistantMessage = await this.saveAssistantResearchMessage({
           session,
@@ -1680,7 +1706,56 @@ export class NutrientService {
     message: string,
   ) {
     const agent = this.requireAgentPort();
-    return agent.runTask({
+    return agent.runTask(await this.buildResearchAgentTask(session, message));
+  }
+
+  private async *streamNutrientResearchAgent(
+    session: NutrientResearchSessionRecord,
+    message: string,
+  ): AsyncGenerator<NutrientResearchStreamEvent, AgentTaskResult> {
+    const agent = this.requireAgentPort();
+    const task = await this.buildResearchAgentTask(session, message);
+    if (agent.streamTask === undefined) {
+      return await agent.runTask(task);
+    }
+
+    const stream = agent.streamTask(task);
+    while (true) {
+      const event = await stream.next();
+      if (event.done === true) {
+        return event.value;
+      }
+      if (event.value.type === "thought_delta") {
+        yield {
+          type: "thought_delta",
+          delta: event.value.delta,
+        };
+      } else if (event.value.type === "message_delta") {
+        yield {
+          type: "message_delta",
+          delta: event.value.delta,
+        };
+      } else if (event.value.type === "nutrient_block_delta") {
+        yield {
+          type: "nutrient_block_delta",
+          title: event.value.title,
+          delta: event.value.delta,
+        };
+      } else if (event.value.type === "tool_progress") {
+        yield {
+          type: "progress",
+          stage: "agent_started",
+          message: event.value.message,
+        };
+      }
+    }
+  }
+
+  private async buildResearchAgentTask(
+    session: NutrientResearchSessionRecord,
+    message: string,
+  ): Promise<AgentTask> {
+    return {
       type: "nutrient_research",
       input: await this.buildResearchAgentInput(session, message),
       metadata: {
@@ -1688,7 +1763,7 @@ export class NutrientService {
         nutrientCardId: session.nutrientCardId,
         sessionId: session.id,
       },
-    });
+    };
   }
 
   private async persistSuccessfulResearchResult(

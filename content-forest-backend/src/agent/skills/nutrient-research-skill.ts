@@ -25,6 +25,15 @@ export class NutrientResearchSkill implements SkillContract {
       nutrientCardTitle: readOptionalString(input.context.input.nutrientCardTitle),
       maxResults: 8,
     });
+    await input.emit?.({
+      type: "tool_progress",
+      stage: "network_research_completed",
+      message: "联网研究完成，开始组织回复与可沉淀营养",
+      metadata: {
+        queryCount: readQueryCount(research),
+        resultCount: Array.isArray(research.results) ? research.results.length : 0,
+      },
+    });
     input.trace.record("skill_progress", "Nutrient research network package completed", {
       stage: "network_research_completed",
       queryCount: readQueryCount(research),
@@ -45,6 +54,7 @@ export class NutrientResearchSkill implements SkillContract {
         research,
       }),
       maxRepairAttempts: 1,
+      onStreamEvent: input.emit,
     });
 
     return {

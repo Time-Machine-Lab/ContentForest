@@ -17,6 +17,10 @@ export {
   type SearchApiProviderName,
 } from "./providers/configured-search-api-provider.js";
 export {
+  PublicWebSearchProvider,
+  type PublicWebSearchProviderOptions,
+} from "./providers/public-web-search-provider.js";
+export {
   PlatformDataPlaceholderProvider,
   WebPageFetchPlaceholderProvider,
 } from "./providers/placeholder-providers.js";

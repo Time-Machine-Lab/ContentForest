@@ -3,6 +3,7 @@ import {
   BrowserResearchProvider,
   ConfiguredSearchApiProvider,
   NetworkProviderRouter,
+  PublicWebSearchProvider,
   planNetworkResearch,
   type BrowserCli,
   type NetworkProvider,
@@ -48,6 +49,22 @@ describe("networked research module", () => {
     expect(plan.queries.join("\n")).not.toContain("找几篇");
     expect(plan.queries.join("\n")).not.toContain("保留案例");
     expect(plan.queries.join("\n")).not.toContain("梳理");
+  });
+
+  it("keeps platform and topic when cleaning longer Xiaohongshu research instructions", () => {
+    const plan = planNetworkResearch({
+      mode: "research",
+      request: "搜索小红书关于AI产品宣传的爆款文章，从各种方向考察，挑选5~10篇。作为爆款文章案例并总结出相应的规则",
+    });
+
+    expect(plan.targetPlatform).toBe("小红书");
+    expect(plan.intent).toBe("platform_cases");
+    expect(plan.expectedResultCount).toBe(10);
+    expect(plan.contentObject).toContain("AI产品宣传");
+    expect(plan.contentObject).toContain("爆款文章");
+    expect(plan.contentObject).not.toContain("各种方向考察");
+    expect(plan.contentObject).not.toMatch(/\s并\s|^并$|^并\s|\s并$/u);
+    expect(plan.queries.join("\n")).toContain("小红书");
   });
 
   it("routes research, normalizes, dedupes, and sorts results", async () => {
@@ -128,6 +145,66 @@ describe("networked research module", () => {
       resultQuality: "candidate_lead",
       phase: "initial_search",
     });
+  });
+
+  it("uses public web search as a no-key initial search fallback", async () => {
+    const provider = new PublicWebSearchProvider({
+      fetchImpl: async () => new Response(`
+        <div class="result">
+          <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fxhs-ai">小红书 AI 产品爆款案例</a>
+          <a class="result__snippet">拆解 AI 产品在小红书的标题、封面和种草表达。</a>
+        </div>
+      `, { status: 200 }),
+    });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "搜索小红书关于AI产品宣传的爆款文章",
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.results[0]).toMatchObject({
+      title: "小红书 AI 产品爆款案例",
+      url: "https://example.com/xhs-ai",
+      providerName: "public_web_search",
+      resultQuality: "candidate_lead",
+    });
+  });
+
+  it("falls back to Sogou when DuckDuckGo public search fails", async () => {
+    const provider = new PublicWebSearchProvider({
+      fetchImpl: async (url) => {
+        if (String(url).includes("duckduckgo")) {
+          throw new Error("fetch failed");
+        }
+        return new Response(`
+          <div class="vrwrap">
+            <h3 class="vr-title"><a href="/link?url=abc"><em><!--red_beg-->AI<!--red_end--></em>生成小红书爆款种草文案</a></h3>
+            <div class="fz-mid space-txt">用AI写出爆款种草文案，提高工作效率。</div>
+          </div>
+        `, { status: 200 });
+      },
+    });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "小红书 AI 产品爆款案例",
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.results[0]).toMatchObject({
+      providerName: "public_web_search",
+      source: "Sogou Web",
+    });
+    expect(result.results[0]?.title).toContain("小红书爆款种草文案");
   });
 
   it("returns a structured missing key failure for configured search providers", async () => {
@@ -274,6 +351,63 @@ describe("networked research module", () => {
     );
   });
 
+  it("reports Xiaohongshu safety limit pages as restricted statuses", async () => {
+    const cli = new RecordingCli("安全限制 IP存在风险，请切换可靠网络环境后重试 300012");
+    const provider = new BrowserResearchProvider({
+      cli,
+      allowedDomains: ["xiaohongshu.com", "*.xiaohongshu.com"],
+    });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "小红书 AI 产品真实案例",
+      deepExploration: true,
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.restrictedStatuses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "access_denied",
+          phase: "deep_exploration",
+        }),
+      ]),
+    );
+  });
+
+  it("falls back to snapshot when browser open times out after partial navigation", async () => {
+    const cli = new OpenFailsSnapshotSucceedsCli("安全限制 IP存在风险，请切换可靠网络环境后重试 300012");
+    const provider = new BrowserResearchProvider({
+      cli,
+      allowedDomains: ["xiaohongshu.com", "*.xiaohongshu.com"],
+    });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "小红书 AI 产品真实案例",
+      deepExploration: true,
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.failures).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ phase: "deep_exploration" }),
+      ]),
+    );
+    expect(result.restrictedStatuses[0]).toMatchObject({
+      code: "access_denied",
+      providerName: "xiaohongshu_browser_strategy",
+    });
+  });
+
   it("rejects browser access outside allowed domains", async () => {
     const provider = new BrowserResearchProvider({
       cli: new RecordingCli(""),
@@ -343,5 +477,16 @@ class RecordingCli implements BrowserCli {
   public async run(args: string[], timeoutMs: number): Promise<string> {
     this.calls.push({ args, timeoutMs });
     return args.includes("snapshot") ? this.snapshot : "";
+  }
+}
+
+class OpenFailsSnapshotSucceedsCli implements BrowserCli {
+  public constructor(private readonly snapshot: string) {}
+
+  public async run(args: string[], _timeoutMs: number): Promise<string> {
+    if (args.includes("open")) {
+      throw new Error("Command timed out after 30000ms");
+    }
+    return this.snapshot;
   }
 }

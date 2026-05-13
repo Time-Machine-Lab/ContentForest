@@ -87,10 +87,23 @@ export class AgentBrowserActionRuntime implements BrowserActionRuntime {
         "--allowed-domains",
         input.allowedDomains.join(","),
       ];
-      await this.cli.run([...baseArgs, "open", input.url], input.timeoutMs);
-      steps.push(`open:${domainOf(input.url)}`);
+      let openError: unknown = null;
+      try {
+        await this.cli.run([...baseArgs, "open", input.url], input.timeoutMs);
+        steps.push(`open:${domainOf(input.url)}`);
+      } catch (error) {
+        openError = error;
+        steps.push(`open_failed:${domainOf(input.url)}`);
+        if (input.maxSteps >= 3) {
+          await this.cli.run([...baseArgs, "wait", "2000"], Math.min(input.timeoutMs, 5_000));
+          steps.push("wait_after_open_failed");
+        }
+      }
       const output = await this.cli.run([...baseArgs, "snapshot"], input.timeoutMs);
       steps.push("snapshot");
+      if (output.trim().length === 0 && openError !== null) {
+        throw openError;
+      }
       return {
         url: input.url,
         excerpt: output.slice(0, input.maxExcerptChars),
@@ -114,9 +127,7 @@ export function isAllowedDomain(url: string, allowedDomains: string[]): boolean 
   if (allowedDomains.length === 0) {
     return true;
   }
-  return allowedDomains.some((allowed) =>
-    domain === allowed || domain.endsWith(`.${allowed}`),
-  );
+  return allowedDomains.some((allowed) => isDomainAllowedByPattern(domain, allowed));
 }
 
 export function sessionIdFor(mode: "research" | "observe", value: string): string {
@@ -141,4 +152,16 @@ function resolveAgentBrowserCommand(): { file: string; args: string[] } {
   } catch {
     return { file: "agent-browser", args: [] };
   }
+}
+
+function isDomainAllowedByPattern(domain: string, allowed: string): boolean {
+  const normalized = allowed.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return false;
+  }
+  if (normalized.startsWith("*.")) {
+    const suffix = normalized.slice(2);
+    return domain === suffix || domain.endsWith(`.${suffix}`);
+  }
+  return domain === normalized || domain.endsWith(`.${normalized}`);
 }

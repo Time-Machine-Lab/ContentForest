@@ -1,6 +1,7 @@
 import type {
   AgentTaskContext,
   AgentTaskOutput,
+  AgentTaskStreamEvent,
   AgentTaskType,
 } from "../runtime/agent-task.js";
 import type { AgentTrace } from "../runtime/agent-trace.js";
@@ -12,6 +13,7 @@ export interface SkillExecutionInput {
   tools: ToolCaller;
   llm: LlmAdapter;
   trace: AgentTrace;
+  emit?: (event: AgentTaskStreamEvent) => void | Promise<void>;
 }
 
 export interface SkillContract {

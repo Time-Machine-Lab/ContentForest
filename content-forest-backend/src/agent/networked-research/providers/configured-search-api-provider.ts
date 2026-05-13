@@ -38,7 +38,7 @@ export class ConfiguredSearchApiProvider implements NetworkSearchProvider {
   }
 
   public canSearch(_request: NetworkResearchRequest, _plan: ResearchQueryPlan): boolean {
-    return true;
+    return this.provider.length > 0;
   }
 
   public async search(

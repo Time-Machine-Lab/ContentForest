@@ -33,6 +33,31 @@ export interface AgentTaskOutput {
   metadata?: Record<string, unknown>;
 }
 
+export type AgentTaskStreamEvent =
+  | {
+    type: "thought_delta";
+    delta: string;
+  }
+  | {
+    type: "message_delta";
+    delta: string;
+  }
+  | {
+    type: "nutrient_block_started";
+    title: string;
+  }
+  | {
+    type: "nutrient_block_delta";
+    title: string;
+    delta: string;
+  }
+  | {
+    type: "tool_progress";
+    stage: string;
+    message: string;
+    metadata?: Record<string, unknown>;
+  };
+
 export interface AgentTaskFailure {
   code: string;
   message: string;

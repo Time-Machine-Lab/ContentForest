@@ -5,6 +5,7 @@ import type {
   AgentTaskContext,
   AgentTaskFailureResult,
   AgentTaskResult,
+  AgentTaskStreamEvent,
   AgentTaskSuccessResult,
 } from "./agent-task.js";
 import {
@@ -55,6 +56,30 @@ export class AgentRuntime implements AgentPort {
   }
 
   public async runTask(task: AgentTask): Promise<AgentTaskResult> {
+    return this.executeTask(task);
+  }
+
+  public async *streamTask(
+    task: AgentTask,
+  ): AsyncGenerator<AgentTaskStreamEvent, AgentTaskResult> {
+    const queue = new AsyncEventQueue<AgentTaskStreamEvent, AgentTaskResult>();
+    void this.executeTask(task, (event) => queue.push(event))
+      .then((result) => queue.close(result))
+      .catch((error) => queue.close(toRuntimeFailureResult(task, error, this.nextTaskId())));
+
+    while (true) {
+      const item = await queue.next();
+      if (item.done) {
+        return item.value;
+      }
+      yield item.value;
+    }
+  }
+
+  private async executeTask(
+    task: AgentTask,
+    emit?: (event: AgentTaskStreamEvent) => void | Promise<void>,
+  ): Promise<AgentTaskResult> {
     const taskId = task.taskId ?? this.nextTaskId();
     const startedAt = this.now().toISOString();
     const exchangeLog = new AgentExchangeLogRecorder({
@@ -104,7 +129,7 @@ export class AgentRuntime implements AgentPort {
         trace,
         exchangeLog,
       });
-      const output = await skillRuntime.executeTask(task, context);
+      const output = await skillRuntime.executeTask(task, context, emit);
       const validatedOutput = this.outputValidator.validate(output, context);
       trace.record("output_validated", "Agent output validated", {
         taskId,
@@ -149,6 +174,43 @@ export class AgentRuntime implements AgentPort {
   }
 }
 
+class AsyncEventQueue<TEvent, TResult> {
+  private readonly events: TEvent[] = [];
+  private waiters: Array<(value: IteratorResult<TEvent, TResult>) => void> = [];
+  private completed: IteratorResult<TEvent, TResult> | null = null;
+
+  public push(event: TEvent): void {
+    const waiter = this.waiters.shift();
+    if (waiter !== undefined) {
+      waiter({ done: false, value: event });
+      return;
+    }
+    this.events.push(event);
+  }
+
+  public close(result: TResult): void {
+    this.completed = { done: true, value: result };
+    const waiters = this.waiters;
+    this.waiters = [];
+    for (const waiter of waiters) {
+      waiter(this.completed);
+    }
+  }
+
+  public async next(): Promise<IteratorResult<TEvent, TResult>> {
+    const event = this.events.shift();
+    if (event !== undefined) {
+      return { done: false, value: event };
+    }
+    if (this.completed !== null) {
+      return this.completed;
+    }
+    return new Promise((resolve) => {
+      this.waiters.push(resolve);
+    });
+  }
+}
+
 async function flushExchangeLog(
   exchangeLog: AgentExchangeLogRecorder,
   trace: AgentTrace,
@@ -181,5 +243,18 @@ function toFailure(error: unknown): { code: string; message: string } {
   return {
     code: "AGENT_RUNTIME_ERROR",
     message: error instanceof Error ? error.message : "Agent runtime failed",
+  };
+}
+
+function toRuntimeFailureResult(
+  task: AgentTask,
+  error: unknown,
+  taskId: string,
+): AgentTaskFailureResult {
+  return {
+    ok: false,
+    taskId: task.taskId ?? taskId,
+    error: toFailure(error),
+    trace: [],
   };
 }

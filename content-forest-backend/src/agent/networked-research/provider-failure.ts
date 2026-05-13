@@ -50,10 +50,10 @@ function inferFailureCode(
   if (/quota|rate limit|额度|频率/.test(normalized)) {
     return "quota_exceeded";
   }
-  if (/timeout|超时/.test(normalized)) {
+  if (/timeout|timed out|超时/.test(normalized)) {
     return "timeout";
   }
-  if (/domain|域名/.test(normalized)) {
+  if (/not in the allowed domains|domain is not allowed|域名不在|域名未授权/.test(normalized)) {
     return "domain_not_allowed";
   }
   if (/network|fetch|联网|连接/.test(normalized)) {

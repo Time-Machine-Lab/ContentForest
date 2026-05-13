@@ -35,7 +35,7 @@ function detectCode(
   original: string,
   normalized: string,
 ): NetworkRestrictedStatusCode | null {
-  if (original.trim().length === 0) {
+  if (original.trim().length === 0 || normalized.includes("(empty page)")) {
     return "empty_result";
   }
   if (
@@ -48,7 +48,11 @@ function detectCode(
   if (/请登录|登录后|扫码登录|sign in|log in|login required/.test(normalized)) {
     return "restricted_by_login";
   }
-  if (/访问受限|access denied|forbidden|too many requests|频率过高/.test(normalized)) {
+  if (
+    /访问受限|安全限制|ip存在风险|存在风险|access denied|forbidden|too many requests|频率过高/.test(
+      normalized,
+    )
+  ) {
     return "access_denied";
   }
   if (/暂无结果|没有找到|no results/.test(normalized)) {
