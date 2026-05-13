@@ -56,6 +56,8 @@ import {
   type ReferableNutrientContent,
 } from "../domain/nutrient-types.js";
 
+const DEFAULT_SEED_SCOPED_NUTRIENT_LIBRARY_NAME = "默认专属营养库";
+
 export interface CreateNutrientLibraryInput {
   name: string;
   description?: string;
@@ -104,7 +106,7 @@ export interface ListNutrientCardsInput {
 }
 
 export interface SettleNutrientCardInput {
-  libraryId: string;
+  libraryId?: string;
 }
 
 export interface BindNutrientCardConversationInput {
@@ -283,6 +285,17 @@ export class NutrientService {
     };
     await this.storage.createLibrary(record);
     return this.toLibraryDetail(record, 0);
+  }
+
+  public async ensureDefaultSeedScopedLibrary(
+    seedId: string,
+  ): Promise<NutrientLibraryDetail> {
+    const normalizedSeedId = await this.requireSeed(seedId);
+    const library = await this.ensureDefaultSeedScopedLibraryRecord(
+      normalizedSeedId,
+    );
+    const contentCount = await this.storage.countContentsByLibrary(library.id);
+    return this.toLibraryDetail(library, contentCount);
   }
 
   public async listLibraries(
@@ -501,10 +514,10 @@ export class NutrientService {
     input: CreateNutrientCardInput,
   ): Promise<NutrientCardDetail> {
     const normalizedSeedId = await this.requireSeed(seedId);
-    const title = this.requireNonBlank(input.title, "营养卡片标题不能为空");
+    const title = this.requireNonBlank(input.title, "草稿营养内容标题不能为空");
     const markdown = this.requireNonBlank(
       input.markdown,
-      "营养卡片 Markdown 正文不能为空",
+      "草稿营养内容 Markdown 正文不能为空",
     );
     const cardId = this.idGenerator.nextId("nutrient-card");
     const timestamp = this.timestamp();
@@ -568,7 +581,7 @@ export class NutrientService {
     if (input.title === undefined && input.markdown === undefined) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "至少需要提供营养卡片标题或 Markdown 正文",
+        "至少需要提供工作台营养内容标题或 Markdown 正文",
         400,
       );
     }
@@ -576,18 +589,18 @@ export class NutrientService {
     if (record.status === NUTRIENT_CARD_STATUSES.archived) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "已归档营养卡片不能编辑",
+        "已归档工作台营养内容不能编辑",
         400,
       );
     }
     const title =
       input.title === undefined
         ? record.title
-        : this.requireNonBlank(input.title, "营养卡片标题不能为空");
+        : this.requireNonBlank(input.title, "工作台营养内容标题不能为空");
     const markdown =
       input.markdown === undefined
         ? null
-        : this.requireNonBlank(input.markdown, "营养卡片 Markdown 正文不能为空");
+        : this.requireNonBlank(input.markdown, "工作台营养内容 Markdown 正文不能为空");
     if (markdown !== null) {
       await this.contentAccess.updateNutrientMarkdown(
         record.contentLocation,
@@ -613,18 +626,21 @@ export class NutrientService {
     if (record.status !== NUTRIENT_CARD_STATUSES.unsettled) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "只有未沉淀营养卡片可以沉淀",
+        "只有草稿营养内容可以沉淀",
         400,
       );
     }
-    const library = await this.requireActiveLibrary(input.libraryId);
+    const library =
+      input.libraryId === undefined
+        ? await this.ensureDefaultSeedScopedLibraryRecord(record.seedId)
+        : await this.requireActiveLibrary(input.libraryId);
     if (
       library.scope !== NUTRIENT_LIBRARY_SCOPES.seedScoped ||
       library.seedId !== record.seedId
     ) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "营养卡片只能沉淀到当前种子专属营养库",
+        "草稿营养内容只能沉淀到当前种子专属营养库",
         400,
       );
     }
@@ -648,6 +664,19 @@ export class NutrientService {
     return this.getCard(cardId);
   }
 
+  public async deleteDraftCard(cardId: string): Promise<void> {
+    const record = await this.requireCard(cardId);
+    if (record.status !== NUTRIENT_CARD_STATUSES.unsettled) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "Only draft nutrient content can be deleted",
+        400,
+      );
+    }
+    await this.storage.deleteCard(record.id);
+    await this.contentAccess.removeNutrientMarkdown(record.contentLocation);
+  }
+
   public async archiveCard(cardId: string): Promise<NutrientCardDetail> {
     const record = await this.requireCard(cardId);
     if (record.status === NUTRIENT_CARD_STATUSES.archived) {
@@ -669,7 +698,7 @@ export class NutrientService {
     if (record.status !== NUTRIENT_CARD_STATUSES.settled) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "只有已沉淀营养卡片可以设置为常驻营养",
+        "只有已沉淀营养内容可以设置为默认带入",
         400,
       );
     }
@@ -699,7 +728,7 @@ export class NutrientService {
     if (record.status === NUTRIENT_CARD_STATUSES.archived) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "已归档营养卡片不能绑定会话",
+        "已归档工作台营养内容不能绑定会话",
         400,
       );
     }
@@ -1162,7 +1191,7 @@ export class NutrientService {
       if (ref.resourceType !== "nutrient_card") {
         throw new ApplicationError(
           "VALIDATION_ERROR",
-          "临时营养卡片引用类型不正确",
+          "临时营养内容引用类型不正确",
           400,
         );
       }
@@ -1170,14 +1199,14 @@ export class NutrientService {
       if (card.seedId !== normalizedSeedId) {
         throw new ApplicationError(
           "VALIDATION_ERROR",
-          "营养卡片不可被当前种子引用",
+          "工作台营养内容不可被当前种子引用",
           400,
         );
       }
       if (card.status !== NUTRIENT_CARD_STATUSES.unsettled) {
         throw new ApplicationError(
           "VALIDATION_ERROR",
-          "只有未沉淀营养卡片可以作为临时资料引用",
+          "只有草稿营养内容可以作为临时资料引用",
           400,
         );
       }
@@ -1305,7 +1334,7 @@ export class NutrientService {
     if (target.status === NUTRIENT_CARD_STATUSES.archived) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "已归档营养卡片不能合并",
+        "已归档工作台营养内容不能合并",
         400,
       );
     }
@@ -1381,6 +1410,64 @@ export class NutrientService {
     return normalized;
   }
 
+  private async ensureDefaultSeedScopedLibraryRecord(
+    seedId: string,
+  ): Promise<NutrientLibraryRecord> {
+    const libraryId = this.defaultSeedScopedLibraryId(seedId);
+    const existing = await this.storage.findLibraryById(libraryId);
+    if (existing !== null) {
+      if (existing.archiveState === NUTRIENT_ARCHIVE_STATES.active) {
+        return existing;
+      }
+      const restored: NutrientLibraryRecord = {
+        ...existing,
+        archiveState: NUTRIENT_ARCHIVE_STATES.active,
+        updatedAt: this.timestamp(),
+        archivedAt: null,
+      };
+      await this.storage.saveLibrary(restored);
+      return restored;
+    }
+
+    const timestamp = this.timestamp();
+    const record: NutrientLibraryRecord = {
+      id: libraryId,
+      name: DEFAULT_SEED_SCOPED_NUTRIENT_LIBRARY_NAME,
+      description: "",
+      scope: NUTRIENT_LIBRARY_SCOPES.seedScoped,
+      seedId,
+      archiveState: NUTRIENT_ARCHIVE_STATES.active,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      archivedAt: null,
+    };
+
+    try {
+      await this.storage.createLibrary(record);
+      return record;
+    } catch (error) {
+      const concurrent = await this.storage.findLibraryById(libraryId);
+      if (concurrent === null) {
+        throw error;
+      }
+      if (concurrent.archiveState === NUTRIENT_ARCHIVE_STATES.active) {
+        return concurrent;
+      }
+      const restored: NutrientLibraryRecord = {
+        ...concurrent,
+        archiveState: NUTRIENT_ARCHIVE_STATES.active,
+        updatedAt: this.timestamp(),
+        archivedAt: null,
+      };
+      await this.storage.saveLibrary(restored);
+      return restored;
+    }
+  }
+
+  private defaultSeedScopedLibraryId(seedId: string): string {
+    return `nutrient-library_default_${encodeURIComponent(seedId)}`;
+  }
+
   private async requireLibrary(libraryId: string): Promise<NutrientLibraryRecord> {
     const normalized = this.requireNonBlank(libraryId, "营养库不能为空");
     const record = await this.storage.findLibraryById(normalized);
@@ -1424,7 +1511,7 @@ export class NutrientService {
     if (card.seedId !== seedId) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "营养研究会话不能绑定其他种子的营养卡片",
+        "营养研究会话不能绑定其他种子的营养内容",
         400,
       );
     }
@@ -1432,10 +1519,10 @@ export class NutrientService {
   }
 
   private async requireCard(cardId: string): Promise<NutrientCardRecord> {
-    const normalized = this.requireNonBlank(cardId, "营养卡片不能为空");
+    const normalized = this.requireNonBlank(cardId, "工作台营养内容不能为空");
     const record = await this.storage.findCardById(normalized);
     if (record === null) {
-      throw new ApplicationError("NOT_FOUND", "营养卡片不存在", 404);
+      throw new ApplicationError("NOT_FOUND", "工作台营养内容不存在", 404);
     }
     return record;
   }
@@ -1779,7 +1866,7 @@ export class NutrientService {
     ) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "营养卡片状态不正确",
+        "工作台营养内容状态不正确",
         400,
       );
     }

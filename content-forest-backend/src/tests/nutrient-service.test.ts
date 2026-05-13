@@ -395,6 +395,84 @@ describe("NutrientService", () => {
       .toEqual([]);
   });
 
+  it("ensures a default seed-scoped nutrient library idempotently", async () => {
+    const { service } = await createFixture();
+
+    const first = await service.ensureDefaultSeedScopedLibrary("seed_1");
+    const second = await service.ensureDefaultSeedScopedLibrary("seed_1");
+    const libraries = await service.listLibraries({
+      scope: NUTRIENT_LIBRARY_SCOPES.seedScoped,
+      seedId: "seed_1",
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(first).toMatchObject({
+      name: "默认专属营养库",
+      scope: NUTRIENT_LIBRARY_SCOPES.seedScoped,
+      seedId: "seed_1",
+      archiveState: NUTRIENT_ARCHIVE_STATES.active,
+    });
+    expect(libraries).toHaveLength(1);
+  });
+
+  it("settles draft nutrient content into the default seed-scoped library", async () => {
+    const { service } = await createFixture();
+    const card = await service.createCard("seed_1", {
+      title: "draft nutrient",
+      markdown: "draft markdown",
+    });
+
+    const settled = await service.settleCard(card.id, {});
+    const referable = await service.listReferableContents("seed_1");
+
+    expect(settled).toMatchObject({
+      status: NUTRIENT_CARD_STATUSES.settled,
+      title: "draft nutrient",
+      markdown: "draft markdown",
+    });
+    expect(settled.settledContentId).not.toBeNull();
+    expect(referable).toEqual([
+      expect.objectContaining({
+        id: settled.settledContentId,
+        title: "draft nutrient",
+        library: expect.objectContaining({
+          name: "默认专属营养库",
+          scope: NUTRIENT_LIBRARY_SCOPES.seedScoped,
+          seedId: "seed_1",
+        }),
+      }),
+    ]);
+  });
+
+  it("deletes only draft nutrient content", async () => {
+    const { service, contentAccess } = await createFixture();
+    const draft = await service.createCard("seed_1", {
+      title: "draft nutrient",
+      markdown: "draft markdown",
+    });
+
+    await service.deleteDraftCard(draft.id);
+
+    await expect(service.getCard(draft.id)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(
+      contentAccess.readNutrientMarkdown(draft.contentLocation),
+    ).rejects.toMatchObject({ code: "CONTENT_ACCESS_ERROR" });
+
+    const settledDraft = await service.createCard("seed_1", {
+      title: "settled nutrient",
+      markdown: "settled markdown",
+    });
+    const settled = await service.settleCard(settledDraft.id, {});
+    await expect(service.deleteDraftCard(settled.id)).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
+    await expect(service.getCard(settled.id)).resolves.toMatchObject({
+      status: NUTRIENT_CARD_STATUSES.settled,
+    });
+  });
+
   it("marks settled nutrient cards as default for growth and exposes the flag", async () => {
     const { service } = await createFixture();
     const library = await service.createLibrary({

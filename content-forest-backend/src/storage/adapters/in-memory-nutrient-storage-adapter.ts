@@ -142,6 +142,10 @@ export class InMemoryNutrientStorageAdapter implements NutrientStoragePort {
     this.cards.set(record.id, { ...record });
   }
 
+  public async deleteCard(cardId: string): Promise<void> {
+    this.cards.delete(cardId);
+  }
+
   public async listCardsBySeed(
     seedId: string,
     filter: NutrientCardListFilter = {},

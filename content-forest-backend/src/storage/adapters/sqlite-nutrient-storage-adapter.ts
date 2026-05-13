@@ -462,6 +462,12 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
       );
   }
 
+  public async deleteCard(cardId: string): Promise<void> {
+    this.database
+      .prepare("DELETE FROM nutrient_cards WHERE id = ?")
+      .run(cardId);
+  }
+
   public async listCardsBySeed(
     seedId: string,
     filter: NutrientCardListFilter = {},

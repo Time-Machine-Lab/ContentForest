@@ -308,7 +308,7 @@ const resourceOptions = computed<ResourceRef[]>(() => {
         kind: 'nutrient' as const,
         label: item.title,
         scope: item.defaultForGrowth
-          ? `常驻营养 · ${item.library.name}`
+          ? `默认带入 · ${item.library.name}`
           : item.library.scope === 'public' ? `公共营养库 · ${item.library.name}` : `种子专属营养库 · ${item.library.name}`,
         description: item.defaultForGrowth ? '默认带入，可在本次移除' : '可作为本次枝化生长参考的营养内容',
       })),
@@ -334,13 +334,13 @@ const filteredResourceGroups = computed(() => [
   {
     kind: 'nutrient' as const,
     title: '营养',
-    subtitle: '创作素材、常驻营养与平台经验',
+    subtitle: '创作素材、默认带入与平台经验',
     resources: filteredResourceOptions.value.filter((resource) => resource.kind === 'nutrient'),
   },
   {
     kind: 'nutrient_card' as const,
-    title: '候选营养',
-    subtitle: '未沉淀卡片临时参考',
+    title: '草稿营养',
+    subtitle: '草稿营养内容临时参考',
     resources: filteredResourceOptions.value.filter((resource) => resource.kind === 'nutrient_card'),
   },
   {
@@ -352,7 +352,7 @@ const filteredResourceGroups = computed(() => [
 ].filter((group) => group.resources.length > 0))
 const growthDetailResources = computed(() => referencedResources.value.map((resource) => ({
   ...resource,
-  kindLabel: resource.kind === 'gene' ? '基因' : resource.kind === 'nutrient_card' ? '候选营养' : '营养',
+  kindLabel: resource.kind === 'gene' ? '基因' : resource.kind === 'nutrient_card' ? '草稿营养' : '营养',
 })))
 const selectedSearchModeOption = computed<GrowthSearchModeOption>(() => searchModeOptions.find((option) => option.value === selectedSearchMode.value) ?? defaultSearchModeOption)
 const selectedMutationIntensityOption = computed<GrowthMutationIntensityOption>(() => mutationIntensityOptions.find((option) => option.value === selectedMutationIntensity.value) ?? defaultMutationIntensityOption)
@@ -1878,7 +1878,7 @@ function applyFailedInput(failedInput: GrowthFailedInput) {
         id: ref.resourceId,
         kind: 'nutrient_card' as const,
         label: ref.resourceId,
-        scope: '未沉淀营养卡片',
+        scope: '草稿营养内容',
         description: '最近失败任务中的临时引用',
       }
     }

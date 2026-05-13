@@ -216,6 +216,17 @@ async function handleApiRequest(
     return true;
   }
 
+  const seedNutrientLibraryEnsureMatch = pathname.match(
+    /^\/api\/seeds\/([^/]+)\/nutrient-library\/ensure$/,
+  );
+  if (seedNutrientLibraryEnsureMatch && method === "POST") {
+    const result = await app.nutrientController.ensureDefaultSeedScopedLibrary(
+      decodeURIComponent(seedNutrientLibraryEnsureMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
   const seedNutrientCardsMatch = pathname.match(
     /^\/api\/seeds\/([^/]+)\/nutrient-cards$/,
   );
@@ -389,6 +400,13 @@ async function handleApiRequest(
     const result = await app.nutrientController.updateCard(
       decodeURIComponent(nutrientCardMatch[1] ?? ""),
       toUpdateNutrientCardInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+  if (nutrientCardMatch && method === "DELETE") {
+    const result = await app.nutrientController.deleteDraftCard(
+      decodeURIComponent(nutrientCardMatch[1] ?? ""),
     );
     sendJson(response, result.status, result.body);
     return true;
@@ -1109,7 +1127,7 @@ function toCreateNutrientCardInput(body: Record<string, unknown>): {
   if (typeof body.title !== "string" || typeof body.markdown !== "string") {
     throw new ApplicationError(
       "VALIDATION_ERROR",
-      "创建营养卡片需要提供标题和 Markdown 正文",
+      "创建草稿营养内容需要提供标题和 Markdown 正文",
       400,
     );
   }
@@ -1135,7 +1153,7 @@ function toUpdateNutrientCardInput(body: Record<string, unknown>): {
   const input: { title?: string; markdown?: string } = {};
   if (body.title !== undefined) {
     if (typeof body.title !== "string") {
-      throw new ApplicationError("VALIDATION_ERROR", "营养卡片标题必须是字符串", 400);
+      throw new ApplicationError("VALIDATION_ERROR", "工作台营养内容标题必须是字符串", 400);
     }
     input.title = body.title;
   }
@@ -1143,7 +1161,7 @@ function toUpdateNutrientCardInput(body: Record<string, unknown>): {
     if (typeof body.markdown !== "string") {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "营养卡片 Markdown 正文必须是字符串",
+        "工作台营养内容 Markdown 正文必须是字符串",
         400,
       );
     }
@@ -1153,13 +1171,13 @@ function toUpdateNutrientCardInput(body: Record<string, unknown>): {
 }
 
 function toSettleNutrientCardInput(body: Record<string, unknown>): {
-  libraryId: string;
+  libraryId?: string;
 } {
   rejectUnexpectedFields(body, ["libraryId"]);
-  if (typeof body.libraryId !== "string") {
-    throw new ApplicationError("VALIDATION_ERROR", "沉淀营养卡片需要提供营养库", 400);
+  if (body.libraryId !== undefined && typeof body.libraryId !== "string") {
+    throw new ApplicationError("VALIDATION_ERROR", "libraryId must be a string", 400);
   }
-  return { libraryId: body.libraryId };
+  return body.libraryId === undefined ? {} : { libraryId: body.libraryId };
 }
 
 function toBindNutrientCardConversationInput(body: Record<string, unknown>): {
@@ -1239,7 +1257,7 @@ function toCreateNutrientResearchSessionInput(body: Record<string, unknown>): {
     body.nutrientCardId !== null &&
     typeof body.nutrientCardId !== "string"
   ) {
-    throw new ApplicationError("VALIDATION_ERROR", "营养卡片必须是字符串", 400);
+    throw new ApplicationError("VALIDATION_ERROR", "工作台营养内容必须是字符串", 400);
   }
   if (body.title !== undefined && typeof body.title !== "string") {
     throw new ApplicationError("VALIDATION_ERROR", "会话标题必须是字符串", 400);
@@ -1330,7 +1348,7 @@ function toNutrientCardStatus(
     value !== NUTRIENT_CARD_STATUSES.settled &&
     value !== NUTRIENT_CARD_STATUSES.archived
   ) {
-    throw new ApplicationError("VALIDATION_ERROR", "营养卡片状态不正确", 400);
+    throw new ApplicationError("VALIDATION_ERROR", "工作台营养内容状态不正确", 400);
   }
   return value;
 }
@@ -1704,7 +1722,7 @@ function toTemporaryNutrientCardRefs(
   if (!Array.isArray(value)) {
     throw new ApplicationError(
       "VALIDATION_ERROR",
-      "临时营养卡片引用格式不正确",
+      "临时营养内容引用格式不正确",
       400,
     );
   }
@@ -1717,7 +1735,7 @@ function toTemporaryNutrientCardRefs(
     ) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
-        "临时营养卡片引用格式不正确",
+        "临时营养内容引用格式不正确",
         400,
       );
     }

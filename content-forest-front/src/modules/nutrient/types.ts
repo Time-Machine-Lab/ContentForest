@@ -251,7 +251,7 @@ export interface NutrientWorkbenchBackendDependency {
 
 export const NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES: NutrientWorkbenchBackendDependency[] = [
   {
-    name: '种子营养卡片列表与详情',
+    name: '种子营养内容列表与详情',
     status: 'available',
     note: '已对齐 docs/api/nutrient.yaml 中的 /api/seeds/{seedId}/nutrient-cards 与 /api/nutrient-cards/{cardId}',
   },
@@ -268,7 +268,7 @@ export const NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES: NutrientWorkbenchBackendDe
   {
     name: '营养新鲜度提醒',
     status: '依赖后端更新',
-    note: '当前缺少营养卡片新鲜度提醒接口；前端先预留展示位并提示依赖',
+    note: '当前缺少营养内容新鲜度提醒接口；前端先预留展示位并提示依赖',
   },
   {
     name: '营养使用表现摘要',
@@ -278,12 +278,12 @@ export const NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES: NutrientWorkbenchBackendDe
   {
     name: '相似营养检测',
     status: '依赖后端更新',
-    note: '当前缺少相似营养候选接口；前端先在可沉淀块处提供合并与保留新卡片操作',
+    note: '当前缺少相似营养候选接口；前端先在可沉淀块处提供合并与保存草稿操作',
   },
   {
     name: '可沉淀营养块合并与忽略',
     status: '依赖后端更新',
-    note: '当前缺少可沉淀块级别的合并、忽略接口；前端先通过编辑当前卡片或本地隐藏完成交互',
+    note: '当前缺少可沉淀块级别的合并、忽略接口；前端先通过编辑当前内容或本地隐藏完成交互',
   },
 ]
 

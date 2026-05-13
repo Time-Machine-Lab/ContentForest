@@ -134,6 +134,15 @@ export class NutrientController {
     };
   }
 
+  public async ensureDefaultSeedScopedLibrary(
+    seedId: string,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.ensureDefaultSeedScopedLibrary(seedId),
+    };
+  }
+
   public async createCard(
     seedId: string,
     body: CreateNutrientCardInput,
@@ -196,6 +205,14 @@ export class NutrientController {
     return {
       status: 200,
       body: await this.nutrientService.updateCard(cardId, body),
+    };
+  }
+
+  public async deleteDraftCard(cardId: string): Promise<HttpResult<unknown>> {
+    await this.nutrientService.deleteDraftCard(cardId);
+    return {
+      status: 204,
+      body: null,
     };
   }
 

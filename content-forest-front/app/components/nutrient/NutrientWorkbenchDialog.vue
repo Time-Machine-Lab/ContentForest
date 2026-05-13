@@ -606,7 +606,7 @@ function referenceSelectedCard() {
       id: card.id,
       kind: 'nutrient_card',
       label: card.title,
-      scope: '未沉淀营养卡片',
+      scope: '草稿营养内容',
       description: '本次枝化生长临时参考',
     })
     return
@@ -616,13 +616,13 @@ function referenceSelectedCard() {
     id: card.settledContentId,
     kind: 'nutrient',
     label: card.title,
-    scope: '已沉淀营养',
-    description: card.defaultForGrowth ? '常驻营养，可本次移除' : '正式营养内容',
+    scope: '已沉淀营养内容',
+    description: card.defaultForGrowth ? '默认带入，可本次移除' : '正式营养内容',
   })
 }
 
 function statusLabel(status: NutrientCardStatus) {
-  if (status === 'unsettled') return '未沉淀'
+  if (status === 'unsettled') return '草稿'
   if (status === 'settled') return '已沉淀'
   return '已归档'
 }
@@ -680,7 +680,7 @@ function errorMessage(error: unknown) {
           </div>
           <div class="cf-nutrient-workbench-stats" aria-label="营养工作台概览">
             <strong>{{ cards.length }}</strong>
-            <span>卡片</span>
+            <span>内容</span>
             <strong>{{ settledCardsCount }}</strong>
             <span>已沉淀</span>
           </div>
@@ -688,7 +688,7 @@ function errorMessage(error: unknown) {
         </header>
 
         <div class="cf-nutrient-workbench-tabs" aria-label="营养工作台分区">
-          <button type="button" :class="{ 'is-active': activePane === 'cards' }" @click="activePane = 'cards'">卡片</button>
+          <button type="button" :class="{ 'is-active': activePane === 'cards' }" @click="activePane = 'cards'">内容</button>
           <button type="button" :class="{ 'is-active': activePane === 'agent' }" @click="activePane = 'agent'">Agent</button>
           <button type="button" :class="{ 'is-active': activePane === 'suggestions' }" @click="activePane = 'suggestions'">建议</button>
         </div>
@@ -696,15 +696,15 @@ function errorMessage(error: unknown) {
         <p v-if="workbenchError" class="cf-nutrient-workbench-error">{{ workbenchError }}</p>
 
         <div class="cf-nutrient-workbench-layout">
-          <aside class="cf-nutrient-card-rail" :class="{ 'is-active-pane': activePane === 'cards' }" aria-label="营养卡片">
+          <aside class="cf-nutrient-card-rail" :class="{ 'is-active-pane': activePane === 'cards' }" aria-label="营养内容">
             <header class="cf-nutrient-pane-head">
-              <strong>营养卡片</strong>
+              <strong>营养内容</strong>
               <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" :disabled="cardsLoading" @click="loadCards">刷新</button>
             </header>
 
-            <div v-if="cardsLoading" class="cf-nutrient-workbench-empty">读取卡片中</div>
+            <div v-if="cardsLoading" class="cf-nutrient-workbench-empty">读取营养内容中</div>
             <div v-else-if="cards.length === 0" class="cf-nutrient-workbench-empty">
-              <strong>暂无营养卡片</strong>
+              <strong>暂无营养内容</strong>
               <span>Agent 研究沉淀后会出现在这里。</span>
             </div>
             <div v-else class="cf-nutrient-card-list">
@@ -722,7 +722,7 @@ function errorMessage(error: unknown) {
               >
                 <span class="cf-nutrient-card-item-top">
                   <span class="cf-nutrient-card-status" :class="`is-${card.status}`">{{ statusLabel(card.status) }}</span>
-                  <span>{{ card.defaultForGrowth ? '常驻' : formatDate(card.updatedAt) }}</span>
+                  <span>{{ card.defaultForGrowth ? '默认带入' : formatDate(card.updatedAt) }}</span>
                 </span>
                 <strong>{{ card.title }}</strong>
               </button>
@@ -733,7 +733,7 @@ function errorMessage(error: unknown) {
             <header class="cf-nutrient-pane-head">
               <div class="cf-nutrient-pane-title">
                 <strong>Agent 研究</strong>
-                <span>{{ researchSession ? researchSession.title : selectedCard ? '卡片会话' : '种子会话' }}</span>
+                <span>{{ researchSession ? researchSession.title : selectedCard ? '内容会话' : '种子会话' }}</span>
               </div>
               <button class="cf-nutrient-btn cf-nutrient-btn-secondary" type="button" :disabled="sessionLoading || submitLoading" @click="startNewResearchSession">
                 {{ sessionLoading ? '创建中' : '新会话' }}
@@ -741,17 +741,17 @@ function errorMessage(error: unknown) {
             </header>
 
             <section class="cf-nutrient-agent-thread">
-              <div v-if="detailLoading" class="cf-nutrient-workbench-empty">读取卡片内容中</div>
+              <div v-if="detailLoading" class="cf-nutrient-workbench-empty">读取营养内容中</div>
               <template v-else>
                 <article v-if="selectedCard" class="cf-nutrient-card-preview cf-nutrient-card-context">
                   <header>
                     <div>
-                      <span class="cf-nutrient-card-status" :class="`is-${selectedCard.status}`">{{ selectedCard.defaultForGrowth ? '常驻营养' : statusLabel(selectedCard.status) }}</span>
+                      <span class="cf-nutrient-card-status" :class="`is-${selectedCard.status}`">{{ selectedCard.defaultForGrowth ? '默认带入' : statusLabel(selectedCard.status) }}</span>
                       <h3>{{ selectedCard.title }}</h3>
                     </div>
-                    <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="activePane = 'cards'">定位卡片</button>
+                    <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="activePane = 'cards'">定位内容</button>
                   </header>
-                  <div class="cf-nutrient-card-actions" aria-label="营养卡片操作">
+                  <div class="cf-nutrient-card-actions" aria-label="营养内容操作">
                     <button
                       v-if="selectedCard.status === 'unsettled'"
                       class="cf-nutrient-btn cf-nutrient-btn-primary"
@@ -777,7 +777,7 @@ function errorMessage(error: unknown) {
                       :disabled="Boolean(operationLoading)"
                       @click="toggleDefaultForGrowth"
                     >
-                      {{ selectedCard.defaultForGrowth ? '取消常驻' : '常驻营养' }}
+                      {{ selectedCard.defaultForGrowth ? '取消默认带入' : '默认带入' }}
                     </button>
                     <button
                       v-if="selectedCard.status !== 'archived'"
@@ -790,7 +790,7 @@ function errorMessage(error: unknown) {
                     </button>
                     <button v-else class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" disabled title="依赖后端更新">回档</button>
                   </div>
-                  <p v-if="selectedCard.status === 'archived'" class="cf-nutrient-dependency-note">回档营养卡片依赖后端更新</p>
+                  <p v-if="selectedCard.status === 'archived'" class="cf-nutrient-dependency-note">回档营养内容依赖后端更新</p>
                   <p v-if="selectedCard.conversationId" class="cf-nutrient-conversation-note">会话 {{ selectedCard.conversationId }}</p>
                   <div class="cf-nutrient-feedback-grid" aria-label="营养反馈信息">
                     <section class="cf-nutrient-freshness">
@@ -810,8 +810,8 @@ function errorMessage(error: unknown) {
 
                 <div v-if="sessionLoading" class="cf-nutrient-workbench-empty">读取研究会话中</div>
                 <div v-else-if="!hasActiveConversation" class="cf-nutrient-workbench-empty cf-nutrient-chat-empty">
-                  <strong>{{ selectedCard ? '继续研究这张卡片' : '开始种子营养研究' }}</strong>
-                  <span>{{ selectedCard ? '输入问题后会为这张卡片创建或加载研究会话。' : '用模板快速启动，或直接描述要研究的平台和方向。' }}</span>
+                  <strong>{{ selectedCard ? '继续研究这条营养内容' : '开始种子营养研究' }}</strong>
+                  <span>{{ selectedCard ? '输入问题后会为这条营养内容创建或加载研究会话。' : '用模板快速启动，或直接描述要研究的平台和方向。' }}</span>
                 </div>
 
                 <div v-else class="cf-nutrient-message-list" aria-live="polite">
@@ -849,7 +849,7 @@ function errorMessage(error: unknown) {
                         :disabled="Boolean(operationLoading)"
                         @click="keepSuggestionAsNewCard(block)"
                       >
-                        {{ operationLoading === `create-block:${block.id}` ? '生成中' : '保留为新卡片' }}
+                        {{ operationLoading === `create-block:${block.id}` ? '生成中' : '保存为草稿' }}
                       </button>
                       <button
                         class="cf-nutrient-btn cf-nutrient-btn-secondary"
@@ -857,7 +857,7 @@ function errorMessage(error: unknown) {
                         :disabled="!selectedCard || selectedCard.status === 'archived' || Boolean(operationLoading)"
                         @click="mergeSuggestionIntoCard(block)"
                       >
-                        {{ operationLoading === `merge-block:${block.id}` ? '合并中' : '合并到当前卡片' }}
+                        {{ operationLoading === `merge-block:${block.id}` ? '合并中' : '合并到当前内容' }}
                       </button>
                       <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="ignoreDepositableBlock(block.id)">忽略</button>
                     </div>

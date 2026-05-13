@@ -74,11 +74,16 @@ test('nutrient workbench exposes card lifecycle actions and dependency restore s
   assert.equal(dialog.includes('archiveSelectedCard'), true)
   assert.equal(dialog.includes('toggleDefaultForGrowth'), true)
   assert.equal(dialog.includes('referenceSelectedCard'), true)
-  assert.equal(dialog.includes('回档营养卡片依赖后端更新'), true)
+  assert.equal(dialog.includes('回档营养内容依赖后端更新'), true)
+  assert.equal(dialog.includes("if (status === 'unsettled') return '草稿'"), true)
+  assert.equal(dialog.includes('默认带入'), true)
   assert.equal(dialog.includes("changed: []"), true)
   assert.equal(dialog.includes("emit('reference'"), true)
   assert.equal(dialog.includes("kind: 'nutrient_card'"), true)
   assert.equal(dialog.includes("kind: 'nutrient'"), true)
+  assert.equal(dialog.includes('营养卡片'), false)
+  assert.equal(dialog.includes('未沉淀'), false)
+  assert.equal(dialog.includes('常驻营养'), false)
 })
 
 test('nutrient research chat loads sessions and submits messages', () => {
@@ -125,8 +130,8 @@ test('nutrient research chat renders depositable blocks with actions', () => {
   assert.equal(dialog.includes('keepSuggestionAsNewCard'), true)
   assert.equal(dialog.includes('mergeSuggestionIntoCard'), true)
   assert.equal(dialog.includes('ignoreDepositableBlock'), true)
-  assert.equal(dialog.includes('保留为新卡片'), true)
-  assert.equal(dialog.includes('合并到当前卡片'), true)
+  assert.equal(dialog.includes('保存为草稿'), true)
+  assert.equal(dialog.includes('合并到当前内容'), true)
   assert.equal(dialog.includes('忽略'), true)
 })
 

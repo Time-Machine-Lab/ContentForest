@@ -10,6 +10,7 @@ import { NutrientController } from "../interface/http/nutrient-controller.js";
 import { NutrientService } from "../modules/nutrient/application/nutrient-service.js";
 import {
   NUTRIENT_ARCHIVE_STATES,
+  NUTRIENT_CARD_STATUSES,
   NUTRIENT_LIBRARY_SCOPES,
 } from "../modules/nutrient/domain/nutrient-types.js";
 import { SEED_ARCHIVE_STATES } from "../modules/seed/domain/seed-types.js";
@@ -111,6 +112,85 @@ describe("Nutrient module integration", () => {
       await expect(
         readFile(join(config.contentRootDir, content.contentLocation), "utf8"),
       ).resolves.toBe("# 集成正文");
+    } finally {
+      seedStorage.close();
+      nutrientStorage.close();
+    }
+  });
+
+  it("ensures default seed nutrient library and deletes draft workbench content in SQLite", async () => {
+    const root = await createTempRoot();
+    const config = {
+      contentRootDir: join(root, "content"),
+      databasePath: join(root, "app.sqlite"),
+      port: 3001,
+    };
+    await initializeRuntimeFilesystem(config);
+
+    const seedStorage = new SqliteSeedStorageAdapter(config.databasePath);
+    const nutrientStorage = new SqliteNutrientStorageAdapter(config.databasePath);
+    const service = new NutrientService({
+      storage: nutrientStorage,
+      seedStorage,
+      contentAccess: new LocalNutrientMarkdownContentAccessAdapter(
+        config.contentRootDir,
+      ),
+      idGenerator: createIdGenerator(),
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const controller = new NutrientController(service);
+
+    try {
+      await seedStorage.createSeed({
+        id: "seed_integration",
+        title: "integration seed",
+        archiveState: SEED_ARCHIVE_STATES.active,
+        contentLocation: "seeds/seed_integration.md",
+        rootNodeId: "seed-node_seed_integration",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        archivedAt: null,
+      });
+
+      const ensured = await controller.ensureDefaultSeedScopedLibrary(
+        "seed_integration",
+      );
+      const ensuredAgain = await controller.ensureDefaultSeedScopedLibrary(
+        "seed_integration",
+      );
+      const draftResult = await controller.createCard("seed_integration", {
+        title: "draft nutrient",
+        markdown: "draft markdown",
+      });
+      const draft = draftResult.body as {
+        id: string;
+        contentLocation: string;
+      };
+      const deleted = await controller.deleteDraftCard(draft.id);
+      const settledDraft = await controller.createCard("seed_integration", {
+        title: "settled nutrient",
+        markdown: "settled markdown",
+      });
+      const settled = await controller.settleCard(
+        (settledDraft.body as { id: string }).id,
+        {},
+      );
+
+      expect(ensured.status).toBe(200);
+      expect(ensuredAgain.body).toMatchObject({
+        id: (ensured.body as { id: string }).id,
+      });
+      expect(deleted.status).toBe(204);
+      await expect(controller.getCard(draft.id)).rejects.toMatchObject({
+        code: "NOT_FOUND",
+      });
+      await expect(
+        readFile(join(config.contentRootDir, draft.contentLocation), "utf8"),
+      ).rejects.toThrow();
+      expect(settled.body).toMatchObject({
+        status: NUTRIENT_CARD_STATUSES.settled,
+        settledContentId: expect.any(String),
+      });
     } finally {
       seedStorage.close();
       nutrientStorage.close();

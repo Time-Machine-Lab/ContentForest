@@ -238,16 +238,34 @@ paths:
                   $ref: '#/components/schemas/ReferableNutrientContent'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/seeds/{seedId}/nutrient-library/ensure:
+    post:
+      tags: [Nutrient]
+      summary: Ensure default seed-scoped nutrient library
+      description: |
+        Idempotently ensures the seed has an active default seed-scoped nutrient library.
+        The nutrient workbench can call this endpoint when opening.
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      responses:
+        '200':
+          description: 默认专属营养库已存在或已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NutrientLibraryDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/seeds/{seedId}/nutrient-cards:
     get:
       tags: [Nutrient]
-      summary: 查询种子下的营养卡片
+      summary: List seed workbench nutrient content
       parameters:
         - $ref: '#/components/parameters/SeedId'
         - $ref: '#/components/parameters/NutrientCardStatusQuery'
       responses:
         '200':
-          description: 营养卡片列表
+          description: Workbench nutrient content list
           content:
             application/json:
               schema:
@@ -258,7 +276,7 @@ paths:
           $ref: '#/components/responses/NotFound'
     post:
       tags: [Nutrient]
-      summary: 创建未沉淀营养卡片
+      summary: Create draft workbench nutrient content
       parameters:
         - $ref: '#/components/parameters/SeedId'
       requestBody:
@@ -299,7 +317,7 @@ paths:
   /api/nutrient-gap-suggestions/{suggestionId}/adopt:
     post:
       tags: [Nutrient]
-      summary: 采纳营养汲取建议并创建未沉淀营养卡片
+      summary: Adopt nutrient gap suggestion and create draft nutrient content
       parameters:
         - $ref: '#/components/parameters/SuggestionId'
       responses:
@@ -333,12 +351,12 @@ paths:
   /api/nutrient-cards/{cardId}:
     get:
       tags: [Nutrient]
-      summary: 查看营养卡片详情
+      summary: Get workbench nutrient content detail
       parameters:
         - $ref: '#/components/parameters/CardId'
       responses:
         '200':
-          description: 营养卡片详情
+          description: Workbench nutrient content detail
           content:
             application/json:
               schema:
@@ -347,7 +365,7 @@ paths:
           $ref: '#/components/responses/NotFound'
     patch:
       tags: [Nutrient]
-      summary: 编辑未归档营养卡片标题和 Markdown 正文
+      summary: 编辑未归档工作台营养内容标题和 Markdown 正文
       parameters:
         - $ref: '#/components/parameters/CardId'
       requestBody:
@@ -367,14 +385,28 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Nutrient]
+      summary: Delete draft workbench nutrient content
+      description: Only draft workbench nutrient content can be hard-deleted.
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+      responses:
+        '204':
+          description: 删除成功
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/nutrient-cards/{cardId}/settle:
     post:
       tags: [Nutrient]
-      summary: 将未沉淀营养卡片沉淀为种子专属正式营养内容
+      summary: Settle draft nutrient content into seed-scoped formal nutrient content
+      description: If libraryId is omitted, the backend uses the seed default nutrient library.
       parameters:
         - $ref: '#/components/parameters/CardId'
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -393,7 +425,7 @@ paths:
   /api/nutrient-cards/{cardId}/archive:
     post:
       tags: [Nutrient]
-      summary: 归档营养卡片
+      summary: Archive workbench nutrient content
       parameters:
         - $ref: '#/components/parameters/CardId'
       responses:
@@ -408,7 +440,7 @@ paths:
   /api/nutrient-cards/{cardId}/default-for-growth:
     post:
       tags: [Nutrient]
-      summary: 设置已沉淀营养卡片为常驻营养
+      summary: Mark settled nutrient content as default for growth
       parameters:
         - $ref: '#/components/parameters/CardId'
       responses:
@@ -425,7 +457,7 @@ paths:
   /api/nutrient-cards/{cardId}/default-for-growth/clear:
     post:
       tags: [Nutrient]
-      summary: 取消营养卡片的常驻营养标记
+      summary: Clear default-for-growth marker
       parameters:
         - $ref: '#/components/parameters/CardId'
       responses:
@@ -440,7 +472,7 @@ paths:
   /api/nutrient-cards/{cardId}/conversation:
     post:
       tags: [Nutrient]
-      summary: 绑定营养卡片研究会话标识
+      summary: Bind nutrient content research session
       parameters:
         - $ref: '#/components/parameters/CardId'
       requestBody:
@@ -604,7 +636,7 @@ paths:
   /api/nutrient-cards/{cardId}/usage-summary:
     get:
       tags: [Nutrient]
-      summary: 查看营养卡片使用效果摘要
+      summary: Get workbench nutrient content usage summary
       parameters:
         - $ref: '#/components/parameters/CardId'
       responses:
@@ -619,7 +651,7 @@ paths:
   /api/seeds/{seedId}/nutrient-cards/freshness:
     get:
       tags: [Nutrient]
-      summary: 查询种子营养卡片新鲜度提醒
+      summary: List seed nutrient content freshness reminders
       parameters:
         - $ref: '#/components/parameters/SeedId'
       responses:
@@ -636,7 +668,7 @@ paths:
   /api/seeds/{seedId}/nutrient-cards/similar:
     post:
       tags: [Nutrient]
-      summary: 查询相似营养卡片提示
+      summary: Find similar workbench nutrient content
       parameters:
         - $ref: '#/components/parameters/SeedId'
       requestBody:
@@ -661,7 +693,7 @@ paths:
   /api/nutrient-cards/{cardId}/merge:
     post:
       tags: [Nutrient]
-      summary: 将新营养内容合并到已有营养卡片
+      summary: Merge nutrient content into existing workbench nutrient content
       parameters:
         - $ref: '#/components/parameters/CardId'
       requestBody:
@@ -823,11 +855,10 @@ components:
           minLength: 1
     SettleNutrientCardRequest:
       type: object
-      required: [libraryId]
       properties:
         libraryId:
           type: string
-          description: 目标库必须是当前种子的未归档种子专属营养库。
+          description: 可选。提供时目标库必须是当前种子的未归档种子专属营养库；未提供时后端使用默认种子专属营养库。
     BindNutrientCardConversationRequest:
       type: object
       required: [conversationId]

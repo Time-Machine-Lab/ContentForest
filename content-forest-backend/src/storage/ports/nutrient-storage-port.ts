@@ -159,6 +159,7 @@ export interface NutrientStoragePort {
   createCard(record: NutrientCardRecord): Promise<void>;
   findCardById(cardId: string): Promise<NutrientCardRecord | null>;
   saveCard(record: NutrientCardRecord): Promise<void>;
+  deleteCard(cardId: string): Promise<void>;
   listCardsBySeed(
     seedId: string,
     filter?: NutrientCardListFilter,
