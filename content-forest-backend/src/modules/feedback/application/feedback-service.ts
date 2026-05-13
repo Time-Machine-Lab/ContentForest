@@ -8,6 +8,10 @@ import {
   type FeedbackMonitorAttachment,
   type FeedbackSnapshot,
 } from "../domain/feedback-types.js";
+import type {
+  NetworkObservation,
+  NetworkObservationPort,
+} from "./network-observation-port.js";
 import type { PublicationRecordPort } from "./publication-record-port.js";
 
 export interface CreateFeedbackSnapshotInput {
@@ -25,6 +29,7 @@ export interface UpdateFeedbackSnapshotInput {
 export interface FeedbackServiceDependencies {
   storage: FeedbackStoragePort;
   publicationRecordPort: PublicationRecordPort;
+  networkObservationPort?: NetworkObservationPort;
   idGenerator?: IdGenerator;
   now?: () => Date;
 }
@@ -32,12 +37,14 @@ export interface FeedbackServiceDependencies {
 export class FeedbackService {
   private readonly storage: FeedbackStoragePort;
   private readonly publicationRecordPort: PublicationRecordPort;
+  private readonly networkObservationPort: NetworkObservationPort | undefined;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
 
   public constructor(dependencies: FeedbackServiceDependencies) {
     this.storage = dependencies.storage;
     this.publicationRecordPort = dependencies.publicationRecordPort;
+    this.networkObservationPort = dependencies.networkObservationPort;
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
   }
@@ -178,6 +185,41 @@ export class FeedbackService {
         monitorAttachment === null ? null : { ...monitorAttachment },
       snapshots: snapshots.map((snapshot) => this.cloneSnapshot(snapshot)),
     };
+  }
+
+  public async observePublicationLink(
+    publicationRecordId: string,
+    input: { url: string; platform?: string },
+  ): Promise<NetworkObservation> {
+    const normalizedPublicationRecordId = this.requireNonBlank(
+      publicationRecordId,
+      "Publication record id is required",
+    );
+    await this.publicationRecordPort.assertPublicationRecordExists(
+      normalizedPublicationRecordId,
+    );
+    const attachment =
+      await this.storage.findMonitorAttachmentByPublicationRecordId(
+        normalizedPublicationRecordId,
+      );
+    if (attachment === null) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "A monitor attachment is required before observing publication data",
+        400,
+      );
+    }
+    if (this.networkObservationPort === undefined) {
+      throw new ApplicationError(
+        "AGENT_TOOL_ERROR",
+        "联网观测能力尚未装配",
+        502,
+      );
+    }
+    return this.networkObservationPort.observeUrl({
+      url: this.requireNonBlank(input.url, "Observation url is required"),
+      platform: input.platform,
+    });
   }
 
   private async requireFeedbackSnapshot(

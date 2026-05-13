@@ -19,6 +19,7 @@ import type {
   NutrientLibrarySummary,
   NutrientResearchMessage,
   NutrientResearchSessionDetail,
+  NutrientResearchStreamEvent,
   ReferableNutrientContent,
   SettleNutrientCardRequest,
   SubmitNutrientResearchMessageRequest,
@@ -47,6 +48,8 @@ export interface NutrientFetchOptions {
 }
 
 export type NutrientFetcher = <T>(url: string, options?: NutrientFetchOptions) => Promise<T>
+
+export type NutrientResearchStreamHandler = (event: NutrientResearchStreamEvent) => void
 
 function endpoint(baseUrl: string, path: string) {
   if (!baseUrl) return path
@@ -206,6 +209,52 @@ export function createNutrientApi(fetcher: NutrientFetcher, baseUrl = '') {
         method: 'POST',
         body: payload,
       })
+    },
+    async streamResearchMessage(
+      sessionId: string,
+      payload: SubmitNutrientResearchMessageRequest,
+      onEvent: NutrientResearchStreamHandler,
+    ) {
+      const response = await fetch(endpoint(baseUrl, `/api/nutrient-research-sessions/${encodeURIComponent(sessionId)}/messages/stream`), {
+        method: 'POST',
+        headers: {
+          accept: 'text/event-stream',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        throw new Error(await response.text() || `营养研究流式请求失败：${response.status}`)
+      }
+      if (!response.body) {
+        throw new Error('当前环境不支持营养研究流式响应')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        buffer += decoder.decode(value, { stream: !done })
+        const parts = buffer.split(/\n\n/)
+        buffer = parts.pop() ?? ''
+        for (const part of parts) {
+          const dataLine = part
+            .split(/\n/)
+            .find((line) => line.startsWith('data: '))
+          if (!dataLine) continue
+          onEvent(JSON.parse(dataLine.slice(6)) as NutrientResearchStreamEvent)
+        }
+        if (done) break
+      }
+      if (buffer.trim()) {
+        const dataLine = buffer
+          .split(/\n/)
+          .find((line) => line.startsWith('data: '))
+        if (dataLine) {
+          onEvent(JSON.parse(dataLine.slice(6)) as NutrientResearchStreamEvent)
+        }
+      }
     },
     listDepositableBlocks(sessionId: string) {
       return fetcher<NutrientDepositableBlock[]>(endpoint(baseUrl, `/api/nutrient-research-sessions/${encodeURIComponent(sessionId)}/depositable-blocks`))

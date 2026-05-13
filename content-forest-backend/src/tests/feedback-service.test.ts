@@ -11,6 +11,7 @@ import { InMemoryFeedbackStorageAdapter } from "../storage/adapters/in-memory-fe
 
 function createFeedbackService(options?: {
   publicationExists?: boolean;
+  observationPort?: ConstructorParameters<typeof FeedbackService>[0]["networkObservationPort"];
 }): FeedbackService {
   let idCounter = 0;
   let timeCounter = 0;
@@ -35,6 +36,7 @@ function createFeedbackService(options?: {
   return new FeedbackService({
     storage: new InMemoryFeedbackStorageAdapter(),
     publicationRecordPort,
+    networkObservationPort: options?.observationPort,
     idGenerator,
     now: () => {
       timeCounter += 1;
@@ -124,6 +126,51 @@ describe("FeedbackService", () => {
     expect("selectFruit" in service).toBe(false);
     expect("startGeneExtractionTask" in service).toBe(false);
     expect("deleteFeedbackSnapshot" in controller).toBe(false);
+  });
+
+  it("observes publication links without creating feedback snapshots", async () => {
+    const service = createFeedbackService({
+      observationPort: {
+        async observeUrl(input) {
+          return {
+            url: input.url,
+            sourceDomain: "xiaohongshu.com",
+            platform: input.platform ?? null,
+            capturedAt: "2026-01-02T00:00:00.000Z",
+            accessStatus: "accessible",
+            metrics: { likes: 88 },
+            missingMetrics: [],
+            sourceMethod: "fake",
+            rawExcerpt: "点赞 88",
+            providerName: "fake_provider",
+          };
+        },
+      },
+    });
+    await service.attachManualMonitor("publication_1");
+
+    const observation = await service.observePublicationLink("publication_1", {
+      url: "https://www.xiaohongshu.com/explore/1",
+      platform: "小红书",
+    });
+    const history = await service.getFeedbackHistory("publication_1");
+
+    expect(observation).toMatchObject({
+      metrics: { likes: 88 },
+      providerName: "fake_provider",
+    });
+    expect(history.snapshots).toEqual([]);
+  });
+
+  it("does not require network observation for manual snapshots", async () => {
+    const service = createFeedbackService();
+    await service.attachManualMonitor("publication_1");
+
+    const snapshot = await service.createFeedbackSnapshot("publication_1", {
+      performanceData: { views: 100 },
+    });
+
+    expect(snapshot.performanceData).toEqual({ views: 100 });
   });
 
   it("keeps the top-level API contract free of unsupported capabilities", async () => {

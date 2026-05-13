@@ -33,6 +33,10 @@ export class ToolRuntime {
 
     try {
       const output = await tool.execute(input, this.context);
+      this.trace.record("tool_completed", `Tool completed: ${name}`, {
+        toolName: name,
+        metadata: output.metadata ?? {},
+      });
       this.exchangeLog?.record("tool_result", {
         name,
         content: output,

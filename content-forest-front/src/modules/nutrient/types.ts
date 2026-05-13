@@ -172,6 +172,38 @@ export interface SubmitNutrientResearchMessageResult {
   depositableBlocks: NutrientDepositableBlock[]
 }
 
+export type NutrientResearchStreamEvent =
+  | {
+    type: 'user_message'
+    message: NutrientResearchMessage
+  }
+  | {
+    type: 'progress'
+    stage: 'message_saved' | 'agent_started' | 'agent_completed' | 'saving_result'
+    message: string
+  }
+  | {
+    type: 'assistant_message_delta'
+    message: NutrientResearchMessage
+    delta: string
+    done: boolean
+  }
+  | {
+    type: 'depositable_block'
+    block: NutrientDepositableBlock
+  }
+  | {
+    type: 'done'
+    assistantMessage: NutrientResearchMessage
+    depositableBlocks: NutrientDepositableBlock[]
+  }
+  | {
+    type: 'error'
+    code: string
+    message: string
+    assistantMessage?: NutrientResearchMessage
+  }
+
 export interface ReferableNutrientContent extends NutrientContentSummary {
   defaultForGrowth: boolean
   library: {

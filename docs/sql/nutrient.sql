@@ -11,6 +11,7 @@
 -- - 公共营养库 seed_id 必须为空；种子专属营养库 seed_id 必须非空，且作用域创建后不可变。
 -- - 营养卡片是种子级候选资料，不能属于公共营养库；沉淀后通过 settled_content_id 关联正式营养内容。
 -- - 营养汲取建议是种子级缺口提醒，采纳后只创建未沉淀营养卡片，不自动沉淀为正式营养。
+-- - 营养研究会话的 Agent trace 可以记录联网数据获取阶段摘要，但不保存 Provider 密钥、浏览器登录态或外部平台原始长正文。
 
 CREATE TABLE IF NOT EXISTS nutrient_libraries (
   id TEXT PRIMARY KEY,

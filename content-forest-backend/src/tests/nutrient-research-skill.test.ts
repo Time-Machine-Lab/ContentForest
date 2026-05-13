@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NutrientResearchSkill } from "../agent/skills/nutrient-research-skill.js";
-import { CONTROLLED_WEB_SEARCH_TOOL_NAME } from "../agent/tools/controlled-web-search-tool.js";
+import { NETWORKED_RESEARCH_TOOL_NAME } from "../agent/tools/networked-research-tool.js";
 import { AgentTrace } from "../agent/runtime/agent-trace.js";
 import type {
   LlmAdapter,
@@ -27,12 +27,15 @@ class FakeTools implements ToolCaller {
 
   public async callTool(name: string, input: ToolInput): Promise<ToolOutput> {
     this.calls.push({ name, input });
-    if (name !== CONTROLLED_WEB_SEARCH_TOOL_NAME) {
+    if (name !== NETWORKED_RESEARCH_TOOL_NAME) {
       throw new Error(`unknown tool: ${name}`);
     }
     return {
       content: {
-        query: input.query,
+        mode: "research",
+        queryPlan: {
+          queries: ["小红书壁纸案例"],
+        },
         results: [
           {
             title: "小红书壁纸案例",
@@ -40,6 +43,7 @@ class FakeTools implements ToolCaller {
             snippet: "壁纸内容常用情绪化场景和封面前后对比。",
           },
         ],
+        failures: [],
       },
     };
   }
@@ -82,8 +86,12 @@ describe("NutrientResearchSkill", () => {
     });
 
     expect(tools.calls[0]).toMatchObject({
-      name: CONTROLLED_WEB_SEARCH_TOOL_NAME,
-      input: { query: "壁纸项目 小红书壁纸内容怎么做" },
+      name: NETWORKED_RESEARCH_TOOL_NAME,
+      input: {
+        mode: "research",
+        request: "小红书壁纸内容怎么做",
+        seedTitle: "壁纸项目",
+      },
     });
     expect(output).toMatchObject({
       taskType: "nutrient_research",

@@ -28,6 +28,7 @@ import { GeneExtractionSkill } from "../../agent/skills/gene-extraction-skill.js
 import { NutrientResearchSkill } from "../../agent/skills/nutrient-research-skill.js";
 import { SeedBriefSkill } from "../../agent/skills/seed-brief-skill.js";
 import { ControlledWebSearchTool } from "../../agent/tools/controlled-web-search-tool.js";
+import { NetworkedResearchTool } from "../../agent/tools/networked-research-tool.js";
 import { ExecuteGeneratorScriptTool } from "../../agent/tools/execute-generator-script-tool.js";
 import { ReadGeneratorSkillTool } from "../../agent/tools/read-generator-skill-tool.js";
 import {
@@ -124,6 +125,7 @@ export async function bootstrapApp(
   skillRegistry.register(new NutrientResearchSkill());
   const toolRegistry = new ToolRegistry();
   toolRegistry.register(new ControlledWebSearchTool());
+  toolRegistry.register(new NetworkedResearchTool());
   toolRegistry.register(
     new ReadGeneratorSkillTool({
       generatorStorage,

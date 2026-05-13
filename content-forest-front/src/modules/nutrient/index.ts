@@ -30,6 +30,7 @@ export type {
   NutrientResearchSessionDetail,
   NutrientResearchSessionSummary,
   NutrientResearchSessionStatus,
+  NutrientResearchStreamEvent,
   NutrientResearchTemplate,
   NutrientWorkbenchBackendDependency,
   NutrientWorkbenchPane,

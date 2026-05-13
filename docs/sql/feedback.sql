@@ -6,6 +6,9 @@
 -- - A publication record can attach at most one monitor.
 -- - Feedback snapshots are appendable and editable, but not deletable.
 -- - performance_data_json stores free structured external performance facts.
+-- - Future network observation results can be consumed by the feedback domain
+--   as snapshot input candidates, but providers must not write these tables
+--   directly or bypass monitor attachment rules.
 -- - These tables do not judge success, calculate fitness, mutate fruit state,
 --   mutate publication records, archive snapshots, or call external platforms.
 

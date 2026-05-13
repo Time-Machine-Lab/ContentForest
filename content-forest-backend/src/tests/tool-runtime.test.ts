@@ -44,7 +44,10 @@ describe("ToolRegistry and ToolRuntime", () => {
         seedId: "seed_1",
       },
     });
-    expect(trace.list().map((event) => event.type)).toEqual(["tool_called"]);
+    expect(trace.list().map((event) => event.type)).toEqual([
+      "tool_called",
+      "tool_completed",
+    ]);
   });
 
   it("wraps tool execution failures and records trace", async () => {

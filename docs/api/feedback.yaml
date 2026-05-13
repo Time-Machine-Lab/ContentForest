@@ -5,9 +5,12 @@ info:
   description: >
     Feedback Controller contract for manual monitor attachment and feedback
     snapshots on publication records. The first phase records user-entered
-    external performance facts only. It does not expose automatic monitors,
-    fixed metric enums, deletion, archive, success judgement, fitness
-    calculation, publication mutation, or fruit state mutation.
+    external performance facts only. Later monitors may reuse the shared
+    network observation capability to collect metrics from known publication
+    links, but this API contract still keeps snapshot creation inside the
+    Feedback Controller. It does not expose fixed metric enums, deletion,
+    archive, success judgement, fitness calculation, publication mutation,
+    or fruit state mutation.
 tags:
   - name: Feedback
 paths:

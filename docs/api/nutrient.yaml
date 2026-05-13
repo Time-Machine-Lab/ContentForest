@@ -3,8 +3,9 @@ info:
   title: 内容森林营养库 API
   version: 0.1.0
   description: >
-    Nutrient Controller 对外暴露营养库和营养内容的创建、列表、详情、编辑、归档、回档和可引用营养查询能力。
+    Nutrient Controller 对外暴露营养库和营养内容的创建、列表、详情、编辑、归档、回档、可引用营养查询和营养研究会话能力。
     Markdown 正文只作为内容本体返回，作用域、归属、归档状态和内容位置由数据库维护。
+    营养研究会话可由后端 Agent 通过联网数据获取模块形成研究上下文包，但 API 只暴露会话、消息和可沉淀营养块，不直接暴露 Provider 密钥、浏览器 session 或平台采集实现。
 tags:
   - name: Nutrient
 paths:

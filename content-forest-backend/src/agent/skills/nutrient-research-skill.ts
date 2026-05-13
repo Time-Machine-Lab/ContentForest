@@ -1,5 +1,5 @@
 import { ApplicationError } from "../../shared/errors/application-error.js";
-import { CONTROLLED_WEB_SEARCH_TOOL_NAME } from "../tools/controlled-web-search-tool.js";
+import { NETWORKED_RESEARCH_TOOL_NAME } from "../tools/networked-research-tool.js";
 import type { AgentTaskOutput, AgentTaskType } from "../runtime/agent-task.js";
 import type { ToolCaller } from "../runtime/tool-contract.js";
 import type { SkillContract, SkillExecutionInput } from "./skill-contract.js";
@@ -12,21 +12,24 @@ export class NutrientResearchSkill implements SkillContract {
 
   public async execute(input: SkillExecutionInput): Promise<AgentTaskOutput> {
     const userMessage = readRequiredString(input.context.input.message, "研究问题不能为空");
-    const searchQuery = buildSearchQuery(input.context.input, userMessage);
     input.trace.record("skill_progress", "Nutrient research started", {
       stage: "nutrient_research_started",
       seedId: readOptionalString(input.context.input.seedId),
       nutrientCardId: readOptionalString(input.context.input.nutrientCardId),
     });
 
-    const search = await readToolRecord(input.tools, CONTROLLED_WEB_SEARCH_TOOL_NAME, {
-      query: searchQuery,
-      maxResults: 5,
+    const research = await readToolRecord(input.tools, NETWORKED_RESEARCH_TOOL_NAME, {
+      mode: "research",
+      request: userMessage,
+      seedTitle: readOptionalString(input.context.input.seedTitle),
+      nutrientCardTitle: readOptionalString(input.context.input.nutrientCardTitle),
+      maxResults: 8,
     });
-    input.trace.record("skill_progress", "Nutrient research search completed", {
-      stage: "nutrient_research_search_completed",
-      query: searchQuery,
-      resultCount: Array.isArray(search.results) ? search.results.length : 0,
+    input.trace.record("skill_progress", "Nutrient research network package completed", {
+      stage: "network_research_completed",
+      queryCount: readQueryCount(research),
+      resultCount: Array.isArray(research.results) ? research.results.length : 0,
+      providerFailures: Array.isArray(research.failures) ? research.failures.length : 0,
     });
 
     const output = await buildStructuredNutrientResearchOutput({
@@ -35,7 +38,7 @@ export class NutrientResearchSkill implements SkillContract {
       promptContext: buildPromptContext({
         taskInput: input.context.input,
         userMessage,
-        search,
+        research,
       }),
       maxRepairAttempts: 1,
     });
@@ -45,7 +48,7 @@ export class NutrientResearchSkill implements SkillContract {
       content: output,
       metadata: {
         skillName: this.name,
-        searchQuery,
+        networkResultCount: Array.isArray(research.results) ? research.results.length : 0,
       },
     };
   }
@@ -70,7 +73,7 @@ async function readToolRecord(
 function buildPromptContext(input: {
   taskInput: Record<string, unknown>;
   userMessage: string;
-  search: Record<string, unknown>;
+  research: Record<string, unknown>;
 }): string {
   return [
     "## 当前种子",
@@ -88,21 +91,9 @@ function buildPromptContext(input: {
     JSON.stringify(input.taskInput.recentMessages ?? [], null, 2),
     "## 用户本次问题",
     input.userMessage,
-    "## 联网搜索结果",
-    JSON.stringify(input.search, null, 2),
+    "## 联网研究上下文包",
+    JSON.stringify(input.research, null, 2),
   ].join("\n\n");
-}
-
-function buildSearchQuery(
-  taskInput: Record<string, unknown>,
-  userMessage: string,
-): string {
-  const seedTitle = readOptionalString(taskInput.seedTitle);
-  const cardTitle = readOptionalString(taskInput.nutrientCardTitle);
-  return [seedTitle, cardTitle, userMessage]
-    .filter((item) => item.length > 0)
-    .join(" ")
-    .slice(0, 200);
 }
 
 function readRequiredString(value: unknown, message: string): string {
@@ -114,4 +105,13 @@ function readRequiredString(value: unknown, message: string): string {
 
 function readOptionalString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function readQueryCount(research: Record<string, unknown>): number {
+  const queryPlan = research.queryPlan;
+  if (typeof queryPlan !== "object" || queryPlan === null || Array.isArray(queryPlan)) {
+    return 0;
+  }
+  const queries = (queryPlan as Record<string, unknown>).queries;
+  return Array.isArray(queries) ? queries.length : 0;
 }

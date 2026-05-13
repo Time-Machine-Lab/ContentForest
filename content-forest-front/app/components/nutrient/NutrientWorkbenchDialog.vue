@@ -276,27 +276,67 @@ async function submitResearchMessage() {
   lastSubmittedMessage.value = message
   let optimisticUserId = ''
   let optimisticAssistantId = ''
+  let streamError: string | null = null
   try {
     const session = await ensureResearchSession()
     localState.composingMessage = ''
     const optimistic = createOptimisticResearchTurn(session.id, message)
     optimisticUserId = optimistic.user.id
     optimisticAssistantId = optimistic.assistant.id
+    let userMessageId = optimisticUserId
+    let assistantMessageId = optimisticAssistantId
     researchMessages.value = [
       ...researchMessages.value,
       optimistic.user,
       optimistic.assistant,
     ]
-    const result = await nutrientApi.submitResearchMessage(session.id, { message })
-    researchMessages.value = [
-      ...researchMessages.value.filter((item) => item.id !== optimisticUserId && item.id !== optimisticAssistantId),
-      result.userMessage,
-      result.assistantMessage,
-    ]
-    depositableBlocks.value = mergeDepositableBlocks(
-      depositableBlocks.value,
-      result.depositableBlocks,
-    )
+    await nutrientApi.streamResearchMessage(session.id, { message }, (event) => {
+      if (event.type === 'user_message') {
+        userMessageId = upsertResearchMessage(userMessageId, event.message)
+        return
+      }
+      if (event.type === 'progress') {
+        researchMessages.value = researchMessages.value.map((item) => item.id === assistantMessageId
+          ? { ...item, content: event.message, localStatus: 'pending' }
+          : item)
+        return
+      }
+      if (event.type === 'assistant_message_delta') {
+        assistantMessageId = upsertResearchMessage(
+          assistantMessageId,
+          event.message,
+          event.done ? undefined : 'pending',
+        )
+        return
+      }
+      if (event.type === 'depositable_block') {
+        depositableBlocks.value = mergeDepositableBlocks(depositableBlocks.value, [event.block])
+        return
+      }
+      if (event.type === 'done') {
+        assistantMessageId = upsertResearchMessage(assistantMessageId, event.assistantMessage)
+        depositableBlocks.value = mergeDepositableBlocks(
+          depositableBlocks.value,
+          event.depositableBlocks,
+        )
+        localState.sessionStatus = 'ready'
+        return
+      }
+      if (event.type === 'error') {
+        streamError = event.message
+        if (event.assistantMessage) {
+          assistantMessageId = upsertResearchMessage(assistantMessageId, event.assistantMessage, 'failed')
+        }
+        else {
+          researchMessages.value = researchMessages.value.map((item) => item.id === assistantMessageId
+            ? { ...item, content: event.message, failureReason: event.message, localStatus: 'failed' }
+            : item)
+        }
+      }
+    })
+    if (streamError) {
+      throw new Error(streamError)
+    }
     localState.sessionStatus = 'ready'
   }
   catch (error) {
@@ -317,6 +357,24 @@ async function submitResearchMessage() {
   finally {
     submitLoading.value = false
   }
+}
+
+function upsertResearchMessage(
+  replaceId: string,
+  message: NutrientResearchMessage,
+  localStatus?: ResearchMessageView['localStatus'],
+) {
+  const next: ResearchMessageView = localStatus ? { ...message, localStatus } : { ...message }
+  let replaced = false
+  researchMessages.value = researchMessages.value.map((item) => {
+    if (item.id !== replaceId && item.id !== message.id) return item
+    replaced = true
+    return next
+  })
+  if (!replaced) {
+    researchMessages.value = [...researchMessages.value, next]
+  }
+  return message.id
 }
 
 function createOptimisticResearchTurn(sessionId: string, message: string): {
@@ -903,7 +961,7 @@ function errorMessage(error: unknown) {
 
 .cf-nutrient-workbench-dialog {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   width: min(1380px, calc(100vw - 56px));
   height: min(860px, calc(100vh - 56px));
   min-height: 620px;
@@ -927,6 +985,7 @@ function errorMessage(error: unknown) {
 }
 
 .cf-nutrient-workbench-head {
+  grid-row: 1;
   gap: 18px;
   padding: 18px 20px;
   border-bottom: 1px solid rgba(139, 156, 255, .14);
@@ -1076,6 +1135,7 @@ function errorMessage(error: unknown) {
 }
 
 .cf-nutrient-workbench-tabs {
+  grid-row: 2;
   display: none;
   gap: 8px;
   padding: 10px 12px;
@@ -1092,6 +1152,7 @@ function errorMessage(error: unknown) {
 }
 
 .cf-nutrient-workbench-error {
+  grid-row: 3;
   margin: 10px 16px 0;
   padding: 9px 12px;
   border: 1px solid rgba(255, 120, 120, .24);
@@ -1102,14 +1163,21 @@ function errorMessage(error: unknown) {
 }
 
 .cf-nutrient-workbench-layout {
+  grid-row: 4;
   display: grid;
   grid-template-columns: minmax(240px, 280px) minmax(460px, 1fr) minmax(240px, 300px);
+  align-items: stretch;
+  height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
 .cf-nutrient-card-rail,
 .cf-nutrient-agent-panel,
 .cf-nutrient-suggestion-rail {
+  align-self: stretch;
+  box-sizing: border-box;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: auto;
@@ -1129,6 +1197,7 @@ function errorMessage(error: unknown) {
 .cf-nutrient-agent-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
   background: rgba(10, 13, 20, .68);
 }
 

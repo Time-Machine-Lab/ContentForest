@@ -1,12 +1,17 @@
 ## ADDED Requirements
 
-### Requirement: 定义联网研究 Provider 架构
-系统 SHALL 提供联网研究模块，用于为 Agent 提供受控的外部资料发现、网页读取、浏览器观察和平台专项数据获取能力。联网研究模块 MUST 通过统一 Provider Router 调用不同研究来源，MUST NOT 让 Agent 直接绑定某个搜索供应商或浏览器命令。
+### Requirement: 定义泛用联网数据获取 Provider 架构
+系统 SHALL 提供泛用联网数据获取模块，用于为 Agent 和后续数据监控器提供受控的外部资料发现、网页读取、浏览器观察、指定链接观测和平台专项数据获取能力。联网数据获取模块 MUST 通过统一 Provider Router 调用不同来源，MUST NOT 让 Agent 或监控器直接绑定某个搜索供应商、浏览器命令或平台爬取实现。
 
 #### Scenario: 通过 Provider Router 执行研究
 - **WHEN** 营养汲取 Agent 请求执行联网研究
 - **THEN** 系统 MUST 通过联网研究 Provider Router 选择可用研究来源
 - **AND** 系统 MUST 返回统一格式的研究结果集合
+
+#### Scenario: 通过 Provider Router 执行观测
+- **WHEN** 数据监控器请求对指定发布链接采集当前表现数据
+- **THEN** 系统 MUST 通过联网数据获取 Provider Router 选择可用观测来源
+- **AND** 系统 MUST 返回统一格式的观测结果
 
 #### Scenario: Provider 不可用时降级
 - **WHEN** 某个配置的研究 Provider 不可用或调用失败
@@ -38,6 +43,24 @@
 - **WHEN** 平台专项 Provider 返回帖子、视频或互动数据
 - **THEN** 系统 MUST 保留可获取的真实互动数据
 - **AND** 系统 MUST 标记结果来源和抓取时间
+
+### Requirement: 支持指定链接观测结果归一化
+系统 SHALL 支持对指定 URL 或平台对象进行观测，并将观测结果归一化为统一结构。观测结果 MUST 表达目标链接、来源平台或域名、采集时间、可见指标、页面可访问状态、来源方式和原始片段摘要；无法获取的指标 MUST 以缺失状态表达，不得由系统伪造。
+
+#### Scenario: 观测发布链接指标
+- **WHEN** 监控器请求观测一条已发布果实的外部链接
+- **THEN** 系统 MUST 返回该链接当前可采集的表现指标
+- **AND** 系统 MUST 标记采集时间和来源方式
+
+#### Scenario: 指标不可见
+- **WHEN** 页面隐藏了点赞、收藏、观看或评论等指标
+- **THEN** 系统 MUST 将对应指标标记为不可获取或缺失
+- **AND** 系统 MUST NOT 使用模型猜测指标数值
+
+#### Scenario: 页面不可访问
+- **WHEN** 指定链接失效、需要登录、触发验证码或被平台限制访问
+- **THEN** 系统 MUST 返回页面不可访问状态和可理解原因
+- **AND** 系统 MUST NOT 创建虚假的观测数据
 
 ### Requirement: 支持结果去重、新鲜度和相关性排序
 系统 SHALL 对联网研究结果进行去重、新鲜度标记和相关性排序。排序结果 MUST 服务于 Agent 总结上下文，MUST NOT 被解释为平台效果预测或爆款保证。
@@ -91,8 +114,21 @@
 - **THEN** 系统 MUST NOT 自动创建正式营养内容
 - **AND** 系统 MUST NOT 自动保存结果到公共营养库
 
+### Requirement: 联网观测结果不直接创建反馈快照
+系统 SHALL 将联网观测结果作为数据回流领域可消费的外部采集结果。联网数据获取模块 MUST NOT 直接创建反馈快照、修改监控器挂载、判断内容成败或修改果实物竞天择状态。
+
+#### Scenario: 监控器消费观测结果
+- **WHEN** 数据监控器获得联网观测结果
+- **THEN** 数据回流领域 MAY 基于该结果创建反馈快照
+- **AND** 快照创建 MUST 遵守数据回流领域规则
+
+#### Scenario: Provider 不写反馈事实
+- **WHEN** Provider 成功采集到外部平台指标
+- **THEN** Provider MUST 只返回观测结果
+- **AND** Provider MUST NOT 直接写入反馈快照或数据库事实
+
 ### Requirement: 联网研究必须记录 Trace 和失败原因
-系统 SHALL 为联网研究过程记录可诊断 Trace。Trace MUST 至少表达查询规划、Provider 选择、Provider 调用、结果数量、失败原因、降级路径和最终上下文摘要，并 MUST 不记录真实 API Key、本地绝对路径或超出配置上限的长正文。
+系统 SHALL 为联网研究和联网观测过程记录可诊断 Trace。Trace MUST 至少表达查询规划或观测目标、Provider 选择、Provider 调用、结果数量、失败原因、降级路径和最终结果摘要，并 MUST 不记录真实 API Key、本地绝对路径、登录 Cookie 或超出配置上限的长正文。
 
 #### Scenario: 记录成功研究 Trace
 - **WHEN** 联网研究任务成功完成
@@ -104,6 +140,11 @@
 - **THEN** Trace MUST 包含失败 Provider 和失败原因
 - **AND** 系统 MUST 不泄露密钥、登录态或本地绝对路径
 
+#### Scenario: 记录观测 Trace
+- **WHEN** 联网观测任务完成或失败
+- **THEN** Trace MUST 包含观测目标、Provider 调用和采集结果摘要
+- **AND** Trace MUST 不泄露登录 Cookie、密钥或超长页面原文
+
 ### Requirement: 顶层 API 与 SQL 文档保持同步
 系统 SHALL 在联网研究模块涉及 HTTP API 或持久化结构时同步更新顶层 API 与 SQL 文档。营养汲取相关接口 MUST 落到 `docs/api/nutrient.yaml` 对应的 nutrient Controller；Agent 运行时管理接口如需新增 MUST 落到单独的 Agent API 文档；新增表结构 MUST 落到对应 `.sql` 文件。
 
@@ -111,6 +152,11 @@
 - **WHEN** 实现联网研究驱动的营养汲取接口
 - **THEN** 系统 MUST 更新 `docs/api/nutrient.yaml`
 - **AND** 该接口 MUST 归属于 nutrient Controller 契约
+
+#### Scenario: 新增数据监控观测 API
+- **WHEN** 实现监控器触发联网观测或查看观测结果的接口
+- **THEN** 系统 MUST 更新 `docs/api/feedback.yaml`
+- **AND** 该接口 MUST 归属于 Feedback Controller 契约
 
 #### Scenario: 新增研究持久化结构
 - **WHEN** 实现需要保存研究任务、研究结果或 Provider 调用记录的表

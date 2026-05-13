@@ -57,6 +57,7 @@ export type AgentTaskResult = AgentTaskSuccessResult | AgentTaskFailureResult;
 export type AgentTraceEventType =
   | "task_started"
   | "tool_called"
+  | "tool_completed"
   | "tool_failed"
   | "skill_called"
   | "skill_failed"
