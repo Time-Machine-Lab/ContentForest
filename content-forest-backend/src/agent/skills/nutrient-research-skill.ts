@@ -30,6 +30,10 @@ export class NutrientResearchSkill implements SkillContract {
       queryCount: readQueryCount(research),
       resultCount: Array.isArray(research.results) ? research.results.length : 0,
       providerFailures: Array.isArray(research.failures) ? research.failures.length : 0,
+      restrictedStatuses: Array.isArray(research.restrictedStatuses)
+        ? research.restrictedStatuses.length
+        : 0,
+      resultQualitySummary: summarizeResultQuality(research.results),
     });
 
     const output = await buildStructuredNutrientResearchOutput({
@@ -92,6 +96,11 @@ function buildPromptContext(input: {
     "## 用户本次问题",
     input.userMessage,
     "## 联网研究上下文包",
+    [
+      "说明：resultQuality=candidate_lead 只代表搜索候选线索，不能称为已验证真实案例；",
+      "resultQuality=observed_case 或 complete_observed_case 才代表浏览器打开平台页面后观察到的案例；",
+      "restrictedStatuses 表示验证码、登录墙、布局变化、Provider 不可用等限制，必须如实说明限制，不得基于这些内容编造案例。",
+    ].join("\n"),
     JSON.stringify(input.research, null, 2),
   ].join("\n\n");
 }
@@ -114,4 +123,22 @@ function readQueryCount(research: Record<string, unknown>): number {
   }
   const queries = (queryPlan as Record<string, unknown>).queries;
   return Array.isArray(queries) ? queries.length : 0;
+}
+
+function summarizeResultQuality(value: unknown): Record<string, number> {
+  const summary: Record<string, number> = {};
+  if (!Array.isArray(value)) {
+    return summary;
+  }
+  for (const item of value) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      continue;
+    }
+    const quality = (item as Record<string, unknown>).resultQuality;
+    if (typeof quality !== "string") {
+      continue;
+    }
+    summary[quality] = (summary[quality] ?? 0) + 1;
+  }
+  return summary;
 }

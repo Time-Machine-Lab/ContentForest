@@ -1,197 +1,162 @@
-import { execFile } from "node:child_process";
-import { createRequire } from "node:module";
-import { promisify } from "node:util";
 import { ApplicationError } from "../../../shared/errors/application-error.js";
-import { BrowserSessionPool } from "../browser-session-pool.js";
+import {
+  AgentBrowserActionRuntime,
+  domainOf,
+  isAllowedDomain,
+  sessionIdFor,
+  type BrowserActionRuntime,
+  type BrowserCli,
+} from "../browser-action-runtime.js";
+import type { BrowserSessionPool } from "../browser-session-pool.js";
+import { XiaohongshuBrowserStrategy } from "../browser-strategies/xiaohongshu-strategy.js";
+import { NetworkProviderError } from "../provider-failure.js";
+import { detectRestrictedStatus } from "../restricted-status.js";
+import type { PlatformBrowserStrategy } from "../platform-browser-strategy.js";
 import type {
+  NetworkEngagement,
+  NetworkExplorationProvider,
+  NetworkObservationResult,
   NetworkObserveRequest,
   NetworkProvider,
   NetworkResearchRequest,
+  NetworkResearchResult,
   RawNetworkResearchItem,
   ResearchQueryPlan,
 } from "../types.js";
 
-const execFileAsync = promisify(execFile);
-const require = createRequire(import.meta.url);
-
-export interface BrowserCli {
-  run(args: string[], timeoutMs: number): Promise<string>;
-}
-
 export interface BrowserResearchProviderOptions {
+  runtime?: BrowserActionRuntime;
   cli?: BrowserCli;
+  pool?: BrowserSessionPool;
   allowedDomains?: string[];
   maxSteps?: number;
   timeoutMs?: number;
   maxExcerptChars?: number;
-  pool?: BrowserSessionPool;
+  strategies?: PlatformBrowserStrategy[];
   enabled?: boolean;
 }
 
-export class AgentBrowserCli implements BrowserCli {
-  public async run(args: string[], timeoutMs: number): Promise<string> {
-    try {
-      const command = resolveAgentBrowserCommand();
-      const result = await execFileAsync(command.file, [...command.args, ...args], {
-        timeout: timeoutMs,
-        windowsHide: true,
-        maxBuffer: 1024 * 1024,
-      });
-      return [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "agent-browser 执行失败";
-      throw new ApplicationError(
-        "AGENT_TOOL_ERROR",
-        `agent-browser 不可用或执行失败：${message}`,
-        502,
-      );
-    }
-  }
-}
-
-function resolveAgentBrowserCommand(): { file: string; args: string[] } {
-  try {
-    return {
-      file: process.execPath,
-      args: [require.resolve("agent-browser/bin/agent-browser.js")],
-    };
-  } catch {
-    return { file: "agent-browser", args: [] };
-  }
-}
-
-export class BrowserResearchProvider implements NetworkProvider {
+export class BrowserResearchProvider implements NetworkProvider, NetworkExplorationProvider {
   public readonly name = "agent_browser";
 
-  private readonly cli: BrowserCli;
+  private readonly runtime: BrowserActionRuntime;
   private readonly allowedDomains: string[];
   private readonly maxSteps: number;
   private readonly timeoutMs: number;
   private readonly maxExcerptChars: number;
-  private readonly pool: BrowserSessionPool;
+  private readonly strategies: PlatformBrowserStrategy[];
   private readonly enabled: boolean;
 
   public constructor(options: BrowserResearchProviderOptions = {}) {
-    this.cli = options.cli ?? new AgentBrowserCli();
+    this.runtime = options.runtime ?? new AgentBrowserActionRuntime({
+      cli: options.cli,
+      pool: options.pool,
+    });
     this.allowedDomains = options.allowedDomains ?? [];
     this.maxSteps = options.maxSteps ?? 3;
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.maxExcerptChars = options.maxExcerptChars ?? 1200;
-    this.pool = options.pool ?? new BrowserSessionPool(2);
+    this.strategies = options.strategies ?? [new XiaohongshuBrowserStrategy()];
     this.enabled = options.enabled ?? true;
   }
 
   public canResearch(_request: NetworkResearchRequest): boolean {
-    return this.enabled;
+    return false;
   }
 
-  public async research(
+  public canExplore(
     request: NetworkResearchRequest,
     plan: ResearchQueryPlan,
-  ): Promise<RawNetworkResearchItem[]> {
-    const targetUrl = buildSearchUrl(plan.queries[0] ?? request.request);
-    this.assertAllowedDomain(targetUrl);
-    const sessionId = sessionIdFor("research", request.request);
-    const excerpt = await this.runSnapshot(sessionId, targetUrl);
-    return [{
-      title: `浏览器观察：${plan.queries[0] ?? request.request}`,
-      url: targetUrl,
-      snippet: excerpt,
-      rawExcerpt: excerpt,
-      source: "agent_browser",
-      sourceDomain: domainOf(targetUrl),
-      platform: plan.targetPlatform,
-      providerName: this.name,
-    }];
+    candidates: NetworkResearchResult[],
+  ): boolean {
+    return this.enabled && this.selectStrategy(request, plan, candidates) !== null;
+  }
+
+  public async explore(input: {
+    request: NetworkResearchRequest;
+    plan: ResearchQueryPlan;
+    candidates: NetworkResearchResult[];
+  }): Promise<RawNetworkResearchItem[]> {
+    const strategy = this.selectStrategy(input.request, input.plan, input.candidates);
+    if (strategy === null) {
+      throw new NetworkProviderError(
+        "strategy_unavailable",
+        "No browser platform strategy is available for this research request",
+      );
+    }
+    const items = await strategy.explore({
+      ...input,
+      runtime: this.runtime,
+      allowedDomains: this.allowedDomains,
+      timeoutMs: this.timeoutMs,
+      maxSteps: this.maxSteps,
+      maxExcerptChars: this.maxExcerptChars,
+    });
+    return items.map((item) => ({
+      ...item,
+      providerName: item.providerName ?? this.name,
+      phase: "deep_exploration",
+    }));
   }
 
   public canObserve(request: NetworkObserveRequest): boolean {
     if (!this.enabled) {
       return false;
     }
-    return this.isAllowedDomain(request.url);
+    return isAllowedDomain(request.url, this.allowedDomains);
   }
 
-  public async observe(request: NetworkObserveRequest) {
-    this.assertAllowedDomain(request.url);
-    const sessionId = sessionIdFor("observe", request.url);
-    const excerpt = await this.runSnapshot(sessionId, request.url);
-    return {
-      url: request.url,
-      sourceDomain: domainOf(request.url),
-      platform: request.platform ?? null,
-      accessStatus: excerpt.length > 0 ? "accessible" as const : "unknown" as const,
-      metrics: extractVisibleMetrics(excerpt),
-      missingMetrics: [],
-      sourceMethod: "agent_browser_snapshot",
-      rawExcerpt: excerpt,
-      providerName: this.name,
-    };
-  }
-
-  private async runSnapshot(sessionId: string, url: string): Promise<string> {
-    if (this.maxSteps < 2) {
-      throw new ApplicationError(
-        "VALIDATION_ERROR",
-        "浏览器观察最大步骤数不足以打开并读取页面",
-        400,
-      );
-    }
-    return this.pool.runExclusive(sessionId, async () => {
-      await this.cli.run(["--session", sessionId, "open", url], this.timeoutMs);
-      const output = await this.cli.run(
-        ["--session", sessionId, "snapshot"],
-        this.timeoutMs,
-      );
-      return output.slice(0, this.maxExcerptChars);
-    });
-  }
-
-  private assertAllowedDomain(url: string): void {
-    if (!this.isAllowedDomain(url)) {
+  public async observe(request: NetworkObserveRequest): Promise<Partial<NetworkObservationResult>> {
+    if (!isAllowedDomain(request.url, this.allowedDomains)) {
       throw new ApplicationError(
         "VALIDATION_ERROR",
         "浏览器观察域名不在允许范围内",
         400,
       );
     }
+    const sessionId = sessionIdFor("observe", request.url);
+    const snapshot = await this.runtime.openAndSnapshot({
+      sessionId,
+      url: request.url,
+      allowedDomains: this.allowedDomains,
+      timeoutMs: this.timeoutMs,
+      maxSteps: this.maxSteps,
+      maxExcerptChars: this.maxExcerptChars,
+    });
+    const restricted = detectRestrictedStatus({
+      text: snapshot.excerpt,
+      phase: "deep_exploration",
+      providerName: this.name,
+      platform: request.platform ?? null,
+      url: request.url,
+      sourceDomain: domainOf(request.url),
+    });
+    return {
+      url: request.url,
+      sourceDomain: domainOf(request.url),
+      platform: request.platform ?? null,
+      accessStatus: restricted === null ? "accessible" as const : "restricted" as const,
+      metrics: restricted === null ? extractVisibleMetrics(snapshot.excerpt) : {},
+      missingMetrics: [],
+      sourceMethod: "agent_browser_snapshot",
+      rawExcerpt: snapshot.excerpt,
+      providerName: this.name,
+    };
   }
 
-  private isAllowedDomain(url: string): boolean {
-    const domain = domainOf(url);
-    if (domain.length === 0) {
-      return false;
-    }
-    if (this.allowedDomains.length === 0) {
-      return true;
-    }
-    return this.allowedDomains.some((allowed) =>
-      domain === allowed || domain.endsWith(`.${allowed}`),
-    );
+  private selectStrategy(
+    request: NetworkResearchRequest,
+    plan: ResearchQueryPlan,
+    candidates: NetworkResearchResult[],
+  ): PlatformBrowserStrategy | null {
+    return this.strategies.find((strategy) =>
+      strategy.canExplore(request, plan, candidates),
+    ) ?? null;
   }
 }
 
-function buildSearchUrl(query: string): string {
-  const url = new URL("https://www.bing.com/search");
-  url.searchParams.set("q", query);
-  return url.toString();
-}
-
-function sessionIdFor(mode: "research" | "observe", value: string): string {
-  const safe = value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  return `network-${mode}-${safe.slice(0, 48) || "task"}`;
-}
-
-function domainOf(url: string): string {
-  try {
-    return new URL(url).hostname.toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
-function extractVisibleMetrics(text: string): Record<string, number> {
-  const metrics: Record<string, number> = {};
+function extractVisibleMetrics(text: string): NetworkEngagement {
+  const metrics: NetworkEngagement = {};
   for (const [key, pattern] of Object.entries({
     likes: /(?:点赞|likes?)\D{0,8}(\d+(?:\.\d+)?万?)/i,
     favorites: /(?:收藏|favorites?|saves?)\D{0,8}(\d+(?:\.\d+)?万?)/i,
@@ -214,3 +179,5 @@ function parseCount(value: string): number {
   }
   return Math.round(Number.parseFloat(normalized.replaceAll(",", "")));
 }
+
+export { AgentBrowserCli, type BrowserCli } from "../browser-action-runtime.js";

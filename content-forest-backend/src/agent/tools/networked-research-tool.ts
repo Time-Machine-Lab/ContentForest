@@ -1,11 +1,12 @@
 import { ApplicationError } from "../../shared/errors/application-error.js";
 import {
   BrowserResearchProvider,
+  ConfiguredSearchApiProvider,
   NetworkProviderRouter,
   PlatformDataPlaceholderProvider,
   WebPageFetchPlaceholderProvider,
   type NetworkDataRequest,
-  type NetworkProvider,
+  type NetworkProviderEntry,
 } from "../networked-research/index.js";
 import type { AgentTaskContext } from "../runtime/agent-task.js";
 import type { ToolContract, ToolInput, ToolOutput } from "../runtime/tool-contract.js";
@@ -55,13 +56,18 @@ export class NetworkedResearchTool implements ToolContract {
 }
 
 export function createDefaultNetworkProviderRouter(
-  providers?: NetworkProvider[],
+  providers?: NetworkProviderEntry[],
+  env: NetworkedResearchToolEnv = process.env,
 ): NetworkProviderRouter {
   return new NetworkProviderRouter({
     providers: providers ?? [
+      new ConfiguredSearchApiProvider({
+        provider: normalizeSearchProvider(env.CONTENT_FOREST_SEARCH_PROVIDER),
+        apiKey: env.CONTENT_FOREST_SEARCH_API_KEY,
+        endpoint: readOptionalString(env.CONTENT_FOREST_SEARCH_ENDPOINT) || undefined,
+      }),
       new BrowserResearchProvider({
         allowedDomains: [
-          "bing.com",
           "xiaohongshu.com",
           "douyin.com",
           "tiktok.com",
@@ -75,6 +81,12 @@ export function createDefaultNetworkProviderRouter(
       new PlatformDataPlaceholderProvider(),
     ],
   });
+}
+
+export interface NetworkedResearchToolEnv {
+  CONTENT_FOREST_SEARCH_PROVIDER?: string;
+  CONTENT_FOREST_SEARCH_API_KEY?: string;
+  CONTENT_FOREST_SEARCH_ENDPOINT?: string;
 }
 
 function parseNetworkDataRequest(input: ToolInput): NetworkDataRequest {
@@ -96,6 +108,13 @@ function parseNetworkDataRequest(input: ToolInput): NetworkDataRequest {
   };
 }
 
+function normalizeSearchProvider(value: string | undefined): "brave" | "tavily" | "serpapi" | "" {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "brave" || normalized === "tavily" || normalized === "serpapi"
+    ? normalized
+    : "";
+}
+
 function summarizeNetworkResult(result: Awaited<ReturnType<NetworkProviderRouter["run"]>>) {
   if (result.mode === "observe") {
     return {
@@ -108,10 +127,26 @@ function summarizeNetworkResult(result: Awaited<ReturnType<NetworkProviderRouter
   return {
     mode: result.mode,
     queryCount: result.queryPlan.queries.length,
+    siteSearchQueryCount: result.queryPlan.siteSearchQueries.length,
     resultCount: result.results.length,
     providerFailures: result.failures.length,
+    restrictedStatuses: result.restrictedStatuses.length,
     queries: result.queryPlan.queries,
+    siteSearchQueries: result.queryPlan.siteSearchQueries,
+    resultQualitySummary: summarizeResultQuality(result.results),
+    trace: result.trace,
   };
+}
+
+function summarizeResultQuality(
+  results: Array<{ resultQuality?: string }>,
+): Record<string, number> {
+  const summary: Record<string, number> = {};
+  for (const result of results) {
+    const quality = result.resultQuality ?? "unknown";
+    summary[quality] = (summary[quality] ?? 0) + 1;
+  }
+  return summary;
 }
 
 function normalizeMaxResults(value: unknown): number | undefined {

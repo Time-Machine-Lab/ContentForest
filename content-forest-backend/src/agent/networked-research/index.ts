@@ -1,12 +1,21 @@
 export { BrowserSessionPool } from "./browser-session-pool.js";
+export {
+  AgentBrowserActionRuntime,
+  AgentBrowserCli,
+  type BrowserActionRuntime,
+  type BrowserCli,
+} from "./browser-action-runtime.js";
 export { normalizeObservationResult, normalizeResearchResults } from "./normalization.js";
 export { NetworkProviderRouter } from "./provider-router.js";
 export { planNetworkResearch } from "./query-planner.js";
 export {
   BrowserResearchProvider,
-  AgentBrowserCli,
-  type BrowserCli,
 } from "./providers/browser-research-provider.js";
+export {
+  ConfiguredSearchApiProvider,
+  type ConfiguredSearchApiProviderOptions,
+  type SearchApiProviderName,
+} from "./providers/configured-search-api-provider.js";
 export {
   PlatformDataPlaceholderProvider,
   WebPageFetchPlaceholderProvider,
@@ -15,14 +24,22 @@ export type {
   NetworkDataPackage,
   NetworkDataRequest,
   NetworkEngagement,
+  NetworkExplorationProvider,
   NetworkObservationPackage,
   NetworkObservationResult,
   NetworkObserveRequest,
   NetworkProvider,
+  NetworkProviderEntry,
   NetworkProviderFailure,
   NetworkResearchContextPackage,
+  NetworkResearchPhase,
   NetworkResearchRequest,
   NetworkResearchResult,
+  NetworkResearchResultQuality,
+  NetworkResearchTrace,
+  NetworkRestrictedStatus,
+  NetworkRestrictedStatusCode,
+  NetworkSearchProvider,
   RawNetworkResearchItem,
   ResearchQueryPlan,
 } from "./types.js";

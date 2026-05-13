@@ -2,7 +2,9 @@ import type {
   NetworkEngagement,
   NetworkObservationResult,
   NetworkObserveRequest,
+  NetworkResearchPhase,
   NetworkResearchResult,
+  NetworkResearchResultQuality,
   RawNetworkResearchItem,
 } from "./types.js";
 
@@ -44,6 +46,9 @@ function normalizeResearchItem(
   item: RawNetworkResearchItem,
   fallbackCapturedAt: string,
 ): NetworkResearchResult | null {
+  if (item.restrictedStatus !== undefined) {
+    return null;
+  }
   const title = normalizeText(item.title ?? "");
   const snippet = normalizeText(item.snippet ?? item.rawExcerpt ?? "");
   const url = normalizeUrl(item.url ?? "");
@@ -68,6 +73,9 @@ function normalizeResearchItem(
     rawExcerpt: truncate(item.rawExcerpt ?? snippet, 1200),
     providerName: item.providerName ?? "unknown",
     relevanceScore: scoreItem({ title, snippet, engagement, publishedAt }),
+    phase: normalizePhase(item.phase),
+    resultQuality: normalizeQuality(item.resultQuality, item),
+    observedAt: normalizeOptionalDate(item.observedAt ?? null),
   };
 }
 
@@ -88,7 +96,13 @@ function dedupeResearchResults(
 function sortResearchResults(
   items: NetworkResearchResult[],
 ): NetworkResearchResult[] {
-  return [...items].sort((left, right) => right.relevanceScore - left.relevanceScore);
+  return [...items].sort((left, right) => {
+    const qualityDelta = qualityRank(right.resultQuality) - qualityRank(left.resultQuality);
+    if (qualityDelta !== 0) {
+      return qualityDelta;
+    }
+    return right.relevanceScore - left.relevanceScore;
+  });
 }
 
 function scoreItem(input: {
@@ -171,6 +185,36 @@ function domainOf(url: string): string {
 
 function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizePhase(value: NetworkResearchPhase | undefined): NetworkResearchPhase {
+  return value ?? "initial_search";
+}
+
+function normalizeQuality(
+  value: NetworkResearchResultQuality | undefined,
+  item: RawNetworkResearchItem,
+): NetworkResearchResultQuality {
+  if (value !== undefined) {
+    return value;
+  }
+  if (item.phase === "deep_exploration") {
+    const hasObservedSignals =
+      normalizeText(item.snippet ?? "").length > 0 &&
+      Object.keys(item.engagement ?? {}).length > 0;
+    return hasObservedSignals ? "complete_observed_case" : "observed_case";
+  }
+  return "candidate_lead";
+}
+
+function qualityRank(value: NetworkResearchResultQuality): number {
+  if (value === "complete_observed_case") {
+    return 3;
+  }
+  if (value === "observed_case") {
+    return 2;
+  }
+  return 1;
 }
 
 function truncate(value: string, maxLength: number): string {
