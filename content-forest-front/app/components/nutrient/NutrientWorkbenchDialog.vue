@@ -1,11 +1,22 @@
 <script setup lang="ts">
-import { createNutrientApi, NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES, type NutrientCardDetail, type NutrientCardStatus, type NutrientCardSummary, type NutrientDepositableBlock, type NutrientFetcher, type NutrientGapSuggestion, type NutrientGapSuggestionSourceType, type NutrientResearchMessage, type NutrientResearchSessionDetail, type NutrientResearchTemplate, type NutrientWorkbenchPane, type NutrientWorkbenchState } from '../../../src/modules/nutrient'
+import { createNutrientApi, type NutrientCardDetail, type NutrientCardStatus, type NutrientCardSummary, type NutrientDepositableBlock, type NutrientFetcher, type NutrientGapSuggestion, type NutrientGapSuggestionSourceType, type NutrientResearchMessage, type NutrientResearchSessionDetail, type NutrientResearchSessionSummary, type NutrientResearchTemplate, type NutrientWorkbenchPane, type NutrientWorkbenchState } from '../../../src/modules/nutrient'
 import MarkdownViewer from '../markdown/MarkdownViewer.vue'
 
 type ResearchMessageView = NutrientResearchMessage & {
-  localStatus?: 'pending' | 'failed'
-  localKind?: 'thought' | 'assistant_stream'
+  localStatus?: 'pending' | 'failed' | 'cancelled'
+  localKind?: 'thought' | 'assistant_stream' | 'tool' | 'progress'
+  toolName?: string
+  toolStatus?: 'running' | 'completed' | 'failed'
+  metadata?: Record<string, unknown>
+  collapsed?: boolean
 }
+
+type ResearchTimelineItem =
+  | { kind: 'message'; id: string; createdAt: string; message: ResearchMessageView }
+  | { kind: 'block'; id: string; createdAt: string; block: NutrientDepositableBlock }
+
+type WorkbenchMode = 'session' | 'new-session' | 'card-detail'
+type NutrientCardStatusFilter = NutrientCardStatus | 'all'
 
 const props = defineProps<{
   open: boolean
@@ -44,6 +55,7 @@ const localState = reactive<NutrientWorkbenchState>({
 })
 const cards = ref<NutrientCardSummary[]>([])
 const nutrientSuggestions = ref<NutrientGapSuggestion[]>([])
+const researchSessions = ref<NutrientResearchSessionSummary[]>([])
 const selectedCard = ref<NutrientCardDetail | null>(null)
 const researchSession = ref<NutrientResearchSessionDetail | null>(null)
 const researchMessages = ref<ResearchMessageView[]>([])
@@ -52,6 +64,7 @@ const cardsLoading = ref(false)
 const suggestionsLoading = ref(false)
 const detailLoading = ref(false)
 const sessionLoading = ref(false)
+const sessionsLoading = ref(false)
 const submitLoading = ref(false)
 const operationLoading = ref('')
 const workbenchError = ref('')
@@ -59,6 +72,16 @@ const researchError = ref('')
 const lastSubmittedMessage = ref('')
 const settleLibraryId = ref('')
 const ignoredBlockIds = ref<string[]>([])
+const currentStreamAbortController = shallowRef<AbortController | null>(null)
+const activeWorkbenchMode = ref<WorkbenchMode>('new-session')
+const suggestionPopoverOpen = ref(false)
+const cardSearch = ref('')
+const cardStatusFilter = ref<NutrientCardStatusFilter>('all')
+const mergeTargetBlock = ref<NutrientDepositableBlock | null>(null)
+const mergeTargetSearch = ref('')
+const mergeTargetStatusFilter = ref<NutrientCardStatusFilter>('all')
+const confirmingSessionDeleteId = ref('')
+const confirmingCardDelete = ref(false)
 let localMessageSequence = 0
 
 const researchTemplates: NutrientResearchTemplate[] = [
@@ -95,13 +118,39 @@ const researchTemplates: NutrientResearchTemplate[] = [
 ]
 
 const pendingNutrientSuggestions = computed(() => nutrientSuggestions.value.filter((suggestion) => suggestion.status === 'pending'))
-const feedbackDependencyNames = computed(() => NUTRIENT_WORKBENCH_BACKEND_DEPENDENCIES
-  .filter((item) => item.status === '依赖后端更新')
-  .map((item) => item.name)
-  .join('、'))
-const settledCardsCount = computed(() => cards.value.filter((card) => card.status === 'settled').length)
 const visibleDepositableBlocks = computed(() => depositableBlocks.value.filter((block) => !ignoredBlockIds.value.includes(block.id)))
 const hasActiveConversation = computed(() => researchMessages.value.length > 0 || visibleDepositableBlocks.value.length > 0)
+const isResearchRunning = computed(() => submitLoading.value && currentStreamAbortController.value !== null)
+const researchTimelineItems = computed<ResearchTimelineItem[]>(() => [
+  ...researchMessages.value.map((message) => ({
+    kind: 'message' as const,
+    id: `message:${message.id}`,
+    createdAt: message.createdAt,
+    message,
+  })),
+  ...visibleDepositableBlocks.value.map((block) => ({
+    kind: 'block' as const,
+    id: `block:${block.id}`,
+    createdAt: block.createdAt,
+    block,
+  })),
+].sort((left, right) => timelineTime(left.createdAt) - timelineTime(right.createdAt)))
+const filteredCards = computed(() => filterCards(cards.value, cardSearch.value, cardStatusFilter.value))
+const mergeTargetCards = computed(() => filterCards(
+  cards.value.filter((card) => card.status !== 'archived'),
+  mergeTargetSearch.value,
+  mergeTargetStatusFilter.value,
+))
+const mainModeTitle = computed(() => {
+  if (activeWorkbenchMode.value === 'card-detail') return selectedCard.value?.title || '营养内容'
+  if (activeWorkbenchMode.value === 'session') return researchSession.value?.title || '研究会话'
+  return '新研究会话'
+})
+const mainModeSubtitle = computed(() => {
+  if (activeWorkbenchMode.value === 'card-detail') return selectedCard.value ? statusLabel(selectedCard.value.status) : '资产详情'
+  if (activeWorkbenchMode.value === 'session') return '研究过程'
+  return '发送第一条消息后创建会话'
+})
 const activePane = computed({
   get: () => localState.activePane,
   set: (value: NutrientWorkbenchPane) => {
@@ -114,19 +163,29 @@ watch(
   ([open, seedId]) => {
     if (!open || !seedId) return
     localState.seedId = seedId
-    void loadCards()
-    void loadGapSuggestions()
+    void initializeWorkbench()
   },
   { immediate: true },
 )
 
-async function loadCards() {
+async function initializeWorkbench() {
+  resetResearchState()
+  selectedCard.value = null
+  localState.selectedCardId = ''
+  await Promise.all([
+    loadCards({ autoSelect: false }),
+    loadGapSuggestions(),
+    loadResearchSessions({ restoreLatest: true }),
+  ])
+}
+
+async function loadCards(options: { autoSelect?: boolean } = {}) {
   if (!props.seedId) return
   cardsLoading.value = true
   workbenchError.value = ''
   try {
     cards.value = await nutrientApi.listCards(props.seedId)
-    if (!localState.selectedCardId && cards.value[0]) {
+    if (options.autoSelect === true && !localState.selectedCardId && cards.value[0]) {
       await selectCard(cards.value[0].id)
     }
   }
@@ -135,6 +194,29 @@ async function loadCards() {
   }
   finally {
     cardsLoading.value = false
+  }
+}
+
+async function loadResearchSessions(options: { restoreLatest?: boolean } = {}) {
+  if (!props.seedId) return
+  sessionsLoading.value = true
+  researchError.value = ''
+  try {
+    researchSessions.value = await nutrientApi.listResearchSessions(props.seedId)
+    if (
+      options.restoreLatest === true &&
+      !researchSession.value &&
+      !localState.selectedCardId &&
+      researchSessions.value[0]
+    ) {
+      await loadResearchSession(researchSessions.value[0].id)
+    }
+  }
+  catch (error) {
+    researchError.value = errorMessage(error)
+  }
+  finally {
+    sessionsLoading.value = false
   }
 }
 
@@ -169,15 +251,14 @@ async function ensureSettleLibraryId() {
 }
 
 async function selectCard(cardId: string) {
+  if (isResearchRunning.value) return
   localState.selectedCardId = cardId
   detailLoading.value = true
   workbenchError.value = ''
   try {
     selectedCard.value = await nutrientApi.getCard(cardId)
-    resetResearchState()
-    if (selectedCard.value.conversationId) {
-      await loadResearchSession(selectedCard.value.conversationId)
-    }
+    confirmingCardDelete.value = false
+    activeWorkbenchMode.value = 'card-detail'
     activePane.value = 'agent'
   }
   catch (error) {
@@ -198,7 +279,20 @@ function resetResearchState() {
   researchError.value = ''
 }
 
+function enterNewSessionDraft(message = '') {
+  if (isResearchRunning.value) return
+  selectedCard.value = null
+  localState.selectedCardId = ''
+  localState.composingMessage = message
+  resetResearchState()
+  confirmingSessionDeleteId.value = ''
+  confirmingCardDelete.value = false
+  activeWorkbenchMode.value = 'new-session'
+  activePane.value = 'agent'
+}
+
 async function loadResearchSession(sessionId: string) {
+  if (isResearchRunning.value) return
   sessionLoading.value = true
   localState.sessionStatus = 'loading'
   researchError.value = ''
@@ -221,62 +315,46 @@ function applyResearchSession(session: NutrientResearchSessionDetail) {
   depositableBlocks.value = [...session.depositableBlocks]
   localState.activeSessionId = session.id
   localState.sessionStatus = 'ready'
+  activeWorkbenchMode.value = 'session'
+}
+
+async function selectResearchSession(sessionId: string) {
+  if (isResearchRunning.value) return
+  selectedCard.value = null
+  localState.selectedCardId = ''
+  confirmingSessionDeleteId.value = ''
+  confirmingCardDelete.value = false
+  await loadResearchSession(sessionId)
+  activePane.value = 'agent'
 }
 
 async function startNewResearchSession() {
-  if (!props.seedId || sessionLoading.value || submitLoading.value) return
-  selectedCard.value = null
-  localState.selectedCardId = ''
-  localState.composingMessage = ''
-  resetResearchState()
-  activePane.value = 'agent'
-  sessionLoading.value = true
-  localState.sessionStatus = 'loading'
-  researchError.value = ''
-  try {
-    const session = await nutrientApi.createResearchSession({
-      seedId: props.seedId,
-      nutrientCardId: null,
-      title: `${props.seedTitle || '当前种子'} / 新研究`,
-    })
-    applyResearchSession(session)
-  }
-  catch (error) {
-    localState.sessionStatus = 'failed'
-    researchError.value = errorMessage(error)
-  }
-  finally {
-    sessionLoading.value = false
-  }
+  enterNewSessionDraft()
 }
 
 async function ensureResearchSession() {
   if (researchSession.value) return researchSession.value
   const session = await nutrientApi.createResearchSession({
     seedId: props.seedId,
-    nutrientCardId: selectedCard.value?.id ?? null,
-    title: selectedCard.value?.title ?? props.seedTitle ?? '营养研究',
+    title: `${props.seedTitle ?? '当前种子'} / 营养研究`,
   })
   applyResearchSession(session)
-  if (selectedCard.value && !selectedCard.value.conversationId) {
-    const updated = await nutrientApi.bindCardConversation(selectedCard.value.id, {
-      conversationId: session.id,
-    })
-    selectedCard.value = updated
-    cards.value = cards.value.map((card) => card.id === updated.id ? updated : card)
-  }
+  await loadResearchSessions()
   return session
 }
 
 async function submitResearchMessage() {
   const message = localState.composingMessage.trim()
   if (!message || submitLoading.value) return
+  const abortController = new AbortController()
+  currentStreamAbortController.value = abortController
   submitLoading.value = true
   localState.sessionStatus = 'submitting'
   researchError.value = ''
   lastSubmittedMessage.value = message
   let optimisticUserId = ''
   let optimisticAssistantId = ''
+  let assistantMessageId = ''
   let streamError: string | null = null
   try {
     const session = await ensureResearchSession()
@@ -285,14 +363,14 @@ async function submitResearchMessage() {
     optimisticUserId = optimistic.user.id
     optimisticAssistantId = optimistic.assistant.id
     let userMessageId = optimisticUserId
-    let assistantMessageId = optimisticAssistantId
+    assistantMessageId = optimisticAssistantId
     let thoughtMessageId = ''
     let assistantContentStarted = false
     const streamBlockIds = new Map<string, string>()
+    const streamToolMessageIds = new Map<string, string>()
     researchMessages.value = [
       ...researchMessages.value,
       optimistic.user,
-      optimistic.assistant,
     ]
     await nutrientApi.streamResearchMessage(session.id, { message }, (event) => {
       if (event.type === 'user_message') {
@@ -300,9 +378,11 @@ async function submitResearchMessage() {
         return
       }
       if (event.type === 'progress') {
-        researchMessages.value = researchMessages.value.map((item) => item.id === assistantMessageId
-          ? { ...item, content: event.message, localStatus: 'pending' }
-          : item)
+        appendLocalResearchMessage(session.id, event.message, {
+          localStatus: 'pending',
+          localKind: 'progress',
+          metadata: event.metadata,
+        })
         return
       }
       if (event.type === 'thought_delta') {
@@ -321,10 +401,25 @@ async function submitResearchMessage() {
               createdAt: new Date().toISOString(),
               localStatus: 'pending',
               localKind: 'thought',
+              collapsed: false,
             },
           ]
         }
         appendResearchMessageDelta(thoughtMessageId, event.delta)
+        return
+      }
+      if (
+        event.type === 'tool_call_started' ||
+        event.type === 'tool_call_completed' ||
+        event.type === 'tool_call_failed'
+      ) {
+        upsertToolMessage(streamToolMessageIds, session.id, event.toolName, {
+          message: event.message,
+          status: event.type === 'tool_call_failed'
+            ? 'failed'
+            : event.type === 'tool_call_completed' ? 'completed' : 'running',
+          metadata: event.metadata,
+        })
         return
       }
       if (event.type === 'message_delta') {
@@ -355,6 +450,7 @@ async function submitResearchMessage() {
       }
       if (event.type === 'done') {
         assistantMessageId = upsertResearchMessage(assistantMessageId, event.assistantMessage)
+        finishTransientMessages()
         const localIds = new Set(streamBlockIds.values())
         depositableBlocks.value = depositableBlocks.value.filter((block) => !localIds.has(block.id))
         depositableBlocks.value = mergeDepositableBlocks(
@@ -364,8 +460,25 @@ async function submitResearchMessage() {
         localState.sessionStatus = 'ready'
         return
       }
+      if (event.type === 'cancelled') {
+        streamError = event.message
+        finishTransientMessages('cancelled')
+        if (event.assistantMessage) {
+          assistantMessageId = upsertResearchMessage(assistantMessageId, event.assistantMessage, 'cancelled')
+        }
+        else {
+          markResearchMessage(assistantMessageId, {
+            content: event.message,
+            failureReason: event.message,
+            localStatus: 'cancelled',
+          })
+        }
+        localState.sessionStatus = 'cancelled'
+        return
+      }
       if (event.type === 'error') {
         streamError = event.message
+        finishTransientMessages('failed')
         if (event.assistantMessage) {
           assistantMessageId = upsertResearchMessage(assistantMessageId, event.assistantMessage, 'failed')
         }
@@ -375,36 +488,141 @@ async function submitResearchMessage() {
             : item)
         }
       }
-    })
+    }, { signal: abortController.signal })
     if (streamError) {
       throw new Error(streamError)
     }
     localState.sessionStatus = 'ready'
+    await loadResearchSessions()
   }
   catch (error) {
-    localState.sessionStatus = 'failed'
-    researchError.value = errorMessage(error)
+    const wasCancelled = abortController.signal.aborted
+    localState.sessionStatus = wasCancelled ? 'cancelled' : 'failed'
+    researchError.value = wasCancelled ? '研究已暂停' : errorMessage(error)
     localState.composingMessage = message
-    if (optimisticAssistantId) {
-      researchMessages.value = researchMessages.value.map((item) => item.id === optimisticAssistantId
+    finishTransientMessages(wasCancelled ? 'cancelled' : 'failed')
+    if (assistantMessageId || optimisticAssistantId) {
+      const targetMessageId = assistantMessageId || optimisticAssistantId
+      researchMessages.value = researchMessages.value.map((item) => item.id === targetMessageId
         ? {
             ...item,
-            localStatus: 'failed',
-            content: '研究没有成功完成，已保留你的输入，可以直接重试。',
-            failureReason: errorMessage(error),
+            localStatus: wasCancelled ? 'cancelled' : 'failed',
+            content: wasCancelled ? '研究已暂停，可以继续输入或重试。' : '研究没有成功完成，已保留你的输入，可以直接重试。',
+            failureReason: wasCancelled ? '研究已暂停' : errorMessage(error),
           }
         : item)
     }
   }
   finally {
     submitLoading.value = false
+    currentStreamAbortController.value = null
   }
+}
+
+function cancelResearchMessage() {
+  if (!currentStreamAbortController.value) return
+  currentStreamAbortController.value.abort()
+  localState.sessionStatus = 'cancelled'
 }
 
 function appendResearchMessageDelta(messageId: string, delta: string) {
   researchMessages.value = researchMessages.value.map((item) => item.id === messageId
     ? { ...item, content: `${item.content}${delta}` }
     : item)
+}
+
+function appendLocalResearchMessage(
+  sessionId: string,
+  content: string,
+  patch: Partial<ResearchMessageView> = {},
+) {
+  localMessageSequence += 1
+  const id = `local-stream-${localMessageSequence}`
+  researchMessages.value = [
+    ...researchMessages.value,
+    {
+      id,
+      sessionId,
+      role: 'assistant',
+      content,
+      agentTaskId: null,
+      trace: [],
+      failureReason: null,
+      createdAt: new Date().toISOString(),
+      ...patch,
+    },
+  ]
+  return id
+}
+
+function timelineTime(value: string) {
+  const time = Date.parse(value)
+  return Number.isFinite(time) ? time : 0
+}
+
+function markResearchMessage(
+  messageId: string,
+  patch: Partial<ResearchMessageView>,
+) {
+  researchMessages.value = researchMessages.value.map((item) => item.id === messageId
+    ? { ...item, ...patch }
+    : item)
+}
+
+function finishTransientMessages(status?: 'failed' | 'cancelled') {
+  researchMessages.value = researchMessages.value.map((item) => {
+    if (item.localStatus !== 'pending') return item
+    if (status === 'failed') return { ...item, localStatus: 'failed' }
+    if (status === 'cancelled') return { ...item, localStatus: 'cancelled' }
+    return { ...item, localStatus: undefined }
+  })
+}
+
+function upsertToolMessage(
+  streamToolMessageIds: Map<string, string>,
+  sessionId: string,
+  toolName: string,
+  input: {
+    message: string
+    status: 'running' | 'completed' | 'failed'
+    metadata?: Record<string, unknown>
+  },
+) {
+  const existingId = streamToolMessageIds.get(toolName)
+  const localStatus = input.status === 'failed'
+    ? 'failed'
+    : input.status === 'running' ? 'pending' : undefined
+  if (existingId) {
+    markResearchMessage(existingId, {
+      content: input.message,
+      localStatus,
+      toolStatus: input.status,
+      metadata: input.metadata,
+    })
+    return existingId
+  }
+  localMessageSequence += 1
+  const id = `local-tool-${localMessageSequence}`
+  streamToolMessageIds.set(toolName, id)
+  researchMessages.value = [
+    ...researchMessages.value,
+    {
+      id,
+      sessionId,
+      role: 'assistant',
+      content: input.message,
+      agentTaskId: null,
+      trace: [],
+      failureReason: null,
+      createdAt: new Date().toISOString(),
+      localStatus,
+      localKind: 'tool',
+      toolName,
+      toolStatus: input.status,
+      metadata: input.metadata,
+    },
+  ]
+  return id
 }
 
 function appendStreamDepositableBlock(
@@ -511,7 +729,6 @@ async function createCardFromBlock(block: NutrientDepositableBlock) {
     const card = await nutrientApi.createCard(props.seedId, {
       title: block.title,
       markdown: block.markdown,
-      conversationId: researchSession.value?.id ?? null,
     })
     await loadCards()
     await selectCard(card.id)
@@ -529,22 +746,34 @@ async function keepSuggestionAsNewCard(block: NutrientDepositableBlock) {
   await createCardFromBlock(block)
 }
 
-async function mergeBlockIntoSelectedCard(block: NutrientDepositableBlock) {
-  if (!selectedCard.value || selectedCard.value.status === 'archived') return
+function openMergeTargetSelector(block: NutrientDepositableBlock) {
+  mergeTargetBlock.value = block
+  mergeTargetSearch.value = ''
+  mergeTargetStatusFilter.value = 'all'
+}
+
+function closeMergeTargetSelector() {
+  mergeTargetBlock.value = null
+}
+
+async function mergeBlockIntoTargetCard(targetCardId: string) {
+  const block = mergeTargetBlock.value
+  if (!block) return
   operationLoading.value = `merge-block:${block.id}`
   researchError.value = ''
   try {
-    const nextMarkdown = [
-      selectedCard.value.markdown.trim(),
-      block.markdown.trim(),
-    ].filter(Boolean).join('\n\n---\n\n')
-    const updated = await nutrientApi.updateCard(selectedCard.value.id, {
-      title: selectedCard.value.title,
-      markdown: nextMarkdown,
+    const updated = await nutrientApi.mergeCard(targetCardId, {
+      title: block.title,
+      markdown: block.markdown,
+      sourceCardId: null,
+      mergeNote: researchSession.value ? `来自研究会话：${researchSession.value.title || researchSession.value.id}` : '来自营养研究成果',
     })
     selectedCard.value = updated
+    localState.selectedCardId = updated.id
+    activeWorkbenchMode.value = 'card-detail'
     cards.value = cards.value.map((card) => card.id === updated.id ? updated : card)
     ignoredBlockIds.value = [...ignoredBlockIds.value, block.id]
+    closeMergeTargetSelector()
     emit('changed')
   }
   catch (error) {
@@ -556,7 +785,7 @@ async function mergeBlockIntoSelectedCard(block: NutrientDepositableBlock) {
 }
 
 async function mergeSuggestionIntoCard(block: NutrientDepositableBlock) {
-  await mergeBlockIntoSelectedCard(block)
+  openMergeTargetSelector(block)
 }
 
 function ignoreDepositableBlock(blockId: string) {
@@ -568,12 +797,66 @@ async function acceptNutrientSuggestion(suggestion: NutrientGapSuggestion) {
   operationLoading.value = `adopt-suggestion:${suggestion.id}`
   workbenchError.value = ''
   try {
-    const result = await nutrientApi.adoptGapSuggestion(suggestion.id)
+    await nutrientApi.adoptGapSuggestion(suggestion.id)
     nutrientSuggestions.value = nutrientSuggestions.value.filter((item) => item.id !== suggestion.id)
     await loadCards()
-    await selectCard(result.nutrientCard.id)
-    localState.composingMessage = suggestion.bodyMarkdown
-    activePane.value = 'agent'
+    enterNewSessionDraft(suggestion.bodyMarkdown)
+    suggestionPopoverOpen.value = false
+    emit('changed')
+  }
+  catch (error) {
+    workbenchError.value = errorMessage(error)
+  }
+  finally {
+    operationLoading.value = ''
+  }
+}
+
+function requestDeleteResearchSession(sessionId: string) {
+  if (isResearchRunning.value) return
+  confirmingSessionDeleteId.value = confirmingSessionDeleteId.value === sessionId ? '' : sessionId
+}
+
+async function deleteResearchSession(sessionId: string) {
+  if (isResearchRunning.value) return
+  operationLoading.value = `delete-session:${sessionId}`
+  researchError.value = ''
+  try {
+    const wasActiveSession = localState.activeSessionId === sessionId
+    await nutrientApi.deleteResearchSession(sessionId)
+    researchSessions.value = researchSessions.value.filter((session) => session.id !== sessionId)
+    if (wasActiveSession) {
+      enterNewSessionDraft()
+    }
+    await loadResearchSessions()
+    confirmingSessionDeleteId.value = ''
+    emit('changed')
+  }
+  catch (error) {
+    researchError.value = errorMessage(error)
+  }
+  finally {
+    operationLoading.value = ''
+  }
+}
+
+function requestDeleteSelectedCard() {
+  if (!selectedCard.value || selectedCard.value.status !== 'unsettled') return
+  confirmingCardDelete.value = true
+}
+
+async function deleteSelectedCard() {
+  if (!selectedCard.value || selectedCard.value.status !== 'unsettled') return
+  operationLoading.value = 'delete-card'
+  workbenchError.value = ''
+  try {
+    const deletedId = selectedCard.value.id
+    await nutrientApi.deleteCard(deletedId)
+    cards.value = cards.value.filter((card) => card.id !== deletedId)
+    selectedCard.value = null
+    localState.selectedCardId = ''
+    activeWorkbenchMode.value = researchSession.value ? 'session' : 'new-session'
+    confirmingCardDelete.value = false
     emit('changed')
   }
   catch (error) {
@@ -607,7 +890,61 @@ function applyResearchTemplate(template: NutrientResearchTemplate) {
 function submitComposerKeyboard(event: KeyboardEvent) {
   if (event.shiftKey) return
   event.preventDefault()
+  if (isResearchRunning.value) return
   void submitResearchMessage()
+}
+
+function toggleMessageCollapsed(messageId: string) {
+  researchMessages.value = researchMessages.value.map((item) => item.id === messageId
+    ? { ...item, collapsed: !item.collapsed }
+    : item)
+}
+
+function messageAuthorLabel(message: ResearchMessageView) {
+  if (message.role === 'user') return '你'
+  if (message.localKind === 'thought') return '思考'
+  if (message.localKind === 'tool') return message.toolName || '工具调用'
+  return 'Agent'
+}
+
+function messageStatusLabel(message: ResearchMessageView) {
+  if (message.localStatus === 'pending') return '生成中'
+  if (message.localStatus === 'failed') return '失败'
+  if (message.localStatus === 'cancelled') return '已暂停'
+  if (message.localKind === 'tool' && message.toolStatus) return toolStatusLabel(message.toolStatus)
+  return formatTime(message.createdAt)
+}
+
+function toolStatusLabel(status: NonNullable<ResearchMessageView['toolStatus']>) {
+  if (status === 'running') return '调用中'
+  if (status === 'completed') return '已完成'
+  return '调用失败'
+}
+
+function formatMetadata(metadata?: Record<string, unknown>) {
+  if (!metadata || Object.keys(metadata).length === 0) return ''
+  return JSON.stringify(metadata, null, 2)
+}
+
+function sessionScopeLabel(session: NutrientResearchSessionSummary) {
+  return session.seedId ? '研究会话' : '研究会话'
+}
+
+function sessionChipTitle(session: NutrientResearchSessionSummary) {
+  return session.title || sessionScopeLabel(session)
+}
+
+function filterCards(
+  input: NutrientCardSummary[],
+  search: string,
+  status: NutrientCardStatusFilter,
+) {
+  const keyword = search.trim().toLowerCase()
+  return input.filter((card) => {
+    const matchesStatus = status === 'all' || card.status === status
+    const matchesSearch = !keyword || card.title.toLowerCase().includes(keyword)
+    return matchesStatus && matchesSearch
+  })
 }
 
 async function refreshSelectedCard(cardId = localState.selectedCardId) {
@@ -756,72 +1093,113 @@ function errorMessage(error: unknown) {
             <h2>营养工作台</h2>
             <p>{{ seedTitle || '当前种子' }}</p>
           </div>
-          <div class="cf-nutrient-workbench-stats" aria-label="营养工作台概览">
-            <strong>{{ cards.length }}</strong>
-            <span>内容</span>
-            <strong>{{ settledCardsCount }}</strong>
-            <span>已沉淀</span>
-          </div>
           <button class="cf-nutrient-workbench-close" type="button" aria-label="关闭营养工作台" @click="close">×</button>
         </header>
 
         <div class="cf-nutrient-workbench-tabs" aria-label="营养工作台分区">
+          <button type="button" :class="{ 'is-active': activePane === 'sessions' }" @click="activePane = 'sessions'">会话</button>
+          <button type="button" :class="{ 'is-active': activePane === 'agent' }" @click="activePane = 'agent'">工作区</button>
           <button type="button" :class="{ 'is-active': activePane === 'cards' }" @click="activePane = 'cards'">内容</button>
-          <button type="button" :class="{ 'is-active': activePane === 'agent' }" @click="activePane = 'agent'">Agent</button>
-          <button type="button" :class="{ 'is-active': activePane === 'suggestions' }" @click="activePane = 'suggestions'">建议</button>
         </div>
 
         <p v-if="workbenchError" class="cf-nutrient-workbench-error">{{ workbenchError }}</p>
 
         <div class="cf-nutrient-workbench-layout">
-          <aside class="cf-nutrient-card-rail" :class="{ 'is-active-pane': activePane === 'cards' }" aria-label="营养内容">
+          <aside class="cf-nutrient-card-rail cf-nutrient-session-rail" :class="{ 'is-active-pane': activePane === 'sessions' }" aria-label="研究会话">
             <header class="cf-nutrient-pane-head">
-              <strong>营养内容</strong>
-              <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" :disabled="cardsLoading" @click="loadCards">刷新</button>
+              <strong>研究会话</strong>
             </header>
 
-            <div v-if="cardsLoading" class="cf-nutrient-workbench-empty">读取营养内容中</div>
-            <div v-else-if="cards.length === 0" class="cf-nutrient-workbench-empty">
-              <strong>暂无营养内容</strong>
-              <span>Agent 研究沉淀后会出现在这里。</span>
+            <button
+              class="cf-nutrient-new-session-btn"
+              :class="{ 'is-selected': activeWorkbenchMode === 'new-session' }"
+              type="button"
+              :disabled="isResearchRunning"
+              @click="startNewResearchSession"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14" />
+                <path d="M5 12h14" />
+              </svg>
+              <span>新会话</span>
+            </button>
+
+            <div v-if="sessionsLoading" class="cf-nutrient-workbench-empty">读取研究会话中</div>
+            <div v-else-if="researchSessions.length === 0" class="cf-nutrient-workbench-empty">
+              <strong>暂无历史会话</strong>
+              <span>从新研究会话开始，让 Agent 帮你补充营养资料。</span>
             </div>
             <div v-else class="cf-nutrient-card-list">
-              <button
-                v-for="card in cards"
-                :key="card.id"
-                class="cf-nutrient-card-item"
-                :class="{
-                  'is-selected': localState.selectedCardId === card.id,
-                  'is-archived': card.status === 'archived',
-                  'is-default': card.defaultForGrowth,
-                }"
-                type="button"
-                @click="selectCard(card.id)"
+              <article
+                v-for="session in researchSessions"
+                :key="session.id"
+                class="cf-nutrient-card-item cf-nutrient-session-item"
+                :class="{ 'is-selected': localState.activeSessionId === session.id && activeWorkbenchMode === 'session' }"
               >
-                <span class="cf-nutrient-card-item-top">
-                  <span class="cf-nutrient-card-status" :class="`is-${card.status}`">{{ statusLabel(card.status) }}</span>
-                  <span>{{ card.defaultForGrowth ? '默认带入' : formatDate(card.updatedAt) }}</span>
-                </span>
-                <strong>{{ card.title }}</strong>
-              </button>
+                <button type="button" :disabled="isResearchRunning" @click="selectResearchSession(session.id)">
+                  <span>{{ formatDate(session.updatedAt) }}</span>
+                  <strong>{{ sessionChipTitle(session) }}</strong>
+                </button>
+                <button
+                  class="cf-nutrient-btn cf-nutrient-btn-danger cf-nutrient-icon-btn"
+                  type="button"
+                  :disabled="isResearchRunning || operationLoading === `delete-session:${session.id}`"
+                  title="删除会话"
+                  @click.stop="requestDeleteResearchSession(session.id)"
+                >
+                  ×
+                </button>
+                <div v-if="confirmingSessionDeleteId === session.id" class="cf-nutrient-inline-confirm">
+                  <span>只删除会话记录，已沉淀营养会保留。</span>
+                  <button class="cf-nutrient-btn cf-nutrient-btn-danger" type="button" :disabled="operationLoading === `delete-session:${session.id}`" @click="deleteResearchSession(session.id)">
+                    {{ operationLoading === `delete-session:${session.id}` ? '删除中' : '确认删除' }}
+                  </button>
+                  <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" :disabled="Boolean(operationLoading)" @click="confirmingSessionDeleteId = ''">取消</button>
+                </div>
+              </article>
             </div>
           </aside>
 
           <main class="cf-nutrient-agent-panel" :class="{ 'is-active-pane': activePane === 'agent' }" aria-label="Agent 工作区">
             <header class="cf-nutrient-pane-head">
               <div class="cf-nutrient-pane-title">
-                <strong>Agent 研究</strong>
-                <span>{{ researchSession ? researchSession.title : selectedCard ? '内容会话' : '种子会话' }}</span>
+                <strong>{{ mainModeTitle }}</strong>
+                <span>{{ mainModeSubtitle }}</span>
               </div>
-              <button class="cf-nutrient-btn cf-nutrient-btn-secondary" type="button" :disabled="sessionLoading || submitLoading" @click="startNewResearchSession">
-                {{ sessionLoading ? '创建中' : '新会话' }}
-              </button>
+              <div class="cf-nutrient-main-actions">
+                <button class="cf-nutrient-btn cf-nutrient-btn-secondary cf-nutrient-suggestion-trigger" type="button" title="查看营养汲取消息" @click="suggestionPopoverOpen = !suggestionPopoverOpen">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 0 0-4-5.7V5a2 2 0 1 0-4 0v.3A6 6 0 0 0 6 11v3.2c0 .5-.2 1-.6 1.4L4 17h5" />
+                    <path d="M10 20a2.2 2.2 0 0 0 4 0" />
+                  </svg>
+                  汲取消息
+                  <span>{{ pendingNutrientSuggestions.length }}</span>
+                </button>
+                <button class="cf-nutrient-btn cf-nutrient-btn-primary" type="button" :disabled="sessionLoading || submitLoading" @click="startNewResearchSession">
+                  新会话
+                </button>
+              </div>
             </header>
+            <div v-if="suggestionPopoverOpen" class="cf-nutrient-suggestion-popover">
+              <article v-for="suggestion in pendingNutrientSuggestions" :key="suggestion.id" class="cf-nutrient-suggestion-card">
+                <span>{{ suggestionSourceLabel(suggestion.sourceType) }}</span>
+                <strong>{{ suggestion.title }}</strong>
+                <p>{{ suggestionSummary(suggestion) }}</p>
+                <div>
+                  <button class="cf-nutrient-btn cf-nutrient-btn-primary" type="button" :disabled="Boolean(operationLoading)" @click="acceptNutrientSuggestion(suggestion)">采纳</button>
+                  <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" :disabled="Boolean(operationLoading)" @click="ignoreNutrientSuggestion(suggestion)">忽略</button>
+                </div>
+              </article>
+              <div v-if="pendingNutrientSuggestions.length === 0" class="cf-nutrient-workbench-empty cf-nutrient-chat-empty">
+                <strong>暂无汲取建议</strong>
+                <span>发现资料缺口后会在这里提醒你。</span>
+              </div>
+            </div>
 
             <section class="cf-nutrient-agent-thread">
               <div v-if="detailLoading" class="cf-nutrient-workbench-empty">读取营养内容中</div>
               <template v-else>
-                <article v-if="selectedCard" class="cf-nutrient-card-preview cf-nutrient-card-context">
+                <article v-if="selectedCard && activeWorkbenchMode === 'card-detail'" class="cf-nutrient-card-preview cf-nutrient-card-context cf-nutrient-card-detail-view">
                   <header>
                     <div>
                       <span class="cf-nutrient-card-status" :class="`is-${selectedCard.status}`">{{ selectedCard.defaultForGrowth ? '默认带入' : statusLabel(selectedCard.status) }}</span>
@@ -867,9 +1245,24 @@ function errorMessage(error: unknown) {
                       {{ operationLoading === 'archive' ? '归档中' : '归档' }}
                     </button>
                     <button v-else class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" disabled title="依赖后端更新">回档</button>
+                    <button
+                      v-if="selectedCard.status === 'unsettled'"
+                      class="cf-nutrient-btn cf-nutrient-btn-danger"
+                      type="button"
+                      :disabled="Boolean(operationLoading)"
+                      @click="requestDeleteSelectedCard"
+                    >
+                      删除
+                    </button>
+                  </div>
+                  <div v-if="confirmingCardDelete" class="cf-nutrient-inline-confirm cf-nutrient-card-confirm">
+                    <span>删除草稿营养内容，不影响研究会话。</span>
+                    <button class="cf-nutrient-btn cf-nutrient-btn-danger" type="button" :disabled="operationLoading === 'delete-card'" @click="deleteSelectedCard">
+                      {{ operationLoading === 'delete-card' ? '删除中' : '确认删除' }}
+                    </button>
+                    <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" :disabled="Boolean(operationLoading)" @click="confirmingCardDelete = false">取消</button>
                   </div>
                   <p v-if="selectedCard.status === 'archived'" class="cf-nutrient-dependency-note">回档营养内容依赖后端更新</p>
-                  <p v-if="selectedCard.conversationId" class="cf-nutrient-conversation-note">会话 {{ selectedCard.conversationId }}</p>
                   <div class="cf-nutrient-feedback-grid" aria-label="营养反馈信息">
                     <section class="cf-nutrient-freshness">
                       <strong>新鲜度提醒</strong>
@@ -886,59 +1279,83 @@ function errorMessage(error: unknown) {
                   </details>
                 </article>
 
-                <div v-if="sessionLoading" class="cf-nutrient-workbench-empty">读取研究会话中</div>
-                <div v-else-if="!hasActiveConversation" class="cf-nutrient-workbench-empty cf-nutrient-chat-empty">
-                  <strong>{{ selectedCard ? '继续研究这条营养内容' : '开始种子营养研究' }}</strong>
-                  <span>{{ selectedCard ? '输入问题后会为这条营养内容创建或加载研究会话。' : '用模板快速启动，或直接描述要研究的平台和方向。' }}</span>
+                <div v-if="activeWorkbenchMode !== 'card-detail' && sessionLoading" class="cf-nutrient-workbench-empty">读取研究会话中</div>
+                <div v-else-if="activeWorkbenchMode !== 'card-detail' && !hasActiveConversation" class="cf-nutrient-workbench-empty cf-nutrient-chat-empty">
+                  <strong>{{ activeWorkbenchMode === 'new-session' ? '开始新的营养研究' : '继续营养研究' }}</strong>
+                  <span>{{ activeWorkbenchMode === 'new-session' ? '发送第一条消息后创建会话。' : '用模板快速启动，或直接描述要研究的平台和方向。' }}</span>
                 </div>
 
-                <div v-else class="cf-nutrient-message-list" aria-live="polite">
+                <div v-else-if="activeWorkbenchMode !== 'card-detail'" class="cf-nutrient-message-list" aria-live="polite">
                   <article
-                    v-for="message in researchMessages"
-                    :key="message.id"
-                    class="cf-nutrient-message"
-                    :class="[`is-${message.role}`, message.localStatus ? `is-${message.localStatus}` : '', message.localKind ? `is-${message.localKind}` : '']"
+                    v-for="item in researchTimelineItems"
+                    :key="item.id"
+                    :class="item.kind === 'message'
+                      ? ['cf-nutrient-message', `is-${item.message.role}`, item.message.localStatus ? `is-${item.message.localStatus}` : '', item.message.localKind ? `is-${item.message.localKind}` : '']
+                      : ['cf-nutrient-depositable-block']"
                   >
-                    <header>
-                      <strong>{{ message.role === 'user' ? '你' : message.localKind === 'thought' ? 'Think' : 'Agent' }}</strong>
-                      <span>{{ message.localStatus === 'pending' ? '处理中' : formatTime(message.createdAt) }}</span>
-                    </header>
-                    <MarkdownViewer :markdown="message.content" />
-                    <p v-if="message.failureReason" class="cf-nutrient-message-failure">{{ message.failureReason }}</p>
-                    <span v-if="message.localStatus === 'pending' && message.role === 'assistant'" class="cf-nutrient-message-pulse" />
-                  </article>
+                    <template v-if="item.kind === 'message'">
+                      <header class="cf-nutrient-message-head">
+                        <strong>{{ messageAuthorLabel(item.message) }}</strong>
+                        <span>{{ messageStatusLabel(item.message) }}</span>
+                      </header>
+                      <template v-if="item.message.localKind === 'thought'">
+                        <button
+                          class="cf-nutrient-thought-toggle"
+                          type="button"
+                          @click="toggleMessageCollapsed(item.message.id)"
+                        >
+                          <span>{{ item.message.collapsed ? '??????' : '??????' }}</span>
+                          <strong>{{ item.message.localStatus === 'pending' ? '???' : '????' }}</strong>
+                        </button>
+                        <MarkdownViewer v-if="!item.message.collapsed" class="cf-nutrient-thought-body" :markdown="item.message.content || '????????...'" />
+                      </template>
+                      <template v-else-if="item.message.localKind === 'tool'">
+                        <div class="cf-nutrient-tool-body">
+                          <span class="cf-nutrient-tool-status" :class="`is-${item.message.toolStatus || 'running'}`">{{ item.message.toolStatus ? toolStatusLabel(item.message.toolStatus) : '???' }}</span>
+                          <MarkdownViewer :markdown="item.message.content" />
+                          <pre v-if="formatMetadata(item.message.metadata)" class="cf-nutrient-tool-meta">{{ formatMetadata(item.message.metadata) }}</pre>
+                        </div>
+                      </template>
+                      <template v-else-if="item.message.localKind === 'progress'">
+                        <div class="cf-nutrient-tool-body">
+                          <span class="cf-nutrient-tool-status is-running">??</span>
+                          <MarkdownViewer :markdown="item.message.content" />
+                          <pre v-if="formatMetadata(item.message.metadata)" class="cf-nutrient-tool-meta">{{ formatMetadata(item.message.metadata) }}</pre>
+                        </div>
+                      </template>
+                      <MarkdownViewer v-else :markdown="item.message.content" />
+                      <p v-if="item.message.failureReason" class="cf-nutrient-message-failure">{{ item.message.failureReason }}</p>
+                      <span v-if="item.message.localStatus === 'pending' && item.message.role === 'assistant'" class="cf-nutrient-message-pulse" />
+                    </template>
 
-                  <article
-                    v-for="block in visibleDepositableBlocks"
-                    :key="block.id"
-                    class="cf-nutrient-depositable-block"
-                  >
-                    <header>
-                      <div>
-                        <span>可沉淀营养</span>
-                        <strong>{{ block.title }}</strong>
+                    <template v-else>
+                      <header>
+                        <div>
+                          <span>?????</span>
+                          <strong>{{ item.block.title }}</strong>
+                        </div>
+                      </header>
+                      <MarkdownViewer :markdown="item.block.markdown" />
+                      <div class="cf-nutrient-block-actions">
+                        <button
+                          class="cf-nutrient-btn cf-nutrient-btn-primary"
+                          type="button"
+                          :disabled="Boolean(operationLoading)"
+                          @click="keepSuggestionAsNewCard(item.block)"
+                        >
+                          {{ operationLoading === `create-block:${item.block.id}` ? '???' : '?????' }}
+                        </button>
+                        <button
+                          class="cf-nutrient-btn cf-nutrient-btn-secondary"
+                          type="button"
+                          :disabled="Boolean(operationLoading)"
+                          @click="mergeSuggestionIntoCard(item.block)"
+                        >
+                          {{ operationLoading === `merge-block:${item.block.id}` ? '???' : '??????' }}
+                        </button>
+                        <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="ignoreDepositableBlock(item.block.id)">??</button>
                       </div>
-                    </header>
-                    <MarkdownViewer :markdown="block.markdown" />
-                    <div class="cf-nutrient-block-actions">
-                      <button
-                        class="cf-nutrient-btn cf-nutrient-btn-primary"
-                        type="button"
-                        :disabled="Boolean(operationLoading)"
-                        @click="keepSuggestionAsNewCard(block)"
-                      >
-                        {{ operationLoading === `create-block:${block.id}` ? '生成中' : '保存为草稿' }}
-                      </button>
-                      <button
-                        class="cf-nutrient-btn cf-nutrient-btn-secondary"
-                        type="button"
-                        :disabled="!selectedCard || selectedCard.status === 'archived' || Boolean(operationLoading)"
-                        @click="mergeSuggestionIntoCard(block)"
-                      >
-                        {{ operationLoading === `merge-block:${block.id}` ? '合并中' : '合并到当前内容' }}
-                      </button>
-                      <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="ignoreDepositableBlock(block.id)">忽略</button>
-                    </div>
+                    </template>
                   </article>
                 </div>
 
@@ -950,10 +1367,47 @@ function errorMessage(error: unknown) {
                   {{ researchError }}
                   <button v-if="lastSubmittedMessage" type="button" @click="retryLastResearchMessage">重试</button>
                 </p>
+                <div v-if="mergeTargetBlock" class="cf-nutrient-merge-panel" role="dialog" aria-label="选择合并目标">
+                  <header>
+                    <div>
+                      <span>选择合并目标</span>
+                      <strong>{{ mergeTargetBlock.title }}</strong>
+                    </div>
+                    <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="closeMergeTargetSelector">关闭</button>
+                  </header>
+                  <div class="cf-nutrient-filter-row">
+                    <input v-model="mergeTargetSearch" type="search" placeholder="搜索目标营养内容" />
+                    <div class="cf-nutrient-segmented-filter" role="group" aria-label="合并目标状态筛选">
+                      <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'all' }" @click="mergeTargetStatusFilter = 'all'">全部</button>
+                      <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'unsettled' }" @click="mergeTargetStatusFilter = 'unsettled'">草稿</button>
+                      <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'settled' }" @click="mergeTargetStatusFilter = 'settled'">正常</button>
+                    </div>
+                  </div>
+                  <div class="cf-nutrient-merge-target-list">
+                    <button
+                      v-for="card in mergeTargetCards"
+                      :key="card.id"
+                      class="cf-nutrient-card-item"
+                      type="button"
+                      :disabled="Boolean(operationLoading)"
+                      @click="mergeBlockIntoTargetCard(card.id)"
+                    >
+                      <span class="cf-nutrient-card-item-top">
+                        <span class="cf-nutrient-card-status" :class="`is-${card.status}`">{{ statusLabel(card.status) }}</span>
+                        <span>{{ formatDate(card.updatedAt) }}</span>
+                      </span>
+                      <strong>{{ card.title }}</strong>
+                    </button>
+                    <div v-if="mergeTargetCards.length === 0" class="cf-nutrient-workbench-empty cf-nutrient-chat-empty">
+                      <strong>没有可合并目标</strong>
+                      <span>请调整筛选，或先保存为新草稿。</span>
+                    </div>
+                  </div>
+                </div>
               </template>
             </section>
 
-            <footer class="cf-nutrient-agent-composer">
+            <footer v-if="activeWorkbenchMode !== 'card-detail'" class="cf-nutrient-agent-composer">
               <div class="cf-nutrient-template-strip" aria-label="研究模板">
                 <button
                   v-for="template in researchTemplates"
@@ -966,57 +1420,76 @@ function errorMessage(error: unknown) {
                 </button>
               </div>
               <div class="cf-nutrient-composer-row">
-                <textarea
-                  v-model="localState.composingMessage"
-                  placeholder="描述要研究的平台、方向或缺口"
-                  :disabled="submitLoading"
-                  @keydown.enter="submitComposerKeyboard"
-                />
-                <button class="cf-nutrient-btn cf-nutrient-btn-primary cf-nutrient-send-btn" type="button" :disabled="submitLoading || !localState.composingMessage.trim()" @click="submitResearchMessage">
-                  {{ submitLoading ? '发送中' : '发送' }}
+                <div class="cf-nutrient-composer-field">
+                  <textarea
+                    v-model="localState.composingMessage"
+                    placeholder="描述要研究的平台、方向或缺口"
+                    rows="2"
+                    @keydown.enter="submitComposerKeyboard"
+                  />
+                </div>
+                <button
+                  class="cf-nutrient-btn cf-nutrient-btn-primary cf-nutrient-send-btn"
+                  :class="{ 'is-pausing': isResearchRunning }"
+                  type="button"
+                  :disabled="!isResearchRunning && !localState.composingMessage.trim()"
+                  @click="isResearchRunning ? cancelResearchMessage() : submitResearchMessage()"
+                >
+                  <svg v-if="!isResearchRunning" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m5 12 14-7-4 14-3-6-7-1Z" />
+                    <path d="m12 13 7-8" />
+                  </svg>
+                  <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M8 6h3v12H8z" />
+                    <path d="M13 6h3v12h-3z" />
+                  </svg>
+                  {{ isResearchRunning ? '暂停' : '发送' }}
                 </button>
               </div>
             </footer>
           </main>
 
-          <aside class="cf-nutrient-suggestion-rail" :class="{ 'is-active-pane': activePane === 'suggestions' }" aria-label="营养汲取建议">
+          <aside class="cf-nutrient-suggestion-rail cf-nutrient-asset-rail" :class="{ 'is-active-pane': activePane === 'cards' }" aria-label="营养内容">
             <header class="cf-nutrient-pane-head">
-              <strong>汲取建议</strong>
-              <span>{{ pendingNutrientSuggestions.length }} 条</span>
+              <strong>营养内容</strong>
+              <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" :disabled="cardsLoading" @click="() => loadCards()">刷新</button>
             </header>
 
-            <div class="cf-nutrient-suggestion-list">
-              <div v-if="suggestionsLoading" class="cf-nutrient-workbench-empty">读取建议中</div>
-              <article v-for="suggestion in pendingNutrientSuggestions" :key="suggestion.id" class="cf-nutrient-suggestion-card">
-                <span>{{ suggestionSourceLabel(suggestion.sourceType) }}</span>
-                <strong>{{ suggestion.title }}</strong>
-                <p>{{ suggestionSummary(suggestion) }}</p>
-                <div>
-                  <button
-                    class="cf-nutrient-btn cf-nutrient-btn-primary"
-                    type="button"
-                    :disabled="Boolean(operationLoading)"
-                    @click="acceptNutrientSuggestion(suggestion)"
-                  >
-                    {{ operationLoading === `adopt-suggestion:${suggestion.id}` ? '采纳中' : '采纳' }}
-                  </button>
-                  <button
-                    class="cf-nutrient-btn cf-nutrient-btn-ghost"
-                    type="button"
-                    :disabled="Boolean(operationLoading)"
-                    @click="ignoreNutrientSuggestion(suggestion)"
-                  >
-                    {{ operationLoading === `ignore-suggestion:${suggestion.id}` ? '忽略中' : '忽略' }}
-                  </button>
-                </div>
-              </article>
-              <div v-if="!suggestionsLoading && pendingNutrientSuggestions.length === 0" class="cf-nutrient-workbench-empty">
-                <strong>暂无建议</strong>
-                <span>枝化生长或营养研究发现缺口后会进入这里。</span>
+            <div class="cf-nutrient-filter-row cf-nutrient-card-filter">
+              <input v-model="cardSearch" type="search" placeholder="搜索营养内容" />
+              <div class="cf-nutrient-segmented-filter" role="group" aria-label="营养内容状态筛选">
+                <button type="button" :class="{ 'is-active': cardStatusFilter === 'all' }" @click="cardStatusFilter = 'all'">全部</button>
+                <button type="button" :class="{ 'is-active': cardStatusFilter === 'unsettled' }" @click="cardStatusFilter = 'unsettled'">草稿</button>
+                <button type="button" :class="{ 'is-active': cardStatusFilter === 'settled' }" @click="cardStatusFilter = 'settled'">正常</button>
+                <button type="button" :class="{ 'is-active': cardStatusFilter === 'archived' }" @click="cardStatusFilter = 'archived'">归档</button>
               </div>
-              <p v-if="feedbackDependencyNames" class="cf-nutrient-suggestion-footnote">
-                待后端接入：{{ feedbackDependencyNames }}
-              </p>
+            </div>
+
+            <div class="cf-nutrient-card-list">
+              <div v-if="cardsLoading" class="cf-nutrient-workbench-empty">读取营养内容中</div>
+              <div v-else-if="filteredCards.length === 0" class="cf-nutrient-workbench-empty">
+                <strong>暂无匹配内容</strong>
+                <span>保存或沉淀营养后会出现在这里。</span>
+              </div>
+              <button
+                v-for="card in filteredCards"
+                :key="card.id"
+                class="cf-nutrient-card-item"
+                :class="{
+                  'is-selected': localState.selectedCardId === card.id && activeWorkbenchMode === 'card-detail',
+                  'is-archived': card.status === 'archived',
+                  'is-default': card.defaultForGrowth,
+                }"
+                type="button"
+                @click="selectCard(card.id)"
+              >
+                <span class="cf-nutrient-card-item-top">
+                  <span class="cf-nutrient-card-status" :class="`is-${card.status}`">{{ statusLabel(card.status) }}</span>
+                  <span>{{ card.defaultForGrowth ? '默认带入' : formatDate(card.updatedAt) }}</span>
+                </span>
+                <strong>{{ card.title }}</strong>
+                <small>{{ card.status === 'settled' ? '可引用到枝化生长' : card.status === 'unsettled' ? '草稿，可继续沉淀' : '已归档，仅查看' }}</small>
+              </button>
             </div>
           </aside>
         </div>
@@ -1053,7 +1526,6 @@ function errorMessage(error: unknown) {
 
 .cf-nutrient-workbench-head,
 .cf-nutrient-pane-head,
-.cf-nutrient-workbench-stats,
 .cf-nutrient-workbench-tabs,
 .cf-nutrient-card-preview header,
 .cf-nutrient-agent-composer,
@@ -1100,19 +1572,6 @@ function errorMessage(error: unknown) {
   color: rgba(230, 236, 255, .74);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.cf-nutrient-workbench-stats {
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid rgba(255, 255, 255, .08);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, .04);
-}
-
-.cf-nutrient-workbench-stats strong {
-  color: #fff;
-  font-size: 16px;
 }
 
 .cf-nutrient-workbench-close,
@@ -1274,6 +1733,7 @@ function errorMessage(error: unknown) {
 
 .cf-nutrient-agent-panel {
   display: grid;
+  position: relative;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   background: rgba(10, 13, 20, .68);
@@ -1299,7 +1759,32 @@ function errorMessage(error: unknown) {
 .cf-nutrient-card-list,
 .cf-nutrient-suggestion-list {
   display: grid;
+  align-content: start;
+  align-items: start;
   gap: 10px;
+  grid-auto-rows: max-content;
+}
+
+.cf-nutrient-session-rail,
+.cf-nutrient-asset-rail {
+  display: grid;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.cf-nutrient-session-rail {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.cf-nutrient-asset-rail {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.cf-nutrient-session-rail .cf-nutrient-card-list,
+.cf-nutrient-asset-rail .cf-nutrient-card-list {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .cf-nutrient-card-item,
@@ -1323,8 +1808,138 @@ function errorMessage(error: unknown) {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
 }
 
-.cf-nutrient-card-item:hover,
-.cf-nutrient-card-item.is-selected {
+.cf-nutrient-session-item {
+  grid-template-columns: minmax(0, 1fr) 30px;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 6px;
+  padding: 3px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.cf-nutrient-session-item > button:first-child {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cf-nutrient-session-item > button:first-child:disabled {
+  cursor: not-allowed;
+}
+
+.cf-nutrient-session-item > button:first-child span {
+  color: rgba(210, 218, 242, .48);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.cf-nutrient-session-item > button:first-child strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: rgba(244, 248, 255, .88);
+  font-size: 13px;
+  line-height: 18px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.cf-nutrient-session-item .cf-nutrient-icon-btn {
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: rgba(238, 242, 255, .42);
+  opacity: 0;
+}
+
+.cf-nutrient-session-item:hover,
+.cf-nutrient-session-item.is-selected {
+  border-color: rgba(139, 156, 255, .14);
+  background: rgba(255, 255, 255, .045);
+}
+
+.cf-nutrient-session-item.is-selected {
+  background: rgba(91, 118, 214, .13);
+}
+
+.cf-nutrient-session-item:hover .cf-nutrient-icon-btn,
+.cf-nutrient-session-item.is-selected .cf-nutrient-icon-btn {
+  opacity: 1;
+}
+
+.cf-nutrient-inline-confirm {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(255, 130, 130, .2);
+  border-radius: 8px;
+  background: rgba(105, 38, 48, .2);
+}
+
+.cf-nutrient-inline-confirm span {
+  min-width: 0;
+  color: rgba(255, 218, 218, .78);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.cf-nutrient-new-session-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .05);
+  color: rgba(246, 249, 255, .92);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 680;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 8px 22px rgba(0, 0, 0, .16);
+}
+
+.cf-nutrient-new-session-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+.cf-nutrient-new-session-btn:hover:not(:disabled),
+.cf-nutrient-new-session-btn.is-selected {
+  border-color: rgba(127, 247, 221, .3);
+  background: rgba(94, 215, 197, .1);
+  color: #d8fff8;
+}
+
+.cf-nutrient-new-session-btn:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+}
+
+.cf-nutrient-card-item:hover:not(.cf-nutrient-session-item),
+.cf-nutrient-card-item.is-selected:not(.cf-nutrient-session-item) {
   border-color: rgba(122, 158, 255, .48);
   background: rgba(73, 104, 214, .18);
 }
@@ -1342,6 +1957,32 @@ function errorMessage(error: unknown) {
 
 .cf-nutrient-card-item.is-archived {
   opacity: .6;
+}
+
+.cf-nutrient-card-item.is-default {
+  border-color: rgba(94, 215, 197, .28);
+}
+
+.cf-nutrient-asset-rail .cf-nutrient-card-item {
+  min-height: 92px;
+  align-content: start;
+}
+
+.cf-nutrient-asset-rail .cf-nutrient-card-item strong {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.cf-nutrient-asset-rail .cf-nutrient-card-item small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: rgba(210, 218, 242, .46);
+  font-size: 11px;
+  line-height: 16px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .cf-nutrient-card-item strong,
@@ -1379,7 +2020,64 @@ function errorMessage(error: unknown) {
 .cf-nutrient-agent-thread {
   min-height: 0;
   overflow: auto;
-  padding: 14px 16px 18px;
+  padding: 14px 16px 28px;
+  scrollbar-gutter: stable;
+}
+
+.cf-nutrient-main-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cf-nutrient-suggestion-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  position: relative;
+  padding-right: 8px;
+}
+
+.cf-nutrient-suggestion-trigger svg,
+.cf-nutrient-send-btn svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.cf-nutrient-suggestion-trigger span {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(94, 215, 197, .24);
+  color: #d8fff8;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.cf-nutrient-suggestion-popover {
+  position: absolute;
+  top: 58px;
+  right: 16px;
+  z-index: 2;
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100% - 32px));
+  max-height: min(420px, calc(100% - 86px));
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid rgba(139, 156, 255, .18);
+  border-radius: 8px;
+  background: rgba(12, 16, 25, .96);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, .42);
 }
 
 .cf-nutrient-card-preview {
@@ -1419,6 +2117,10 @@ function errorMessage(error: unknown) {
   flex-wrap: wrap;
   gap: 8px;
   margin: 0 0 10px;
+}
+
+.cf-nutrient-card-confirm {
+  margin: -2px 0 12px;
 }
 
 .cf-nutrient-feedback-grid {
@@ -1516,6 +2218,12 @@ function errorMessage(error: unknown) {
   color: rgba(232, 228, 255, .82);
 }
 
+.cf-nutrient-message.is-tool {
+  max-width: min(700px, 100%);
+  border-color: rgba(255, 210, 132, .18);
+  background: rgba(70, 55, 26, .2);
+}
+
 .cf-nutrient-message.is-pending {
   border-color: rgba(127, 247, 221, .22);
 }
@@ -1523,6 +2231,11 @@ function errorMessage(error: unknown) {
 .cf-nutrient-message.is-failed {
   border-color: rgba(255, 120, 120, .28);
   background: rgba(88, 18, 18, .2);
+}
+
+.cf-nutrient-message.is-cancelled {
+  border-color: rgba(210, 218, 242, .16);
+  background: rgba(80, 87, 107, .16);
 }
 
 .cf-nutrient-message header,
@@ -1543,6 +2256,71 @@ function errorMessage(error: unknown) {
 .cf-nutrient-depositable-block header span {
   color: rgba(210, 218, 242, .58);
   font-size: 12px;
+}
+
+.cf-nutrient-thought-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid rgba(190, 172, 255, .16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .035);
+  color: rgba(238, 236, 255, .84);
+  cursor: pointer;
+  text-align: left;
+}
+
+.cf-nutrient-thought-toggle strong {
+  flex: 0 0 auto;
+  color: rgba(210, 197, 255, .8);
+  font-size: 11px;
+}
+
+.cf-nutrient-thought-body {
+  padding: 2px 4px;
+}
+
+.cf-nutrient-tool-body {
+  display: grid;
+  gap: 8px;
+}
+
+.cf-nutrient-tool-status {
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 210, 132, .12);
+  color: #ffe2a8;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.cf-nutrient-tool-status.is-completed {
+  background: rgba(94, 215, 197, .12);
+  color: #bffbf0;
+}
+
+.cf-nutrient-tool-status.is-failed {
+  background: rgba(255, 120, 120, .13);
+  color: #ffc9c9;
+}
+
+.cf-nutrient-tool-meta {
+  max-height: 120px;
+  margin: 0;
+  overflow: auto;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .18);
+  color: rgba(231, 236, 255, .72);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: pre-wrap;
 }
 
 .cf-nutrient-message-failure {
@@ -1596,6 +2374,92 @@ function errorMessage(error: unknown) {
 .cf-nutrient-block-actions button:disabled {
   cursor: not-allowed;
   opacity: .48;
+}
+
+.cf-nutrient-filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.cf-nutrient-filter-row input {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid rgba(139, 156, 255, .16);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .04);
+  color: #eef2ff;
+  outline: 0;
+}
+
+.cf-nutrient-filter-row input {
+  padding: 0 10px;
+}
+
+.cf-nutrient-filter-row input:focus {
+  border-color: rgba(127, 247, 221, .42);
+}
+
+.cf-nutrient-segmented-filter {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid rgba(139, 156, 255, .12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .035);
+}
+
+.cf-nutrient-merge-panel .cf-nutrient-segmented-filter {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cf-nutrient-segmented-filter button {
+  min-width: 0;
+  min-height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(224, 230, 244, .68);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.cf-nutrient-segmented-filter button:hover,
+.cf-nutrient-segmented-filter button.is-active {
+  background: rgba(94, 215, 197, .14);
+  color: #d8fff8;
+}
+
+.cf-nutrient-merge-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(94, 215, 197, .22);
+  border-radius: 8px;
+  background: rgba(8, 14, 20, .9);
+}
+
+.cf-nutrient-merge-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cf-nutrient-merge-panel > header div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.cf-nutrient-merge-target-list {
+  display: grid;
+  max-height: 260px;
+  overflow: auto;
+  gap: 8px;
 }
 
 .cf-nutrient-research-loading {
@@ -1662,25 +2526,34 @@ function errorMessage(error: unknown) {
 }
 
 .cf-nutrient-composer-row {
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
   padding: 8px;
   border: 1px solid rgba(139, 156, 255, .16);
   border-radius: 8px;
-  background: rgba(255, 255, 255, .035);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .055), rgba(255, 255, 255, .028));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05), 0 10px 30px rgba(0, 0, 0, .18);
+}
+
+.cf-nutrient-composer-row:focus-within {
+  border-color: rgba(127, 247, 221, .36);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 0 0 3px rgba(94, 215, 197, .08);
 }
 
 .cf-nutrient-agent-composer textarea {
-  flex: 1;
+  width: 100%;
   min-height: 52px;
-  max-height: 120px;
-  resize: vertical;
+  max-height: 128px;
+  resize: none;
   border: 0;
   border-radius: 7px;
   background: transparent;
   color: #f5f7ff;
   padding: 8px 10px;
   outline: 0;
+  font-size: 14px;
+  line-height: 21px;
 }
 
 .cf-nutrient-agent-composer textarea::placeholder {
@@ -1688,8 +2561,19 @@ function errorMessage(error: unknown) {
 }
 
 .cf-nutrient-send-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   align-self: stretch;
-  min-width: 68px;
+  min-width: 84px;
+  border-radius: 8px;
+}
+
+.cf-nutrient-send-btn.is-pausing {
+  border-color: rgba(255, 190, 105, .42);
+  background: rgba(170, 98, 38, .22);
+  color: #ffe1b8;
 }
 
 .cf-nutrient-agent-composer textarea:disabled {
@@ -1740,6 +2624,13 @@ function errorMessage(error: unknown) {
   text-align: center;
 }
 
+.cf-nutrient-chat-empty {
+  min-height: 118px;
+  margin: 0;
+  border-style: dashed;
+  background: rgba(255, 255, 255, .03);
+}
+
 @media (max-width: 900px) {
   .cf-nutrient-workbench-backdrop {
     padding: 12px;
@@ -1755,10 +2646,6 @@ function errorMessage(error: unknown) {
     align-items: flex-start;
     gap: 10px;
     padding: 14px;
-  }
-
-  .cf-nutrient-workbench-stats {
-    display: none;
   }
 
   .cf-nutrient-workbench-tabs {
@@ -1784,6 +2671,15 @@ function errorMessage(error: unknown) {
 
   .cf-nutrient-feedback-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cf-nutrient-composer-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cf-nutrient-send-btn {
+    min-height: 40px;
   }
 }
 

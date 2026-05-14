@@ -39,7 +39,6 @@ export interface NutrientCardRecord {
   contentLocation: string;
   settledContentId: string | null;
   defaultForGrowth: boolean;
-  conversationId: string | null;
   lastResearchedAt: string | null;
   lastReferencedAt: string | null;
   createdAt: string;
@@ -51,7 +50,6 @@ export interface NutrientCardRecord {
 export interface NutrientResearchSessionRecord {
   id: string;
   seedId: string;
-  nutrientCardId: string | null;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -173,9 +171,10 @@ export interface NutrientStoragePort {
     sessionId: string,
   ): Promise<NutrientResearchSessionRecord | null>;
   saveResearchSession(record: NutrientResearchSessionRecord): Promise<void>;
-  findResearchSessionByCardId(
-    cardId: string,
-  ): Promise<NutrientResearchSessionRecord | null>;
+  deleteResearchSession(sessionId: string): Promise<void>;
+  listResearchSessionsBySeed(
+    seedId: string,
+  ): Promise<NutrientResearchSessionRecord[]>;
 
   createResearchMessage(record: NutrientResearchMessageRecord): Promise<void>;
   listResearchMessagesBySession(

@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   BrowserResearchProvider,
+  CodexExternalResearchProvider,
   ConfiguredSearchApiProvider,
   NetworkProviderRouter,
+  OpenClawExternalResearchProvider,
   PublicWebSearchProvider,
   planNetworkResearch,
   type BrowserCli,
   type NetworkProvider,
+  type OpenClawGatewayClient,
 } from "../agent/networked-research/index.js";
 import { NetworkedResearchTool } from "../agent/tools/networked-research-tool.js";
 import type { AgentTaskContext } from "../agent/runtime/agent-task.js";
@@ -112,6 +115,505 @@ describe("networked research module", () => {
       providerName: "fake_platform",
       resultQuality: "candidate_lead",
       phase: "initial_search",
+    });
+  });
+
+  it("delegates research to the Codex external research provider", async () => {
+    let requestBody: Record<string, unknown> | null = null;
+    const provider = new CodexExternalResearchProvider({
+      baseUrl: "http://codex-provider.example/v1",
+      apiKey: "sk-test-secret",
+      model: "gpt-5.5",
+      reasoningEffort: "high",
+      searchContextSize: "low",
+      fetchImpl: async (_url, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse({
+          status: "completed",
+          tool_usage: { web_search: { num_requests: 1 } },
+          output: [{
+            type: "message",
+            content: [{
+              type: "output_text",
+              text: JSON.stringify({
+                summary: "找到小红书 AI 产品宣传候选资料。",
+                items: [{
+                  title: "AI 产品种草案例",
+                  url: "https://www.xiaohongshu.com/explore/abc",
+                  snippet: "真实场景先行，产品后置露出。",
+                  source: "小红书",
+                  platform: "小红书",
+                  publishedAt: null,
+                  observedEvidence: "",
+                  engagement: { likes: 1200 },
+                }],
+                depositableBlocks: [{
+                  title: "小红书 AI 产品宣传营养",
+                  markdown: "先给方法，再给产品；产品露出后置。",
+                }],
+                limitations: [],
+              }),
+            }],
+          }],
+        });
+      },
+      now: () => new Date("2026-05-13T00:00:00.000Z"),
+    });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "搜索小红书 AI 产品宣传爆款文章",
+      targetPlatform: "小红书",
+    });
+
+    expect(requestBody).toMatchObject({
+      model: "gpt-5.5",
+      reasoning: { effort: "high" },
+      tool_choice: "required",
+    });
+    expect(JSON.stringify(requestBody)).toContain("web_search");
+    expect(JSON.stringify(requestBody)).toContain("engagementJson");
+    expect(JSON.stringify(requestBody)).not.toContain("\"type\":[\"string\",\"null\"]");
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "AI 产品种草案例",
+          url: "https://www.xiaohongshu.com/explore/abc",
+          providerName: "codex_external_research",
+          resultQuality: "candidate_lead",
+        }),
+        expect.objectContaining({
+          title: "小红书 AI 产品宣传营养",
+          providerName: "codex_external_research",
+        }),
+      ]),
+    );
+  });
+
+  it("delegates research to OpenClaw and normalizes successful results", async () => {
+    const client = new FakeOpenClawClient({
+      output: externalResearchPackage({
+        summary: "OpenClaw found useful AI product promotion examples.",
+        items: [{
+          title: "OpenClaw Xiaohongshu AI case",
+          url: "https://www.xiaohongshu.com/explore/openclaw-case",
+          snippet: "A real scene first, product mention later.",
+          source: "Xiaohongshu",
+          platform: "Xiaohongshu",
+          publishedAt: "",
+          observedEvidence: "Visible post detail with saves and likes.",
+          engagementJson: "{\"likes\":1800,\"favorites\":460}",
+        }],
+      }),
+    });
+    const provider = new OpenClawExternalResearchProvider({
+      gatewayUrl: "ws://openclaw.example",
+      authToken: "sk-openclaw-secret",
+      sessionPrefix: "content-forest-test",
+      client,
+      now: () => new Date("2026-05-13T00:00:00.000Z"),
+    });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "Find Xiaohongshu AI product promotion cases",
+      targetPlatform: "Xiaohongshu",
+    });
+
+    expect(client.runCalls).toHaveLength(1);
+    expect(client.deleteCalls).toHaveLength(1);
+    expect(client.runCalls[0]?.message).toContain("Return only the JSON research package");
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "OpenClaw Xiaohongshu AI case",
+          providerName: "openclaw_external_research",
+          resultQuality: "observed_case",
+        }),
+      ]),
+    );
+    expect(result.trace.initialSearch.providers).toEqual(["openclaw_external_research"]);
+  });
+
+  it("falls back to Codex when OpenClaw fails", async () => {
+    const openClaw = new OpenClawExternalResearchProvider({
+      gatewayUrl: "ws://openclaw.example",
+      authToken: "sk-openclaw-secret",
+      client: new FakeOpenClawClient({
+        error: new Error("OpenClaw provider failed"),
+      }),
+    });
+    const codex = new CodexExternalResearchProvider({
+      baseUrl: "http://codex-provider.example/v1",
+      apiKey: "sk-codex-secret",
+      fetchImpl: async () => jsonResponse(codexResearchResponse({
+        summary: "Codex fallback worked.",
+        items: [{
+          title: "Codex fallback case",
+          url: "https://example.com/fallback",
+          snippet: "Fallback result",
+          source: "Web",
+          platform: "",
+          publishedAt: "",
+          observedEvidence: "",
+          engagementJson: "",
+        }],
+      })),
+    });
+    const router = new NetworkProviderRouter({ providers: [openClaw, codex] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "Research AI product promotion cases",
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerName: "openclaw_external_research",
+          code: "provider_error",
+        }),
+      ]),
+    );
+    expect(result.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Codex fallback case",
+          providerName: "codex_external_research",
+        }),
+      ]),
+    );
+    expect(result.trace.initialSearch.providers).toEqual([
+      "openclaw_external_research",
+      "codex_external_research",
+    ]);
+  });
+
+  it("falls back to Codex when OpenClaw times out", async () => {
+    const openClaw = new OpenClawExternalResearchProvider({
+      gatewayUrl: "ws://openclaw.example",
+      authToken: "sk-openclaw-secret",
+      client: new FakeOpenClawClient({
+        error: new Error("OpenClaw Gateway request timed out"),
+      }),
+    });
+    const codex = new CodexExternalResearchProvider({
+      baseUrl: "http://codex-provider.example/v1",
+      apiKey: "sk-codex-secret",
+      fetchImpl: async () => jsonResponse(codexResearchResponse({
+        summary: "Codex fallback after timeout.",
+      })),
+    });
+    const router = new NetworkProviderRouter({ providers: [openClaw, codex] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "Research AI product promotion cases",
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.failures[0]).toMatchObject({
+      providerName: "openclaw_external_research",
+      code: "timeout",
+    });
+    expect(result.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerName: "codex_external_research" }),
+      ]),
+    );
+  });
+
+  it("deletes the OpenClaw session after success and after failure", async () => {
+    const successClient = new FakeOpenClawClient({
+      output: externalResearchPackage({ summary: "success" }),
+    });
+    const failureClient = new FakeOpenClawClient({
+      error: new Error("OpenClaw failed"),
+    });
+
+    await new NetworkProviderRouter({
+      providers: [
+        new OpenClawExternalResearchProvider({
+          gatewayUrl: "ws://openclaw.example",
+          authToken: "sk-openclaw-secret",
+          client: successClient,
+        }),
+      ],
+    }).run({ mode: "research", request: "research success" });
+    await new NetworkProviderRouter({
+      providers: [
+        new OpenClawExternalResearchProvider({
+          gatewayUrl: "ws://openclaw.example",
+          authToken: "sk-openclaw-secret",
+          client: failureClient,
+        }),
+      ],
+    }).run({ mode: "research", request: "research failure" });
+
+    expect(successClient.deleteCalls).toHaveLength(1);
+    expect(failureClient.deleteCalls).toHaveLength(1);
+  });
+
+  it("records OpenClaw session deletion failure without discarding results", async () => {
+    const provider = new OpenClawExternalResearchProvider({
+      gatewayUrl: "ws://openclaw.example",
+      authToken: "sk-openclaw-secret",
+      client: new FakeOpenClawClient({
+        output: externalResearchPackage({ summary: "usable result" }),
+        deleteError: new Error("cleanup failed with Bearer sk-openclaw-secret"),
+      }),
+    });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "Research AI product promotion cases",
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "OpenClaw 外部研究摘要",
+          providerName: "openclaw_external_research",
+        }),
+      ]),
+    );
+    expect(result.restrictedStatuses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "unknown",
+          providerName: "openclaw_external_research",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(result)).not.toContain("sk-openclaw-secret");
+  });
+
+  it("does not leak OpenClaw auth token in failures or config warnings", () => {
+    const provider = new OpenClawExternalResearchProvider({
+      gatewayUrl: "ws://openclaw.example",
+      authToken: "sk-openclaw-secret-value",
+      client: new FakeOpenClawClient({
+        error: new Error("Authorization failed for Bearer sk-openclaw-secret-value"),
+      }),
+    });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    return router.run({
+      mode: "research",
+      request: "Research AI product promotion cases",
+    }).then((result) => {
+      expect(JSON.stringify(result)).not.toContain("sk-openclaw-secret-value");
+      expect(JSON.stringify(result)).toContain("[redacted-secret]");
+    });
+  });
+
+  it("maps Codex external research limitations to restricted statuses", async () => {
+    const provider = new CodexExternalResearchProvider({
+      baseUrl: "http://codex-provider.example/v1",
+      apiKey: "sk-test-secret",
+      fetchImpl: async () => jsonResponse({
+        status: "completed",
+        output: [{
+          type: "message",
+          content: [{
+            type: "output_text",
+            text: JSON.stringify({
+              summary: "",
+              items: [],
+              depositableBlocks: [],
+              limitations: [{
+                code: "access_denied",
+                reason: "小红书页面提示 IP 存在风险。",
+                url: "https://www.xiaohongshu.com/search_result",
+              }],
+            }),
+          }],
+        }],
+      }),
+    });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "搜索小红书 AI 产品宣传爆款文章",
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.restrictedStatuses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "access_denied",
+          providerName: "codex_external_research",
+          phase: "initial_search",
+        }),
+      ]),
+    );
+  });
+
+  it("returns structured Codex provider failures without leaking secrets", async () => {
+    const provider = new CodexExternalResearchProvider({
+      baseUrl: "http://codex-provider.example/v1",
+      apiKey: "sk-test-secret-value",
+      fetchImpl: async () => {
+        throw new Error("network failed with Authorization: Bearer sk-test-secret-value");
+      },
+    });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "研究 AI 产品宣传",
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.failures[0]).toMatchObject({
+      providerName: "codex_external_research",
+      code: "network_error",
+      phase: "initial_search",
+    });
+    expect(JSON.stringify(result.failures)).not.toContain("sk-test-secret-value");
+    expect(JSON.stringify(result.failures)).not.toContain("Bearer sk-test");
+  });
+
+  it("fails Codex external research when config is missing", async () => {
+    const router = new NetworkProviderRouter({
+      providers: [new CodexExternalResearchProvider()],
+    });
+
+    const result = await router.run({
+      mode: "research",
+      request: "研究 AI 产品宣传",
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerName: "codex_external_research",
+          code: "provider_unavailable",
+        }),
+      ]),
+    );
+  });
+
+  it("fails Codex external research on invalid structured JSON", async () => {
+    const router = new NetworkProviderRouter({
+      providers: [
+        new CodexExternalResearchProvider({
+          baseUrl: "http://codex-provider.example/v1",
+          apiKey: "sk-test-secret",
+          fetchImpl: async () => jsonResponse({
+            status: "completed",
+            output: [{
+              type: "message",
+              content: [{ type: "output_text", text: "not json" }],
+            }],
+          }),
+        }),
+      ],
+    });
+
+    const result = await router.run({
+      mode: "research",
+      request: "研究 AI 产品宣传",
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerName: "codex_external_research",
+          code: "provider_error",
+        }),
+      ]),
+    );
+  });
+
+  it("maps Codex external research HTTP and timeout failures", async () => {
+    const httpRouter = new NetworkProviderRouter({
+      providers: [
+        new CodexExternalResearchProvider({
+          baseUrl: "http://codex-provider.example/v1",
+          apiKey: "sk-test-secret",
+          fetchImpl: async () => jsonResponse({}, 403),
+        }),
+      ],
+    });
+    const httpResult = await httpRouter.run({
+      mode: "research",
+      request: "研究 AI 产品宣传",
+    });
+
+    expect(httpResult.mode).toBe("research");
+    if (httpResult.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(httpResult.failures[0]).toMatchObject({
+      providerName: "codex_external_research",
+      code: "missing_api_key",
+    });
+
+    const timeoutRouter = new NetworkProviderRouter({
+      providers: [
+        new CodexExternalResearchProvider({
+          baseUrl: "http://codex-provider.example/v1",
+          apiKey: "sk-test-secret",
+          timeoutMs: 1,
+          fetchImpl: (_url, init) =>
+            new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () => {
+                reject(new DOMException("Aborted", "AbortError"));
+              });
+            }),
+        }),
+      ],
+    });
+    const timeoutResult = await timeoutRouter.run({
+      mode: "research",
+      request: "研究 AI 产品宣传",
+    });
+
+    expect(timeoutResult.mode).toBe("research");
+    if (timeoutResult.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(timeoutResult.failures[0]).toMatchObject({
+      providerName: "codex_external_research",
+      code: "timeout",
     });
   });
 
@@ -232,6 +734,66 @@ describe("networked research module", () => {
         }),
       ]),
     );
+  });
+
+  it("uses only Codex external research by default while keeping legacy providers constructable", async () => {
+    const tool = new NetworkedResearchTool(undefined, {
+      CONTENT_FOREST_RESEARCH_PROVIDER: "codex-external-agent",
+      CONTENT_FOREST_CODEX_RESEARCH_BASE_URL: "",
+      CONTENT_FOREST_CODEX_RESEARCH_API_KEY: "",
+    });
+
+    const output = await tool.execute(
+      { mode: "research", request: "研究 AI 产品宣传" },
+      context,
+    );
+
+    const content = output.content as {
+      failures: Array<{ providerName: string }>;
+      trace: {
+        initialSearch: { providers: string[] };
+        deepExploration: { triggered: boolean; providers: string[] };
+      };
+    };
+    expect(content.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerName: "codex_external_research" }),
+      ]),
+    );
+    expect(JSON.stringify(content)).not.toContain("public_web_search");
+    expect(JSON.stringify(content)).not.toContain("browser_research");
+    expect(JSON.stringify(content.failures)).not.toContain("provider_router");
+    expect(new PublicWebSearchProvider()).toBeInstanceOf(PublicWebSearchProvider);
+    expect(new BrowserResearchProvider({ allowedDomains: ["example.com"] })).toBeInstanceOf(
+      BrowserResearchProvider,
+    );
+    expect(content.trace.initialSearch.providers).toEqual(["codex_external_research"]);
+    expect(content.trace.deepExploration).toMatchObject({
+      triggered: false,
+      providers: [],
+    });
+  });
+
+  it("prioritizes OpenClaw when it is configured even if Codex is selected", async () => {
+    const tool = new NetworkedResearchTool(undefined, {
+      CONTENT_FOREST_RESEARCH_PROVIDER: "codex-external-agent",
+      CONTENT_FOREST_CODEX_RESEARCH_BASE_URL: "",
+      CONTENT_FOREST_CODEX_RESEARCH_API_KEY: "",
+      CONTENT_FOREST_OPENCLAW_GATEWAY_URL: "ws://openclaw.example",
+      CONTENT_FOREST_OPENCLAW_AUTH_TOKEN: "sk-openclaw-secret",
+    });
+
+    const output = await tool.execute(
+      { mode: "research", request: "Research AI product promotion" },
+      context,
+    );
+
+    const content = output.content as {
+      failures: Array<{ providerName: string }>;
+      trace: { initialSearch: { providers: string[] } };
+    };
+    expect(content.trace.initialSearch.providers[0]).toBe("openclaw_external_research");
+    expect(JSON.stringify(content)).toContain("openclaw_external_research");
   });
 
   it("routes research using the platform inferred by the query planner", async () => {
@@ -489,4 +1051,99 @@ class OpenFailsSnapshotSucceedsCli implements BrowserCli {
     }
     return this.snapshot;
   }
+}
+
+class FakeOpenClawClient implements OpenClawGatewayClient {
+  public readonly runCalls: Array<{
+    message: string;
+    sessionKey: string;
+    runId: string;
+    timeoutMs: number;
+  }> = [];
+  public readonly deleteCalls: string[] = [];
+
+  public constructor(private readonly options: {
+    output?: unknown;
+    error?: Error;
+    deleteError?: Error;
+  }) {}
+
+  public async runAgent(input: {
+    message: string;
+    sessionKey: string;
+    runId: string;
+    timeoutMs: number;
+  }): Promise<unknown> {
+    this.runCalls.push(input);
+    if (this.options.error !== undefined) {
+      throw this.options.error;
+    }
+    return this.options.output ?? externalResearchPackage({ summary: "fake openclaw output" });
+  }
+
+  public async deleteSession(sessionKey: string): Promise<void> {
+    this.deleteCalls.push(sessionKey);
+    if (this.options.deleteError !== undefined) {
+      throw this.options.deleteError;
+    }
+  }
+}
+
+function externalResearchPackage(input: {
+  summary?: string;
+  items?: Array<{
+    title: string;
+    url: string;
+    snippet: string;
+    source: string;
+    platform: string;
+    publishedAt: string;
+    observedEvidence: string;
+    engagementJson: string;
+  }>;
+  depositableBlocks?: Array<{ title: string; markdown: string }>;
+  limitations?: Array<{ code: string; reason: string; url: string }>;
+}): string {
+  return JSON.stringify({
+    summary: input.summary ?? "",
+    items: input.items ?? [],
+    depositableBlocks: input.depositableBlocks ?? [],
+    limitations: input.limitations ?? [],
+  });
+}
+
+function codexResearchResponse(input: {
+  summary?: string;
+  items?: Array<{
+    title: string;
+    url: string;
+    snippet: string;
+    source: string;
+    platform: string;
+    publishedAt: string;
+    observedEvidence: string;
+    engagementJson: string;
+  }>;
+  depositableBlocks?: Array<{ title: string; markdown: string }>;
+  limitations?: Array<{ code: string; reason: string; url: string }>;
+}): unknown {
+  return {
+    status: "completed",
+    output: [{
+      type: "message",
+      content: [{
+        type: "output_text",
+        text: externalResearchPackage(input),
+      }],
+    }],
+  };
+}
+
+function jsonResponse(value: unknown, status: number = 200): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: {
+      "content-type": "application/json",
+    },
+  });
 }

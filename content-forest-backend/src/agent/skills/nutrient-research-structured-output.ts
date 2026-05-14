@@ -99,6 +99,8 @@ async function askForResearchOutput(
           "message 用于自然沟通，可以说明发现、建议和下一步。",
           "depositableBlocks 是可沉淀营养候选，标题和 markdown 必须能被用户保存为未沉淀营养卡片。",
           "不要声明已经写入正式营养库、公共营养库或已创建卡片。",
+          "The output type must be exactly \"nutrient_research_result\".",
+          "If there is no depositable nutrient, keep depositableBlocks as an empty array and put the user-facing reply in message.",
         ].join("\n"),
       },
       {

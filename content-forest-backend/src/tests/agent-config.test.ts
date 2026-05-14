@@ -74,6 +74,78 @@ describe("Agent LLM config", () => {
       maxContentChars: 1200,
     });
   });
+
+  it("loads codex external research config without leaking keys in warnings", () => {
+    const config = loadAppConfig(
+      {
+        CONTENT_FOREST_RESEARCH_PROVIDER: "codex-external-agent",
+        CONTENT_FOREST_CODEX_RESEARCH_BASE_URL: "http://codex-provider.example/v1",
+        CONTENT_FOREST_CODEX_RESEARCH_API_KEY: "sk-test-secret-value",
+        CONTENT_FOREST_CODEX_RESEARCH_MODEL: "gpt-5.5",
+        CONTENT_FOREST_CODEX_RESEARCH_REASONING_EFFORT: "high",
+        CONTENT_FOREST_CODEX_RESEARCH_SEARCH_CONTEXT_SIZE: "medium",
+        CONTENT_FOREST_CODEX_RESEARCH_TIMEOUT_MS: "90000",
+      },
+      "D:/project/content-forest-backend",
+    );
+
+    expect(config.agent.externalResearch).toMatchObject({
+      enabled: true,
+      baseUrl: "http://codex-provider.example/v1",
+      model: "gpt-5.5",
+      reasoningEffort: "high",
+      searchContextSize: "medium",
+      timeoutMs: 90000,
+      isAvailable: true,
+      warnings: [],
+    });
+    expect(getAgentLlmStartupWarnings(config).join("\n")).not.toContain("sk-test");
+  });
+
+  it("loads OpenClaw external research config and fallback without leaking tokens", () => {
+    const config = loadAppConfig(
+      {
+        CONTENT_FOREST_RESEARCH_PROVIDER: "openclaw-external-agent",
+        CONTENT_FOREST_RESEARCH_FALLBACK_PROVIDER: "codex-external-agent",
+        CONTENT_FOREST_OPENCLAW_GATEWAY_URL: "ws://openclaw.example",
+        CONTENT_FOREST_OPENCLAW_AUTH_TOKEN: "sk-openclaw-secret-value",
+        CONTENT_FOREST_OPENCLAW_TIMEOUT_MS: "120000",
+        CONTENT_FOREST_OPENCLAW_SESSION_PREFIX: "content-forest-test",
+        CONTENT_FOREST_OPENCLAW_DELETE_SESSION_ON_FINISH: "true",
+        CONTENT_FOREST_CODEX_RESEARCH_BASE_URL: "http://codex-provider.example/v1",
+        CONTENT_FOREST_CODEX_RESEARCH_API_KEY: "sk-codex-secret-value",
+      },
+      "D:/project/content-forest-backend",
+    );
+
+    expect(config.agent.externalResearch.provider).toBe("openclaw-external-agent");
+    expect(config.agent.externalResearch.fallbackProvider).toBe("codex-external-agent");
+    expect(config.agent.externalResearch.openClaw).toMatchObject({
+      enabled: true,
+      gatewayUrl: "ws://openclaw.example",
+      timeoutMs: 120000,
+      sessionPrefix: "content-forest-test",
+      deleteSessionOnFinish: true,
+      isAvailable: true,
+      warnings: [],
+    });
+    expect(config.agent.externalResearch.codex.isAvailable).toBe(true);
+    expect(getAgentLlmStartupWarnings(config).join("\n")).not.toContain("sk-openclaw");
+  });
+
+  it("warns for missing OpenClaw config without exposing auth token values", () => {
+    const config = loadAppConfig(
+      {
+        CONTENT_FOREST_RESEARCH_PROVIDER: "openclaw-external-agent",
+        CONTENT_FOREST_OPENCLAW_AUTH_TOKEN: "sk-openclaw-secret-value",
+      },
+      "D:/project/content-forest-backend",
+    );
+
+    const warnings = getAgentLlmStartupWarnings(config).join("\n");
+    expect(warnings).toContain("GATEWAY_URL");
+    expect(warnings).not.toContain("sk-openclaw-secret-value");
+  });
 });
 
 describe("local secret protection", () => {
@@ -95,6 +167,11 @@ describe("local secret protection", () => {
     expect(sample).toContain("CONTENT_FOREST_AGENT_EXCHANGE_LOG_ENABLED=false");
     expect(sample).toContain("CONTENT_FOREST_AGENT_EXCHANGE_LOG_DIR=logs");
     expect(sample).toContain("CONTENT_FOREST_AGENT_EXCHANGE_LOG_MAX_CONTENT_CHARS=4000");
+    expect(sample).toContain("CONTENT_FOREST_RESEARCH_PROVIDER=codex-external-agent");
+    expect(sample).toContain("CONTENT_FOREST_RESEARCH_FALLBACK_PROVIDER=");
+    expect(sample).toContain("CONTENT_FOREST_CODEX_RESEARCH_API_KEY=your-codex-provider-api-key-here");
+    expect(sample).toContain("CONTENT_FOREST_OPENCLAW_GATEWAY_URL=ws://localhost:18789/");
+    expect(sample).toContain("CONTENT_FOREST_OPENCLAW_AUTH_TOKEN=your-openclaw-token-here");
     expect(sample).not.toContain("sk-cp-");
   });
 });

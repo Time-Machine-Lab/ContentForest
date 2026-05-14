@@ -125,7 +125,12 @@ export async function bootstrapApp(
   skillRegistry.register(new NutrientResearchSkill());
   const toolRegistry = new ToolRegistry();
   toolRegistry.register(new ControlledWebSearchTool());
-  toolRegistry.register(new NetworkedResearchTool());
+  toolRegistry.register(
+    new NetworkedResearchTool(
+      undefined,
+      config.agent.externalResearch,
+    ),
+  );
   toolRegistry.register(
     new ReadGeneratorSkillTool({
       generatorStorage,

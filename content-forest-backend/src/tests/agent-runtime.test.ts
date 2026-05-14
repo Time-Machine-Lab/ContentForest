@@ -9,6 +9,7 @@ import {
 import { AgentRuntime } from "../agent/runtime/agent-runtime.js";
 import { FakeLlmAdapter } from "../agent/runtime/fake-llm-adapter.js";
 import { SkillRegistry } from "../agent/runtime/skill-runtime.js";
+import { ToolRegistry } from "../agent/runtime/tool-registry.js";
 import type { SkillContract } from "../agent/skills/skill-contract.js";
 
 function createRuntime(skill: SkillContract): AgentRuntime {
@@ -337,6 +338,69 @@ describe("AgentRuntime", () => {
         }),
       ]),
     );
+  });
+
+  it("streams tool lifecycle events from ToolRuntime", async () => {
+    const skillRegistry = new SkillRegistry();
+    const toolRegistry = new ToolRegistry();
+    skillRegistry.register({
+      name: "growth-skill",
+      description: "fake growth",
+      supportedTaskTypes: ["growth"],
+      async execute({ tools }) {
+        await tools.callTool("read_context", { mode: "summary" });
+        return {
+          taskType: "growth",
+          content: "ok",
+        };
+      },
+    });
+    toolRegistry.register({
+      name: "read_context",
+      description: "fake read",
+      readOnly: true,
+      async execute() {
+        return {
+          content: { ok: true },
+          metadata: {
+            resultCount: 1,
+            secret: "sk-secret-secret-secret-secret",
+          },
+        };
+      },
+    });
+    const runtime = new AgentRuntime({
+      skillRegistry,
+      toolRegistry,
+      llm: new FakeLlmAdapter("unused"),
+      nextTaskId: () => "agent-task_1",
+    });
+
+    const events = [];
+    const stream = runtime.streamTask({
+      type: "growth",
+      input: {},
+    });
+    while (true) {
+      const event = await stream.next();
+      if (event.done) break;
+      events.push(event.value);
+    }
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "tool_call_started",
+        toolName: "read_context",
+      }),
+      expect.objectContaining({
+        type: "tool_call_completed",
+        toolName: "read_context",
+        metadata: expect.objectContaining({
+          resultCount: 1,
+          secret: "[secret]",
+        }),
+      }),
+    ]);
   });
 });
 

@@ -12,6 +12,16 @@ export {
   BrowserResearchProvider,
 } from "./providers/browser-research-provider.js";
 export {
+  CodexExternalResearchProvider,
+  type CodexExternalResearchProviderOptions,
+} from "./providers/codex-external-research-provider.js";
+export {
+  JsonRpcOpenClawGatewayClient,
+  OpenClawExternalResearchProvider,
+  type OpenClawExternalResearchProviderOptions,
+  type OpenClawGatewayClient,
+} from "./providers/openclaw-external-research-provider.js";
+export {
   ConfiguredSearchApiProvider,
   type ConfiguredSearchApiProviderOptions,
   type SearchApiProviderName,

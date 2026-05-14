@@ -249,7 +249,11 @@ describe("Nutrient module integration", () => {
       }
       const messages = await controller.listResearchMessages(session.id);
       const blocks = await controller.listDepositableBlocks(session.id);
+      const sessions = await controller.listResearchSessions({
+        seedId: "seed_integration",
+      });
       const referable = await controller.listReferableContents("seed_integration");
+      const deletedSession = await controller.deleteResearchSession(session.id);
 
       expect(sessionResult.status).toBe(201);
       expect(submitResult.status).toBe(201);
@@ -279,7 +283,17 @@ describe("Nutrient module integration", () => {
           markdown: "围绕情绪场景组织壁纸内容。",
         },
       ]);
+      expect(sessions.body).toMatchObject([
+        {
+          id: session.id,
+          seedId: "seed_integration",
+        },
+      ]);
       expect(referable.body).toEqual([]);
+      expect(deletedSession.status).toBe(204);
+      await expect(controller.getResearchSession(session.id)).rejects.toMatchObject({
+        code: "NOT_FOUND",
+      });
     } finally {
       seedStorage.close();
       nutrientStorage.close();

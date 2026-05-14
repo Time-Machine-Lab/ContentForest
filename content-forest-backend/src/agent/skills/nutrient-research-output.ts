@@ -61,6 +61,13 @@ export function parseNutrientResearchJson(text: string): unknown {
       return parsed.value;
     }
   }
+  if (cleaned.length > 0) {
+    return {
+      type: "nutrient_research_result",
+      message: cleaned,
+      depositableBlocks: [],
+    };
+  }
   throw new ApplicationError("VALIDATION_ERROR", "模型未返回可解析的营养研究 JSON", 502);
 }
 

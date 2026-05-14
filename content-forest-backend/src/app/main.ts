@@ -34,7 +34,7 @@ const app = await bootstrapApp();
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET,POST,PATCH,OPTIONS",
+  "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
   "access-control-allow-headers": "content-type",
 };
 
@@ -249,6 +249,17 @@ async function handleApiRequest(
     return true;
   }
 
+  const seedResearchSessionsMatch = pathname.match(
+    /^\/api\/seeds\/([^/]+)\/nutrient-research-sessions$/,
+  );
+  if (seedResearchSessionsMatch && method === "GET") {
+    const result = await app.nutrientController.listResearchSessions({
+      seedId: decodeURIComponent(seedResearchSessionsMatch[1] ?? ""),
+    });
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
   const seedNutrientCardsFreshnessMatch = pathname.match(
     /^\/api\/seeds\/([^/]+)\/nutrient-cards\/freshness$/,
   );
@@ -353,18 +364,6 @@ async function handleApiRequest(
     return true;
   }
 
-  const nutrientCardConversationMatch = pathname.match(
-    /^\/api\/nutrient-cards\/([^/]+)\/conversation$/,
-  );
-  if (nutrientCardConversationMatch && method === "POST") {
-    const result = await app.nutrientController.bindCardConversation(
-      decodeURIComponent(nutrientCardConversationMatch[1] ?? ""),
-      toBindNutrientCardConversationInput(await readJsonBody(request)),
-    );
-    sendJson(response, result.status, result.body);
-    return true;
-  }
-
   const nutrientCardUsageSummaryMatch = pathname.match(
     /^\/api\/nutrient-cards\/([^/]+)\/usage-summary$/,
   );
@@ -443,11 +442,13 @@ async function handleApiRequest(
     /^\/api\/nutrient-research-sessions\/([^/]+)\/messages\/stream$/,
   );
   if (researchSessionMessagesStreamMatch && method === "POST") {
+    const abortController = new AbortController();
     const events = app.nutrientController.streamResearchMessage(
       decodeURIComponent(researchSessionMessagesStreamMatch[1] ?? ""),
       toSubmitNutrientResearchMessageInput(await readJsonBody(request)),
+      { signal: abortController.signal },
     );
-    await sendSse(response, events);
+    await sendSse(response, events, abortController);
     return true;
   }
 
@@ -467,6 +468,13 @@ async function handleApiRequest(
   );
   if (researchSessionMatch && method === "GET") {
     const result = await app.nutrientController.getResearchSession(
+      decodeURIComponent(researchSessionMatch[1] ?? ""),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+  if (researchSessionMatch && method === "DELETE") {
+    const result = await app.nutrientController.deleteResearchSession(
       decodeURIComponent(researchSessionMatch[1] ?? ""),
     );
     sendJson(response, result.status, result.body);
@@ -1121,9 +1129,8 @@ function toUpdateNutrientContentInput(body: Record<string, unknown>): {
 function toCreateNutrientCardInput(body: Record<string, unknown>): {
   title: string;
   markdown: string;
-  conversationId?: string | null;
 } {
-  rejectUnexpectedFields(body, ["title", "markdown", "conversationId"]);
+  rejectUnexpectedFields(body, ["title", "markdown"]);
   if (typeof body.title !== "string" || typeof body.markdown !== "string") {
     throw new ApplicationError(
       "VALIDATION_ERROR",
@@ -1132,16 +1139,13 @@ function toCreateNutrientCardInput(body: Record<string, unknown>): {
     );
   }
   if (
-    body.conversationId !== undefined &&
-    body.conversationId !== null &&
-    typeof body.conversationId !== "string"
+    false
   ) {
     throw new ApplicationError("VALIDATION_ERROR", "会话标识必须是字符串", 400);
   }
   return {
     title: body.title,
     markdown: body.markdown,
-    conversationId: body.conversationId,
   };
 }
 
@@ -1180,14 +1184,14 @@ function toSettleNutrientCardInput(body: Record<string, unknown>): {
   return body.libraryId === undefined ? {} : { libraryId: body.libraryId };
 }
 
-function toBindNutrientCardConversationInput(body: Record<string, unknown>): {
-  conversationId: string;
+function toLegacyNutrientCardSessionInput(body: Record<string, unknown>): {
+  sessionId: string;
 } {
-  rejectUnexpectedFields(body, ["conversationId"]);
-  if (typeof body.conversationId !== "string") {
+  rejectUnexpectedFields(body, ["sessionId"]);
+  if (typeof body.sessionId !== "string") {
     throw new ApplicationError("VALIDATION_ERROR", "绑定会话需要提供会话标识", 400);
   }
-  return { conversationId: body.conversationId };
+  return { sessionId: body.sessionId };
 }
 
 function toFindSimilarNutrientCardsInput(body: Record<string, unknown>): {
@@ -1241,10 +1245,9 @@ function toMergeNutrientCardInput(body: Record<string, unknown>): {
 
 function toCreateNutrientResearchSessionInput(body: Record<string, unknown>): {
   seedId: string;
-  nutrientCardId?: string | null;
   title?: string;
 } {
-  rejectUnexpectedFields(body, ["seedId", "nutrientCardId", "title"]);
+  rejectUnexpectedFields(body, ["seedId", "title"]);
   if (typeof body.seedId !== "string") {
     throw new ApplicationError(
       "VALIDATION_ERROR",
@@ -1253,9 +1256,7 @@ function toCreateNutrientResearchSessionInput(body: Record<string, unknown>): {
     );
   }
   if (
-    body.nutrientCardId !== undefined &&
-    body.nutrientCardId !== null &&
-    typeof body.nutrientCardId !== "string"
+    false
   ) {
     throw new ApplicationError("VALIDATION_ERROR", "工作台营养内容必须是字符串", 400);
   }
@@ -1264,7 +1265,6 @@ function toCreateNutrientResearchSessionInput(body: Record<string, unknown>): {
   }
   return {
     seedId: body.seedId,
-    nutrientCardId: body.nutrientCardId,
     title: body.title,
   };
 }
@@ -1371,6 +1371,17 @@ function toNutrientGapSuggestionStatus(
     );
   }
   return value;
+}
+
+function toOptionalNullableString(value: string | null): string | null | undefined {
+  if (value === null) {
+    return undefined;
+  }
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  return normalized === "null" ? null : normalized;
 }
 
 function toReuploadGeneratorInput(body: Record<string, unknown>): {
@@ -1996,7 +2007,11 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 async function sendSse(
   response: ServerResponse,
   events: AsyncIterable<NutrientResearchStreamEvent>,
+  abortController?: AbortController,
 ): Promise<void> {
+  response.on("close", () => {
+    abortController?.abort();
+  });
   const iterator = events[Symbol.asyncIterator]();
   let first = await iterator.next();
   response.writeHead(200, {
@@ -2008,6 +2023,10 @@ async function sendSse(
   });
   try {
     while (!first.done) {
+      if (abortController?.signal.aborted === true || response.destroyed) {
+        await iterator.return?.();
+        break;
+      }
       writeSseEvent(response, first.value);
       first = await iterator.next();
     }
@@ -2018,7 +2037,9 @@ async function sendSse(
       message: error instanceof Error ? error.message : "Internal Server Error",
     });
   } finally {
-    response.end();
+    if (!response.destroyed) {
+      response.end();
+    }
   }
 }
 

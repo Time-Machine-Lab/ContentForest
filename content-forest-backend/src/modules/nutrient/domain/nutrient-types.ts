@@ -82,7 +82,6 @@ export interface NutrientCardSummary {
   contentLocation: string;
   settledContentId: string | null;
   defaultForGrowth: boolean;
-  conversationId: string | null;
   lastResearchedAt: string | null;
   lastReferencedAt: string | null;
   createdAt: string;
@@ -120,7 +119,6 @@ export interface NutrientDepositableBlock {
 export interface NutrientResearchSessionSummary {
   id: string;
   seedId: string;
-  nutrientCardId: string | null;
   title: string;
   createdAt: string;
   updatedAt: string;

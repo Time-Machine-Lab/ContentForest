@@ -12,6 +12,8 @@
 -- - nutrient_cards 是营养内容在种子工作台中的生命周期承载表，不是独立于营养内容之外的用户侧领域概念。
 -- - nutrient_cards.status 中 unsettled 表示草稿，settled 表示已沉淀，archived 表示已归档。
 -- - 草稿态 nutrient_cards 可以硬删除；已沉淀和已归档内容不提供硬删除语义。
+-- - 营养研究会话是种子级研究过程，不与 nutrient_cards 或 nutrient_contents 绑定；会话删除不影响营养内容。
+-- - 会话产出的可沉淀营养块只有在用户保存为草稿或显式选择目标合并时，才进入营养内容生命周期。
 -- - 营养汲取建议是种子级缺口提醒，采纳后只创建草稿营养内容，不自动沉淀为正式营养。
 -- - 营养研究会话的 Agent trace 可以记录联网数据获取阶段摘要、结果层级和受限状态，但不保存 Provider 密钥、浏览器登录态或外部平台原始长正文。
 -- - 本次联网研究双层管线不新增营养库事实表；候选线索和已观察案例只有在用户保存为草稿或沉淀为正式营养后才进入营养库系统事实。
@@ -61,7 +63,6 @@ CREATE TABLE IF NOT EXISTS nutrient_cards (
   content_location TEXT NOT NULL,
   settled_content_id TEXT,
   default_for_growth INTEGER NOT NULL DEFAULT 0 CHECK (default_for_growth IN (0, 1)),
-  conversation_id TEXT,
   last_researched_at TEXT,
   last_referenced_at TEXT,
   created_at TEXT NOT NULL,
@@ -118,7 +119,6 @@ CREATE INDEX IF NOT EXISTS idx_nutrient_card_merge_target_created_at
 CREATE TABLE IF NOT EXISTS nutrient_research_sessions (
   id TEXT PRIMARY KEY,
   seed_id TEXT NOT NULL,
-  nutrient_card_id TEXT,
   title TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -126,9 +126,6 @@ CREATE TABLE IF NOT EXISTS nutrient_research_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_nutrient_research_sessions_seed_updated_at
   ON nutrient_research_sessions (seed_id, updated_at);
-
-CREATE INDEX IF NOT EXISTS idx_nutrient_research_sessions_card_updated_at
-  ON nutrient_research_sessions (nutrient_card_id, updated_at);
 
 CREATE TABLE IF NOT EXISTS nutrient_research_messages (
   id TEXT PRIMARY KEY,

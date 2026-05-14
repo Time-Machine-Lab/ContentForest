@@ -1,9 +1,9 @@
 import type {
-  BindNutrientCardConversationRequest,
   CreateNutrientContentRequest,
   CreateNutrientCardRequest,
   CreateNutrientLibraryRequest,
   CreateNutrientResearchSessionRequest,
+  MergeNutrientCardRequest,
   AdoptNutrientGapSuggestionResult,
   NutrientCardDetail,
   NutrientCardListQuery,
@@ -18,6 +18,8 @@ import type {
   NutrientLibraryListQuery,
   NutrientLibrarySummary,
   NutrientResearchMessage,
+  NutrientResearchSessionListQuery,
+  NutrientResearchSessionSummary,
   NutrientResearchSessionDetail,
   NutrientResearchStreamEvent,
   ReferableNutrientContent,
@@ -29,7 +31,7 @@ import type {
   UpdateNutrientLibraryRequest,
 } from './types'
 
-type HttpMethod = 'GET' | 'POST' | 'PATCH'
+type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 
 export interface NutrientFetchOptions {
   method?: HttpMethod
@@ -40,8 +42,8 @@ export interface NutrientFetchOptions {
     | UpdateNutrientContentRequest
     | CreateNutrientCardRequest
     | UpdateNutrientCardRequest
+    | MergeNutrientCardRequest
     | SettleNutrientCardRequest
-    | BindNutrientCardConversationRequest
     | CreateNutrientResearchSessionRequest
     | SubmitNutrientResearchMessageRequest
     | null
@@ -50,6 +52,10 @@ export interface NutrientFetchOptions {
 export type NutrientFetcher = <T>(url: string, options?: NutrientFetchOptions) => Promise<T>
 
 export type NutrientResearchStreamHandler = (event: NutrientResearchStreamEvent) => void
+
+export interface NutrientResearchStreamOptions {
+  signal?: AbortSignal
+}
 
 function endpoint(baseUrl: string, path: string) {
   if (!baseUrl) return path
@@ -136,6 +142,9 @@ export function createNutrientApi(fetcher: NutrientFetcher, baseUrl = '') {
       const search = queryString({ status: query.status })
       return fetcher<NutrientCardSummary[]>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/nutrient-cards${search}`))
     },
+    listResearchSessions(seedId: string, _query: NutrientResearchSessionListQuery = {}) {
+      return fetcher<NutrientResearchSessionSummary[]>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/nutrient-research-sessions`))
+    },
     listGapSuggestions(seedId: string, query: NutrientGapSuggestionListQuery = {}) {
       const search = queryString({ status: query.status })
       return fetcher<NutrientGapSuggestion[]>(endpoint(baseUrl, `/api/seeds/${encodeURIComponent(seedId)}/nutrient-gap-suggestions${search}`))
@@ -165,6 +174,17 @@ export function createNutrientApi(fetcher: NutrientFetcher, baseUrl = '') {
         body: payload,
       })
     },
+    deleteCard(cardId: string) {
+      return fetcher<void>(endpoint(baseUrl, `/api/nutrient-cards/${encodeURIComponent(cardId)}`), {
+        method: 'DELETE',
+      })
+    },
+    mergeCard(cardId: string, payload: MergeNutrientCardRequest) {
+      return fetcher<NutrientCardDetail>(endpoint(baseUrl, `/api/nutrient-cards/${encodeURIComponent(cardId)}/merge`), {
+        method: 'POST',
+        body: payload,
+      })
+    },
     settleCard(cardId: string, payload: SettleNutrientCardRequest) {
       return fetcher<NutrientCardDetail>(endpoint(baseUrl, `/api/nutrient-cards/${encodeURIComponent(cardId)}/settle`), {
         method: 'POST',
@@ -186,12 +206,6 @@ export function createNutrientApi(fetcher: NutrientFetcher, baseUrl = '') {
         method: 'POST',
       })
     },
-    bindCardConversation(cardId: string, payload: BindNutrientCardConversationRequest) {
-      return fetcher<NutrientCardDetail>(endpoint(baseUrl, `/api/nutrient-cards/${encodeURIComponent(cardId)}/conversation`), {
-        method: 'POST',
-        body: payload,
-      })
-    },
     createResearchSession(payload: CreateNutrientResearchSessionRequest) {
       return fetcher<NutrientResearchSessionDetail>(endpoint(baseUrl, '/api/nutrient-research-sessions'), {
         method: 'POST',
@@ -200,6 +214,11 @@ export function createNutrientApi(fetcher: NutrientFetcher, baseUrl = '') {
     },
     getResearchSession(sessionId: string) {
       return fetcher<NutrientResearchSessionDetail>(endpoint(baseUrl, `/api/nutrient-research-sessions/${encodeURIComponent(sessionId)}`))
+    },
+    deleteResearchSession(sessionId: string) {
+      return fetcher<void>(endpoint(baseUrl, `/api/nutrient-research-sessions/${encodeURIComponent(sessionId)}`), {
+        method: 'DELETE',
+      })
     },
     listResearchMessages(sessionId: string) {
       return fetcher<NutrientResearchMessage[]>(endpoint(baseUrl, `/api/nutrient-research-sessions/${encodeURIComponent(sessionId)}/messages`))
@@ -214,6 +233,7 @@ export function createNutrientApi(fetcher: NutrientFetcher, baseUrl = '') {
       sessionId: string,
       payload: SubmitNutrientResearchMessageRequest,
       onEvent: NutrientResearchStreamHandler,
+      options: NutrientResearchStreamOptions = {},
     ) {
       const response = await fetch(endpoint(baseUrl, `/api/nutrient-research-sessions/${encodeURIComponent(sessionId)}/messages/stream`), {
         method: 'POST',
@@ -221,6 +241,7 @@ export function createNutrientApi(fetcher: NutrientFetcher, baseUrl = '') {
           accept: 'text/event-stream',
           'content-type': 'application/json',
         },
+        signal: options.signal,
         body: JSON.stringify(payload),
       })
       if (!response.ok) {

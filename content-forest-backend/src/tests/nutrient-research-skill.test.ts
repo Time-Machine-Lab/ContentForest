@@ -211,6 +211,38 @@ describe("NutrientResearchSkill", () => {
     expect(prompt).toContain("不得基于这些内容编造案例");
   });
 
+  it("accepts plain conversational replies when no nutrient block is produced", async () => {
+    const skill = new NutrientResearchSkill();
+    const tools = new FakeTools();
+    const llm = new SequenceLlm([
+      "<think>Checking provider failures.</think>\nNo reliable platform cases were found this time. Please try a narrower keyword.",
+    ]);
+
+    const output = await skill.execute({
+      context: {
+        taskId: "agent-task_1",
+        taskType: "nutrient_research",
+        input: {
+          seedId: "seed_1",
+          message: "Find platform cases",
+          recentMessages: [],
+        },
+        metadata: {},
+        startedAt: "2026-01-01T00:00:00.000Z",
+      },
+      tools,
+      llm,
+      trace: new AgentTrace(() => new Date("2026-01-01T00:00:00.000Z")),
+    });
+
+    expect(llm.inputs).toHaveLength(1);
+    expect(output.content).toMatchObject({
+      type: "nutrient_research_result",
+      message: "No reliable platform cases were found this time. Please try a narrower keyword.",
+      depositableBlocks: [],
+    });
+  });
+
   it("repairs invalid structured output once", async () => {
     const skill = new NutrientResearchSkill();
     const tools = new FakeTools();

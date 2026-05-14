@@ -1,5 +1,4 @@
 import type {
-  BindNutrientCardConversationInput,
   CreateNutrientCardInput,
   CreateNutrientContentInput,
   CreateNutrientLibraryInput,
@@ -9,6 +8,7 @@ import type {
   ListNutrientCardsInput,
   ListNutrientContentsInput,
   ListNutrientLibrariesInput,
+  ListNutrientResearchSessionsInput,
   MergeNutrientCardInput,
   NutrientResearchStreamEvent,
   NutrientService,
@@ -285,16 +285,6 @@ export class NutrientController {
     };
   }
 
-  public async bindCardConversation(
-    cardId: string,
-    body: BindNutrientCardConversationInput,
-  ): Promise<HttpResult<unknown>> {
-    return {
-      status: 200,
-      body: await this.nutrientService.bindCardConversation(cardId, body),
-    };
-  }
-
   public async createResearchSession(
     body: CreateNutrientResearchSessionInput,
   ): Promise<HttpResult<unknown>> {
@@ -304,12 +294,31 @@ export class NutrientController {
     };
   }
 
+  public async listResearchSessions(
+    query: ListNutrientResearchSessionsInput,
+  ): Promise<HttpResult<unknown>> {
+    return {
+      status: 200,
+      body: await this.nutrientService.listResearchSessions(query),
+    };
+  }
+
   public async getResearchSession(
     sessionId: string,
   ): Promise<HttpResult<unknown>> {
     return {
       status: 200,
       body: await this.nutrientService.getResearchSession(sessionId),
+    };
+  }
+
+  public async deleteResearchSession(
+    sessionId: string,
+  ): Promise<HttpResult<unknown>> {
+    await this.nutrientService.deleteResearchSession(sessionId);
+    return {
+      status: 204,
+      body: null,
     };
   }
 
@@ -335,8 +344,9 @@ export class NutrientController {
   public streamResearchMessage(
     sessionId: string,
     body: SubmitNutrientResearchMessageInput,
+    options: { signal?: AbortSignal } = {},
   ): AsyncGenerator<NutrientResearchStreamEvent> {
-    return this.nutrientService.streamResearchMessage(sessionId, body);
+    return this.nutrientService.streamResearchMessage(sessionId, body, options);
   }
 
   public async listDepositableBlocks(

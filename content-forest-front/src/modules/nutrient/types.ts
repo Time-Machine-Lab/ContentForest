@@ -2,7 +2,7 @@ export type NutrientArchiveState = 'active' | 'archived'
 export type NutrientCardStatus = 'unsettled' | 'settled' | 'archived'
 export type NutrientLibraryScope = 'public' | 'seed_scoped'
 export type NutrientResearchMessageRole = 'user' | 'assistant'
-export type NutrientResearchSessionStatus = 'idle' | 'loading' | 'ready' | 'submitting' | 'failed'
+export type NutrientResearchSessionStatus = 'idle' | 'loading' | 'ready' | 'submitting' | 'failed' | 'cancelled'
 export type NutrientGapSuggestionStatus = 'pending' | 'adopted' | 'ignored'
 export type NutrientGapSuggestionSourceType = 'seed_brief_gap' | 'growth_input_gap' | 'fruit_elimination' | 'growth_failure' | 'manual'
 
@@ -31,7 +31,6 @@ export interface UpdateNutrientContentRequest {
 export interface CreateNutrientCardRequest {
   title: string
   markdown: string
-  conversationId?: string | null
 }
 
 export interface UpdateNutrientCardRequest {
@@ -43,13 +42,15 @@ export interface SettleNutrientCardRequest {
   libraryId: string
 }
 
-export interface BindNutrientCardConversationRequest {
-  conversationId: string
+export interface MergeNutrientCardRequest {
+  title: string
+  markdown: string
+  sourceCardId?: string | null
+  mergeNote?: string
 }
 
 export interface CreateNutrientResearchSessionRequest {
   seedId: string
-  nutrientCardId?: string | null
   title?: string
 }
 
@@ -96,7 +97,6 @@ export interface NutrientCardSummary {
   contentLocation: string
   settledContentId: string | null
   defaultForGrowth: boolean
-  conversationId: string | null
   createdAt: string
   updatedAt: string
   settledAt?: string | null
@@ -155,7 +155,6 @@ export interface NutrientResearchTemplate {
 export interface NutrientResearchSessionSummary {
   id: string
   seedId: string
-  nutrientCardId: string | null
   title: string
   createdAt: string
   updatedAt: string
@@ -172,6 +171,9 @@ export interface SubmitNutrientResearchMessageResult {
   depositableBlocks: NutrientDepositableBlock[]
 }
 
+export interface NutrientResearchSessionListQuery {
+}
+
 export type NutrientResearchStreamEvent =
   | {
     type: 'user_message'
@@ -179,8 +181,9 @@ export type NutrientResearchStreamEvent =
   }
   | {
     type: 'progress'
-    stage: 'message_saved' | 'agent_started' | 'agent_completed' | 'saving_result'
+    stage: 'message_saved' | 'agent_started' | 'agent_completed' | 'saving_result' | 'tool_started' | 'tool_completed' | 'tool_failed'
     message: string
+    metadata?: Record<string, unknown>
   }
   | {
     type: 'thought_delta'
@@ -194,6 +197,24 @@ export type NutrientResearchStreamEvent =
     type: 'nutrient_block_delta'
     title: string
     delta: string
+  }
+  | {
+    type: 'tool_call_started'
+    toolName: string
+    message: string
+    metadata?: Record<string, unknown>
+  }
+  | {
+    type: 'tool_call_completed'
+    toolName: string
+    message: string
+    metadata?: Record<string, unknown>
+  }
+  | {
+    type: 'tool_call_failed'
+    toolName: string
+    message: string
+    metadata?: Record<string, unknown>
   }
   | {
     type: 'assistant_message_delta'
@@ -213,6 +234,11 @@ export type NutrientResearchStreamEvent =
   | {
     type: 'error'
     code: string
+    message: string
+    assistantMessage?: NutrientResearchMessage
+  }
+  | {
+    type: 'cancelled'
     message: string
     assistantMessage?: NutrientResearchMessage
   }
@@ -245,7 +271,7 @@ export interface NutrientGapSuggestionListQuery {
   status?: NutrientGapSuggestionStatus
 }
 
-export type NutrientWorkbenchPane = 'cards' | 'agent' | 'suggestions'
+export type NutrientWorkbenchPane = 'sessions' | 'agent' | 'cards'
 
 export interface NutrientWorkbenchState {
   seedId: string

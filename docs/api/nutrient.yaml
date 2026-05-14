@@ -469,29 +469,6 @@ paths:
                 $ref: '#/components/schemas/NutrientCardDetail'
         '404':
           $ref: '#/components/responses/NotFound'
-  /api/nutrient-cards/{cardId}/conversation:
-    post:
-      tags: [Nutrient]
-      summary: Bind nutrient content research session
-      parameters:
-        - $ref: '#/components/parameters/CardId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/BindNutrientCardConversationRequest'
-      responses:
-        '200':
-          description: 绑定成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NutrientCardDetail'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
   /api/nutrient-research-sessions:
     post:
       tags: [Nutrient]
@@ -513,6 +490,27 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/seeds/{seedId}/nutrient-research-sessions:
+    get:
+      tags: [Nutrient]
+      summary: 查询种子级营养研究会话
+      description: |
+        用于营养工作台刷新后恢复当前种子的独立研究会话。
+        研究会话只归属于种子，不绑定营养内容；会话产出的可沉淀营养块
+        只有在用户保存为新草稿或显式选择目标合并时才进入营养内容生命周期。
+      parameters:
+        - $ref: '#/components/parameters/SeedId'
+      responses:
+        '200':
+          description: 研究会话摘要列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NutrientResearchSessionSummary'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/nutrient-research-sessions/{sessionId}:
     get:
       tags: [Nutrient]
@@ -526,6 +524,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NutrientResearchSessionDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Nutrient]
+      summary: 删除营养研究会话
+      description: |
+        删除研究过程数据，包括会话、消息和未保存为营养内容的可沉淀营养块。
+        删除会话不得影响已经存在的草稿、已沉淀或已归档营养内容。
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '204':
+          description: 删除成功
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
   /api/nutrient-research-sessions/{sessionId}/messages:
@@ -602,6 +615,12 @@ paths:
                     event: progress
                     data: {"type":"progress","stage":"agent_started","message":"Agent 正在研究营养资料"}
 
+                    event: tool_call_started
+                    data: {"type":"tool_call_started","toolName":"networked_research","message":"正在调用工具：networked_research","metadata":{"mode":"research"}}
+
+                    event: tool_call_completed
+                    data: {"type":"tool_call_completed","toolName":"networked_research","message":"工具调用完成：networked_research","metadata":{"resultCount":3}}
+
                     event: thought_delta
                     data: {"type":"thought_delta","delta":"正在比较平台资料和用户问题。"}
 
@@ -619,6 +638,9 @@ paths:
 
                     event: done
                     data: {"type":"done","assistantMessage":{"id":"message_2","sessionId":"session_1","role":"assistant","content":"找到一个可沉淀方向。","agentTaskId":"agent-task_1","trace":[],"failureReason":null,"createdAt":"2026-01-01T00:00:01.000Z"},"depositableBlocks":[]}
+
+                    event: cancelled
+                    data: {"type":"cancelled","message":"营养研究已暂停。"}
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -849,9 +871,6 @@ components:
         markdown:
           type: string
           minLength: 1
-        conversationId:
-          type: string
-          nullable: true
     UpdateNutrientCardRequest:
       type: object
       minProperties: 1
@@ -868,13 +887,6 @@ components:
         libraryId:
           type: string
           description: 可选。提供时目标库必须是当前种子的未归档种子专属营养库；未提供时后端使用默认种子专属营养库。
-    BindNutrientCardConversationRequest:
-      type: object
-      required: [conversationId]
-      properties:
-        conversationId:
-          type: string
-          minLength: 1
     FindSimilarNutrientCardsRequest:
       type: object
       required: [title]
@@ -905,9 +917,6 @@ components:
       properties:
         seedId:
           type: string
-        nutrientCardId:
-          type: string
-          nullable: true
         title:
           type: string
     SubmitNutrientResearchMessageRequest:
@@ -919,15 +928,12 @@ components:
           minLength: 1
     NutrientResearchSessionSummary:
       type: object
-      required: [id, seedId, nutrientCardId, title, createdAt, updatedAt]
+      required: [id, seedId, title, createdAt, updatedAt]
       properties:
         id:
           type: string
         seedId:
           type: string
-        nutrientCardId:
-          type: string
-          nullable: true
         title:
           type: string
         createdAt:
@@ -1013,10 +1019,14 @@ components:
         - $ref: '#/components/schemas/NutrientResearchThoughtDeltaEvent'
         - $ref: '#/components/schemas/NutrientResearchMessageDeltaEvent'
         - $ref: '#/components/schemas/NutrientResearchBlockDeltaEvent'
+        - $ref: '#/components/schemas/NutrientResearchToolCallStartedEvent'
+        - $ref: '#/components/schemas/NutrientResearchToolCallCompletedEvent'
+        - $ref: '#/components/schemas/NutrientResearchToolCallFailedEvent'
         - $ref: '#/components/schemas/NutrientResearchAssistantMessageDeltaEvent'
         - $ref: '#/components/schemas/NutrientResearchDepositableBlockEvent'
         - $ref: '#/components/schemas/NutrientResearchDoneEvent'
         - $ref: '#/components/schemas/NutrientResearchErrorEvent'
+        - $ref: '#/components/schemas/NutrientResearchCancelledEvent'
     NutrientResearchUserMessageEvent:
       type: object
       required: [type, message]
@@ -1035,9 +1045,12 @@ components:
           enum: [progress]
         stage:
           type: string
-          enum: [message_saved, agent_started, agent_completed, saving_result]
+          enum: [message_saved, agent_started, agent_completed, saving_result, tool_started, tool_completed, tool_failed]
         message:
           type: string
+        metadata:
+          type: object
+          additionalProperties: true
     NutrientResearchThoughtDeltaEvent:
       type: object
       required: [type, delta]
@@ -1067,6 +1080,48 @@ components:
           type: string
         delta:
           type: string
+    NutrientResearchToolCallStartedEvent:
+      type: object
+      required: [type, toolName, message]
+      properties:
+        type:
+          type: string
+          enum: [tool_call_started]
+        toolName:
+          type: string
+        message:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    NutrientResearchToolCallCompletedEvent:
+      type: object
+      required: [type, toolName, message]
+      properties:
+        type:
+          type: string
+          enum: [tool_call_completed]
+        toolName:
+          type: string
+        message:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    NutrientResearchToolCallFailedEvent:
+      type: object
+      required: [type, toolName, message]
+      properties:
+        type:
+          type: string
+          enum: [tool_call_failed]
+        toolName:
+          type: string
+        message:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
     NutrientResearchAssistantMessageDeltaEvent:
       type: object
       required: [type, message, delta, done]
@@ -1111,6 +1166,17 @@ components:
           enum: [error]
         code:
           type: string
+        message:
+          type: string
+        assistantMessage:
+          $ref: '#/components/schemas/NutrientResearchMessage'
+    NutrientResearchCancelledEvent:
+      type: object
+      required: [type, message]
+      properties:
+        type:
+          type: string
+          enum: [cancelled]
         message:
           type: string
         assistantMessage:
@@ -1248,7 +1314,6 @@ components:
         - contentLocation
         - settledContentId
         - defaultForGrowth
-        - conversationId
         - createdAt
         - updatedAt
       properties:
@@ -1268,9 +1333,6 @@ components:
           nullable: true
         defaultForGrowth:
           type: boolean
-        conversationId:
-          type: string
-          nullable: true
         lastResearchedAt:
           type: string
           format: date-time

@@ -57,7 +57,6 @@ interface NutrientCardRow {
   content_location: string;
   settled_content_id: string | null;
   default_for_growth: number;
-  conversation_id: string | null;
   last_researched_at: string | null;
   last_referenced_at: string | null;
   created_at: string;
@@ -93,7 +92,6 @@ interface NutrientCardMergeRow {
 interface NutrientResearchSessionRow {
   id: string;
   seed_id: string;
-  nutrient_card_id: string | null;
   title: string;
   created_at: string;
   updated_at: string;
@@ -395,14 +393,13 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
           content_location,
           settled_content_id,
           default_for_growth,
-          conversation_id,
           last_researched_at,
           last_referenced_at,
           created_at,
           updated_at,
           settled_at,
           archived_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
@@ -412,7 +409,6 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
         record.contentLocation,
         record.settledContentId,
         record.defaultForGrowth ? 1 : 0,
-        record.conversationId,
         record.lastResearchedAt,
         record.lastReferencedAt,
         record.createdAt,
@@ -438,7 +434,6 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
               content_location = ?,
               settled_content_id = ?,
               default_for_growth = ?,
-              conversation_id = ?,
               last_researched_at = ?,
               last_referenced_at = ?,
               updated_at = ?,
@@ -452,7 +447,6 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
         record.contentLocation,
         record.settledContentId,
         record.defaultForGrowth ? 1 : 0,
-        record.conversationId,
         record.lastResearchedAt,
         record.lastReferencedAt,
         record.updatedAt,
@@ -512,16 +506,14 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
         `INSERT INTO nutrient_research_sessions (
           id,
           seed_id,
-          nutrient_card_id,
           title,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
         record.seedId,
-        record.nutrientCardId,
         record.title,
         record.createdAt,
         record.updatedAt,
@@ -544,32 +536,41 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
       .prepare(
         `UPDATE nutrient_research_sessions
           SET seed_id = ?,
-              nutrient_card_id = ?,
               title = ?,
               updated_at = ?
           WHERE id = ?`,
       )
       .run(
         record.seedId,
-        record.nutrientCardId,
         record.title,
         record.updatedAt,
         record.id,
       );
   }
 
-  public async findResearchSessionByCardId(
-    cardId: string,
-  ): Promise<NutrientResearchSessionRecord | null> {
-    const row = this.database
+  public async deleteResearchSession(sessionId: string): Promise<void> {
+    this.database
+      .prepare("DELETE FROM nutrient_depositable_blocks WHERE session_id = ?")
+      .run(sessionId);
+    this.database
+      .prepare("DELETE FROM nutrient_research_messages WHERE session_id = ?")
+      .run(sessionId);
+    this.database
+      .prepare("DELETE FROM nutrient_research_sessions WHERE id = ?")
+      .run(sessionId);
+  }
+
+  public async listResearchSessionsBySeed(
+    seedId: string,
+  ): Promise<NutrientResearchSessionRecord[]> {
+    const rows = this.database
       .prepare(
         `SELECT * FROM nutrient_research_sessions
-          WHERE nutrient_card_id = ?
-          ORDER BY updated_at DESC
-          LIMIT 1`,
+          WHERE seed_id = ?
+          ORDER BY updated_at DESC`,
       )
-      .get(cardId) as NutrientResearchSessionRow | undefined;
-    return row === undefined ? null : this.toResearchSessionRecord(row);
+      .all(seedId) as unknown as NutrientResearchSessionRow[];
+    return rows.map((row) => this.toResearchSessionRecord(row));
   }
 
   public async createResearchMessage(
@@ -896,7 +897,6 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
         content_location TEXT NOT NULL,
         settled_content_id TEXT,
         default_for_growth INTEGER NOT NULL DEFAULT 0 CHECK (default_for_growth IN (0, 1)),
-        conversation_id TEXT,
         last_researched_at TEXT,
         last_referenced_at TEXT,
         created_at TEXT NOT NULL,
@@ -917,7 +917,6 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
       CREATE TABLE IF NOT EXISTS nutrient_research_sessions (
         id TEXT PRIMARY KEY,
         seed_id TEXT NOT NULL,
-        nutrient_card_id TEXT,
         title TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -925,9 +924,6 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
 
       CREATE INDEX IF NOT EXISTS idx_nutrient_research_sessions_seed_updated_at
         ON nutrient_research_sessions (seed_id, updated_at);
-
-      CREATE INDEX IF NOT EXISTS idx_nutrient_research_sessions_card_updated_at
-        ON nutrient_research_sessions (nutrient_card_id, updated_at);
 
       CREATE TABLE IF NOT EXISTS nutrient_research_messages (
         id TEXT PRIMARY KEY,
@@ -1066,7 +1062,6 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
       contentLocation: row.content_location,
       settledContentId: row.settled_content_id,
       defaultForGrowth: row.default_for_growth === 1,
-      conversationId: row.conversation_id,
       lastResearchedAt: row.last_researched_at,
       lastReferencedAt: row.last_referenced_at,
       createdAt: row.created_at,
@@ -1112,7 +1107,6 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
     return {
       id: row.id,
       seedId: row.seed_id,
-      nutrientCardId: row.nutrient_card_id,
       title: row.title,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

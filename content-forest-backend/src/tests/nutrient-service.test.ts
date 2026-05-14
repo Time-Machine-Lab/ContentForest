@@ -129,6 +129,48 @@ function streamingResearchAgent(capturedTasks: AgentTask[] = []): AgentPort {
   };
 }
 
+function blockingStreamingResearchAgent(release: Promise<void>): AgentPort {
+  return {
+    async runTask(): Promise<AgentTaskResult> {
+      await release;
+      return successfulStreamingResearchResult();
+    },
+    async *streamTask(task: AgentTask): AsyncGenerator<AgentTaskStreamEvent, AgentTaskResult> {
+      yield {
+        type: "thought_delta",
+        delta: `researching ${task.metadata?.sessionId ?? ""}`,
+      };
+      await release;
+      return successfulStreamingResearchResult();
+    },
+  };
+}
+
+function toolStreamingResearchAgent(capturedTasks: AgentTask[] = []): AgentPort {
+  return {
+    async runTask(task: AgentTask): Promise<AgentTaskResult> {
+      capturedTasks.push(task);
+      return successfulStreamingResearchResult();
+    },
+    async *streamTask(task: AgentTask): AsyncGenerator<AgentTaskStreamEvent, AgentTaskResult> {
+      capturedTasks.push(task);
+      yield {
+        type: "tool_call_started",
+        toolName: "networked_research",
+        message: "正在调用工具：networked_research",
+        metadata: { mode: "research" },
+      };
+      yield {
+        type: "tool_call_completed",
+        toolName: "networked_research",
+        message: "工具调用完成：networked_research",
+        metadata: { resultCount: 3 },
+      };
+      return successfulStreamingResearchResult();
+    },
+  };
+}
+
 function successfulStreamingResearchResult(): AgentTaskResult {
   return {
     ok: true,
@@ -424,7 +466,6 @@ describe("NutrientService", () => {
     const card = await service.createCard("seed_1", {
       title: "小红书壁纸案例",
       markdown: "未沉淀资料",
-      conversationId: "conversation_1",
     });
     const edited = await service.updateCard(card.id, {
       title: "小红书壁纸爆款案例",
@@ -438,7 +479,6 @@ describe("NutrientService", () => {
       seedId: "seed_1",
       status: NUTRIENT_CARD_STATUSES.unsettled,
       contentLocation: "nutrients/seed-scoped/seed_1/nutrient-card_2.md",
-      conversationId: "conversation_1",
     });
     expect(edited).toMatchObject({
       title: "小红书壁纸爆款案例",
@@ -849,6 +889,10 @@ describe("NutrientService", () => {
       title: "twitter launch notes",
       markdown: "other notes",
     });
+    const sourceCard = await service.createCard("seed_1", {
+      title: "source card",
+      markdown: "source markdown",
+    });
 
     await expect(
       service.findSimilarCards("seed_1", {
@@ -865,7 +909,7 @@ describe("NutrientService", () => {
     const merged = await service.mergeIntoCard(card.id, {
       title: "new hook",
       markdown: "new hook markdown",
-      sourceCardId: "source_card_1",
+      sourceCardId: sourceCard.id,
       mergeNote: "user confirmed",
     });
     const mergeRecords = await storage.listCardMergeRecordsByTarget(card.id);
@@ -873,7 +917,7 @@ describe("NutrientService", () => {
     expect(merged.markdown).toContain("new hook markdown");
     expect(mergeRecords).toEqual([
       expect.objectContaining({
-        sourceCardId: "source_card_1",
+        sourceCardId: sourceCard.id,
         targetCardId: card.id,
         sourceTitle: "new hook",
         mergeNote: "user confirmed",
@@ -993,6 +1037,38 @@ describe("NutrientService", () => {
     expect(capturedTasks).toHaveLength(1);
   });
 
+  it("streams tool lifecycle events from the Agent", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const { service } = await createFixture(toolStreamingResearchAgent(capturedTasks));
+    const session = await service.createResearchSession({
+      seedId: "seed_1",
+      title: "tool research",
+    });
+
+    const events = [];
+    for await (const event of service.streamResearchMessage(session.id, {
+      message: "research platform examples",
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool_call_started",
+          toolName: "networked_research",
+          metadata: { mode: "research" },
+        }),
+        expect.objectContaining({
+          type: "tool_call_completed",
+          toolName: "networked_research",
+          metadata: { resultCount: 3 },
+        }),
+      ]),
+    );
+    expect(capturedTasks).toHaveLength(1);
+  });
+
   it("streams research errors while keeping saved user facts recoverable", async () => {
     const { service } = await createFixture(failingResearchAgent());
     const session = await service.createResearchSession({
@@ -1021,5 +1097,110 @@ describe("NutrientService", () => {
       { role: "user", content: "研究失败案例" },
       { role: "assistant", content: "研究失败", failureReason: "研究失败" },
     ]);
+  });
+
+  it("streams cancellation while keeping saved user facts recoverable", async () => {
+    const abortController = new AbortController();
+    abortController.abort();
+    const { service } = await createFixture(streamingResearchAgent());
+    const session = await service.createResearchSession({
+      seedId: "seed_1",
+      title: "平台研究",
+    });
+
+    const events = [];
+    for await (const event of service.streamResearchMessage(
+      session.id,
+      { message: "研究后取消" },
+      { signal: abortController.signal },
+    )) {
+      events.push(event);
+    }
+    const messages = await service.listResearchMessages(session.id);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "cancelled",
+      message: "营养研究已暂停。",
+      assistantMessage: {
+        role: "assistant",
+        failureReason: "营养研究已暂停。",
+      },
+    });
+    expect(messages).toMatchObject([
+      { role: "user", content: "研究后取消" },
+      { role: "assistant", content: "营养研究已暂停。", failureReason: "营养研究已暂停。" },
+    ]);
+  });
+
+  it("rejects deleting a research session while streaming and allows it after stop", async () => {
+    let release!: () => void;
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { service } = await createFixture(blockingStreamingResearchAgent(releasePromise));
+    const session = await service.createResearchSession({
+      seedId: "seed_1",
+      title: "running session",
+    });
+    const iterator = service.streamResearchMessage(session.id, {
+      message: "start long research",
+    });
+
+    await iterator.next();
+    await iterator.next();
+    await iterator.next();
+    await iterator.next();
+
+    await expect(service.deleteResearchSession(session.id)).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      status: 409,
+    });
+
+    release();
+    await iterator.return(undefined);
+    await expect(service.deleteResearchSession(session.id)).resolves.toBeUndefined();
+  });
+
+  it("lists and deletes independent seed research sessions", async () => {
+    const { service } = await createFixture(successResearchAgent());
+    const firstSession = await service.createResearchSession({
+      seedId: "seed_1",
+      title: "first session",
+    });
+    const card = await service.createCard("seed_1", {
+      title: "draft nutrient",
+      markdown: "draft markdown",
+    });
+    const secondSession = await service.createResearchSession({
+      seedId: "seed_1",
+      title: "second session",
+    });
+
+    await service.submitResearchMessage(firstSession.id, {
+      message: "refresh first session",
+    });
+    await service.submitResearchMessage(secondSession.id, {
+      message: "refresh second session",
+    });
+
+    await expect(
+      service.listResearchSessions({ seedId: "seed_1" }),
+    ).resolves.toMatchObject([
+      { id: secondSession.id },
+      { id: firstSession.id },
+    ]);
+
+    await service.deleteResearchSession(firstSession.id);
+
+    await expect(service.getResearchSession(firstSession.id)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(service.listResearchMessages(firstSession.id)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(service.getCard(card.id)).resolves.toMatchObject({
+      id: card.id,
+      title: "draft nutrient",
+    });
   });
 });

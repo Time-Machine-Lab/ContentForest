@@ -25,6 +25,11 @@ export interface AgentTaskContext {
   input: AgentTaskInput;
   metadata: Record<string, unknown>;
   startedAt: string;
+  abortSignal?: AbortSignal;
+}
+
+export interface AgentTaskRunOptions {
+  signal?: AbortSignal;
 }
 
 export interface AgentTaskOutput {
@@ -56,6 +61,28 @@ export type AgentTaskStreamEvent =
     stage: string;
     message: string;
     metadata?: Record<string, unknown>;
+  }
+  | {
+    type: "tool_call_started";
+    toolName: string;
+    message: string;
+    metadata?: Record<string, unknown>;
+  }
+  | {
+    type: "tool_call_completed";
+    toolName: string;
+    message: string;
+    metadata?: Record<string, unknown>;
+  }
+  | {
+    type: "tool_call_failed";
+    toolName: string;
+    message: string;
+    metadata?: Record<string, unknown>;
+  }
+  | {
+    type: "task_cancelled";
+    message: string;
   };
 
 export interface AgentTaskFailure {

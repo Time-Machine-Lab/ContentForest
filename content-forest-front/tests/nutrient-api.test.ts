@@ -84,31 +84,34 @@ test('nutrient api client uses documented nutrient card endpoints', async () => 
   }, '')
 
   await api.listCards('seed 1', { status: 'settled' })
-  await api.createCard('seed 1', { title: 'Card', markdown: '# Card', conversationId: null })
+  await api.createCard('seed 1', { title: 'Card', markdown: '# Card' })
   await api.getCard('card 1')
   await api.updateCard('card 1', { title: 'Card 2', markdown: '# Card 2' })
+  await api.deleteCard('card 1')
+  await api.mergeCard('card 1', { title: 'Block', markdown: '# Block', sourceCardId: null, mergeNote: 'Merge' })
   await api.settleCard('card 1', { libraryId: 'library 1' })
   await api.archiveCard('card 1')
   await api.setDefaultForGrowth('card 1')
   await api.clearDefaultForGrowth('card 1')
-  await api.bindCardConversation('card 1', { conversationId: 'conversation 1' })
 
   assert.deepEqual(calls.map((call) => call.url), [
     '/api/seeds/seed%201/nutrient-cards?status=settled',
     '/api/seeds/seed%201/nutrient-cards',
     '/api/nutrient-cards/card%201',
     '/api/nutrient-cards/card%201',
+    '/api/nutrient-cards/card%201',
+    '/api/nutrient-cards/card%201/merge',
     '/api/nutrient-cards/card%201/settle',
     '/api/nutrient-cards/card%201/archive',
     '/api/nutrient-cards/card%201/default-for-growth',
     '/api/nutrient-cards/card%201/default-for-growth/clear',
-    '/api/nutrient-cards/card%201/conversation',
   ])
 
   assert.equal(calls[1]?.options?.method, 'POST')
   assert.equal(calls[3]?.options?.method, 'PATCH')
-  assert.equal(calls[4]?.options?.method, 'POST')
-  assert.equal(calls[8]?.options?.method, 'POST')
+  assert.equal(calls[4]?.options?.method, 'DELETE')
+  assert.equal(calls[5]?.options?.method, 'POST')
+  assert.equal(calls[6]?.options?.method, 'POST')
 })
 
 test('nutrient api client uses documented gap suggestion endpoints', async () => {
@@ -139,14 +142,18 @@ test('nutrient api client uses documented research session endpoints', async () 
     return {}
   }, '')
 
-  await api.createResearchSession({ seedId: 'seed 1', nutrientCardId: 'card 1', title: 'Research' })
+  await api.createResearchSession({ seedId: 'seed 1', title: 'Research' })
+  await api.listResearchSessions('seed 1')
   await api.getResearchSession('session 1')
+  await api.deleteResearchSession('session 1')
   await api.listResearchMessages('session 1')
   await api.submitResearchMessage('session 1', { message: '研究一下' })
   await api.listDepositableBlocks('session 1')
 
   assert.deepEqual(calls.map((call) => call.url), [
     '/api/nutrient-research-sessions',
+    '/api/seeds/seed%201/nutrient-research-sessions',
+    '/api/nutrient-research-sessions/session%201',
     '/api/nutrient-research-sessions/session%201',
     '/api/nutrient-research-sessions/session%201/messages',
     '/api/nutrient-research-sessions/session%201/messages',
@@ -154,5 +161,6 @@ test('nutrient api client uses documented research session endpoints', async () 
   ])
 
   assert.equal(calls[0]?.options?.method, 'POST')
-  assert.equal(calls[3]?.options?.method, 'POST')
+  assert.equal(calls[3]?.options?.method, 'DELETE')
+  assert.equal(calls[5]?.options?.method, 'POST')
 })

@@ -92,7 +92,12 @@ export class SkillRuntime {
       return await skill.execute({
         context,
         tools: this.toolRuntime,
-        llm: new TracedLlmAdapter(this.llm, this.trace, this.exchangeLog),
+        llm: new TracedLlmAdapter(
+          this.llm,
+          this.trace,
+          this.exchangeLog,
+          context.abortSignal,
+        ),
         trace: this.trace,
         emit,
       });
@@ -120,15 +125,18 @@ class TracedLlmAdapter implements LlmAdapter {
   private readonly inner: LlmAdapter;
   private readonly trace: AgentTrace;
   private readonly exchangeLog?: AgentExchangeLogRecorder;
+  private readonly abortSignal?: AbortSignal;
 
   public constructor(
     inner: LlmAdapter,
     trace: AgentTrace,
     exchangeLog?: AgentExchangeLogRecorder,
+    abortSignal?: AbortSignal,
   ) {
     this.inner = inner;
     this.trace = trace;
     this.exchangeLog = exchangeLog;
+    this.abortSignal = abortSignal;
   }
 
   public async complete(input: LlmCompletionInput): Promise<LlmCompletionResult> {
@@ -138,11 +146,14 @@ class TracedLlmAdapter implements LlmAdapter {
     });
     this.exchangeLog?.record("llm_input", {
       name: input.model ?? "default",
-      content: input,
+      content: sanitizeLlmInput(input),
     });
 
     try {
-      const output = await this.inner.complete(input);
+      const output = await this.inner.complete({
+        ...input,
+        signal: input.signal ?? this.abortSignal,
+      });
       const split = splitLlmThink(output.content);
       if (split.think !== null && split.think.length > 0) {
         this.exchangeLog?.record("llm_think", {
@@ -175,8 +186,13 @@ class TracedLlmAdapter implements LlmAdapter {
     });
     this.exchangeLog?.record("llm_input", {
       name: input.model ?? "default",
-      content: input,
+      content: sanitizeLlmInput(input),
     });
+
+    const inputWithSignal = {
+      ...input,
+      signal: input.signal ?? this.abortSignal,
+    };
 
     if (this.inner.streamComplete === undefined) {
       const output = await this.complete(input);
@@ -190,7 +206,7 @@ class TracedLlmAdapter implements LlmAdapter {
     let content = "";
     let thinking = "";
     try {
-      for await (const chunk of this.inner.streamComplete(input)) {
+      for await (const chunk of this.inner.streamComplete(inputWithSignal)) {
         content += chunk.contentDelta ?? "";
         thinking += chunk.thinkingDelta ?? "";
         yield chunk;
@@ -215,4 +231,9 @@ class TracedLlmAdapter implements LlmAdapter {
       throw error;
     }
   }
+}
+
+function sanitizeLlmInput(input: LlmCompletionInput): Omit<LlmCompletionInput, "signal"> {
+  const { signal: _signal, ...serializable } = input;
+  return serializable;
 }

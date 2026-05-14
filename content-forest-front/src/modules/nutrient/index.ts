@@ -2,7 +2,6 @@ export { createNutrientApi } from './api'
 export type { NutrientFetcher, NutrientFetchOptions } from './api'
 export type {
   ApiErrorResponse,
-  BindNutrientCardConversationRequest,
   CreateNutrientContentRequest,
   CreateNutrientCardRequest,
   CreateNutrientLibraryRequest,

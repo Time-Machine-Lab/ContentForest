@@ -204,13 +204,27 @@ export class InMemoryNutrientStorageAdapter implements NutrientStoragePort {
     this.researchSessions.set(record.id, { ...record });
   }
 
-  public async findResearchSessionByCardId(
-    cardId: string,
-  ): Promise<NutrientResearchSessionRecord | null> {
-    const record = [...this.researchSessions.values()]
-      .filter((session) => session.nutrientCardId === cardId)
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
-    return record === undefined ? null : { ...record };
+  public async deleteResearchSession(sessionId: string): Promise<void> {
+    this.researchSessions.delete(sessionId);
+    for (const [messageId, message] of this.researchMessages.entries()) {
+      if (message.sessionId === sessionId) {
+        this.researchMessages.delete(messageId);
+      }
+    }
+    for (const [blockId, block] of this.depositableBlocks.entries()) {
+      if (block.sessionId === sessionId) {
+        this.depositableBlocks.delete(blockId);
+      }
+    }
+  }
+
+  public async listResearchSessionsBySeed(
+    seedId: string,
+  ): Promise<NutrientResearchSessionRecord[]> {
+    return [...this.researchSessions.values()]
+      .filter((session) => session.seedId === seedId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map((session) => ({ ...session }));
   }
 
   public async createResearchMessage(

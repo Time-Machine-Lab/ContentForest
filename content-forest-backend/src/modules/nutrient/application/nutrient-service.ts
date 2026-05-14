@@ -97,7 +97,6 @@ export interface ListNutrientContentsInput {
 export interface CreateNutrientCardInput {
   title: string;
   markdown: string;
-  conversationId?: string | null;
 }
 
 export interface UpdateNutrientCardInput {
@@ -113,18 +112,21 @@ export interface SettleNutrientCardInput {
   libraryId?: string;
 }
 
-export interface BindNutrientCardConversationInput {
-  conversationId: string;
-}
-
 export interface CreateNutrientResearchSessionInput {
   seedId: string;
-  nutrientCardId?: string | null;
   title?: string;
+}
+
+export interface ListNutrientResearchSessionsInput {
+  seedId: string;
 }
 
 export interface SubmitNutrientResearchMessageInput {
   message: string;
+}
+
+export interface StreamNutrientResearchMessageOptions {
+  signal?: AbortSignal;
 }
 
 export interface SubmitNutrientResearchMessageResult {
@@ -140,8 +142,16 @@ export type NutrientResearchStreamEvent =
   }
   | {
     type: "progress";
-    stage: "message_saved" | "agent_started" | "agent_completed" | "saving_result";
+    stage:
+      | "message_saved"
+      | "agent_started"
+      | "agent_completed"
+      | "saving_result"
+      | "tool_started"
+      | "tool_completed"
+      | "tool_failed";
     message: string;
+    metadata?: Record<string, unknown>;
   }
   | {
     type: "thought_delta";
@@ -155,6 +165,24 @@ export type NutrientResearchStreamEvent =
     type: "nutrient_block_delta";
     title: string;
     delta: string;
+  }
+  | {
+    type: "tool_call_started";
+    toolName: string;
+    message: string;
+    metadata?: Record<string, unknown>;
+  }
+  | {
+    type: "tool_call_completed";
+    toolName: string;
+    message: string;
+    metadata?: Record<string, unknown>;
+  }
+  | {
+    type: "tool_call_failed";
+    toolName: string;
+    message: string;
+    metadata?: Record<string, unknown>;
   }
   | {
     type: "assistant_message_delta";
@@ -174,6 +202,11 @@ export type NutrientResearchStreamEvent =
   | {
     type: "error";
     code: string;
+    message: string;
+    assistantMessage?: NutrientResearchMessage;
+  }
+  | {
+    type: "cancelled";
     message: string;
     assistantMessage?: NutrientResearchMessage;
   };
@@ -269,6 +302,7 @@ export class NutrientService {
   private readonly agentPort: AgentPort | undefined;
   private readonly idGenerator: IdGenerator;
   private readonly now: () => Date;
+  private readonly activeResearchSessionIds = new Set<string>();
 
   public constructor(dependencies: NutrientServiceDependencies) {
     this.storage = dependencies.storage;
@@ -552,7 +586,6 @@ export class NutrientService {
       contentLocation,
       settledContentId: null,
       defaultForGrowth: false,
-      conversationId: this.normalizeNullableText(input.conversationId),
       lastResearchedAt: null,
       lastReferencedAt: null,
       createdAt: timestamp,
@@ -737,44 +770,14 @@ export class NutrientService {
     return this.getCard(cardId);
   }
 
-  public async bindCardConversation(
-    cardId: string,
-    input: BindNutrientCardConversationInput,
-  ): Promise<NutrientCardDetail> {
-    const record = await this.requireCard(cardId);
-    if (record.status === NUTRIENT_CARD_STATUSES.archived) {
-      throw new ApplicationError(
-        "VALIDATION_ERROR",
-        "已归档工作台营养内容不能绑定会话",
-        400,
-      );
-    }
-    await this.storage.saveCard({
-      ...record,
-      conversationId: this.requireNonBlank(input.conversationId, "会话不能为空"),
-      updatedAt: this.timestamp(),
-    });
-    return this.getCard(cardId);
-  }
-
   public async createResearchSession(
     input: CreateNutrientResearchSessionInput,
   ): Promise<NutrientResearchSessionDetail> {
     const seedId = await this.requireSeed(input.seedId);
-    const nutrientCardId = await this.resolveResearchCard(seedId, input.nutrientCardId);
-    if (nutrientCardId !== null) {
-      const existing = await this.storage.findResearchSessionByCardId(
-        nutrientCardId,
-      );
-      if (existing !== null) {
-        return this.getResearchSession(existing.id);
-      }
-    }
     const timestamp = this.timestamp();
     const session: NutrientResearchSessionRecord = {
       id: this.idGenerator.nextId("nutrient-research-session"),
       seedId,
-      nutrientCardId,
       title:
         input.title === undefined
           ? ""
@@ -783,11 +786,6 @@ export class NutrientService {
       updatedAt: timestamp,
     };
     await this.storage.createResearchSession(session);
-    if (nutrientCardId !== null) {
-      await this.bindCardConversation(nutrientCardId, {
-        conversationId: session.id,
-      });
-    }
     return this.getResearchSession(session.id);
   }
 
@@ -802,6 +800,26 @@ export class NutrientService {
       messages,
       depositableBlocks,
     };
+  }
+
+  public async listResearchSessions(
+    input: ListNutrientResearchSessionsInput,
+  ): Promise<NutrientResearchSessionSummary[]> {
+    const seedId = await this.requireSeed(input.seedId);
+    const records = await this.storage.listResearchSessionsBySeed(seedId);
+    return records.map((record) => this.toResearchSessionSummary(record));
+  }
+
+  public async deleteResearchSession(sessionId: string): Promise<void> {
+    const session = await this.requireResearchSession(sessionId);
+    if (this.activeResearchSessionIds.has(session.id)) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "营养研究会话正在运行，暂时不能删除",
+        409,
+      );
+    }
+    await this.storage.deleteResearchSession(session.id);
   }
 
   public async listResearchMessages(
@@ -826,6 +844,8 @@ export class NutrientService {
   ): Promise<SubmitNutrientResearchMessageResult> {
     const session = await this.requireResearchSession(sessionId);
     const message = this.requireNonBlank(input.message, "研究消息不能为空");
+    this.activeResearchSessionIds.add(session.id);
+    try {
     const userMessageRecord = await this.createUserResearchMessage(
       session,
       message,
@@ -856,11 +876,15 @@ export class NutrientService {
       assistantMessage: result.assistantMessage,
       depositableBlocks: result.depositableBlocks,
     };
+    } finally {
+      this.activeResearchSessionIds.delete(session.id);
+    }
   }
 
   public async *streamResearchMessage(
     sessionId: string,
     input: SubmitNutrientResearchMessageInput,
+    options: StreamNutrientResearchMessageOptions = {},
   ): AsyncGenerator<NutrientResearchStreamEvent> {
     const session = await this.requireResearchSession(sessionId);
     const message = this.requireNonBlank(input.message, "研究消息不能为空");
@@ -883,10 +907,28 @@ export class NutrientService {
       message: "Agent 正在研究营养资料",
     };
 
+    this.activeResearchSessionIds.add(session.id);
     try {
-      const stream = this.streamNutrientResearchAgent(session, message);
+      assertNotAborted(options.signal);
+      const stream = this.streamNutrientResearchAgent(session, message, options);
       let agentResult: AgentTaskResult;
       while (true) {
+        if (options.signal?.aborted === true) {
+          await stream.return?.(undefined as never);
+          const assistantMessage = await this.saveAssistantResearchMessage({
+            session,
+            content: "营养研究已暂停。",
+            agentTaskId: "nutrient-research-cancelled",
+            trace: [],
+            failureReason: "营养研究已暂停。",
+          });
+          yield {
+            type: "cancelled",
+            message: "营养研究已暂停。",
+            assistantMessage,
+          };
+          return;
+        }
         const event = await stream.next();
         if (event.done === true) {
           agentResult = event.value;
@@ -895,6 +937,21 @@ export class NutrientService {
         yield event.value;
       }
       if (!agentResult.ok) {
+        if (agentResult.error.code === "AGENT_TASK_CANCELLED") {
+          const assistantMessage = await this.saveAssistantResearchMessage({
+            session,
+            content: "营养研究已暂停。",
+            agentTaskId: agentResult.taskId,
+            trace: agentResult.trace.map((event) => ({ ...event })),
+            failureReason: "营养研究已暂停。",
+          });
+          yield {
+            type: "cancelled",
+            message: "营养研究已暂停。",
+            assistantMessage,
+          };
+          return;
+        }
         const assistantMessage = await this.saveAssistantResearchMessage({
           session,
           content: agentResult.error.message,
@@ -943,19 +1000,31 @@ export class NutrientService {
         depositableBlocks: result.depositableBlocks,
       };
     } catch (error) {
-      const failureMessage =
-        error instanceof Error ? error.message : "营养研究失败";
+      const cancelled = isApplicationError(error) && error.code === "AGENT_TASK_CANCELLED";
+      const failureMessage = cancelled
+        ? "营养研究已暂停。"
+        : error instanceof Error ? error.message : "营养研究失败";
       let assistantMessage: NutrientResearchMessage | undefined;
       try {
         assistantMessage = await this.saveAssistantResearchMessage({
           session,
           content: failureMessage,
-          agentTaskId: "nutrient-research-stream-error",
+          agentTaskId: cancelled
+            ? "nutrient-research-cancelled"
+            : "nutrient-research-stream-error",
           trace: [],
           failureReason: failureMessage,
         });
       } catch {
         assistantMessage = undefined;
+      }
+      if (cancelled) {
+        yield {
+          type: "cancelled",
+          message: "营养研究已暂停。",
+          assistantMessage,
+        };
+        return;
       }
       yield {
         type: "error",
@@ -963,6 +1032,8 @@ export class NutrientService {
         message: failureMessage,
         assistantMessage,
       };
+    } finally {
+      this.activeResearchSessionIds.delete(session.id);
     }
   }
 
@@ -1366,6 +1437,17 @@ export class NutrientService {
     }
     const title = this.requireNonBlank(input.title, "合并来源标题不能为空");
     const markdown = this.requireNonBlank(input.markdown, "合并内容不能为空");
+    const sourceCardId = this.normalizeNullableText(input.sourceCardId);
+    if (sourceCardId !== null) {
+      const source = await this.requireCard(sourceCardId);
+      if (source.seedId !== target.seedId) {
+        throw new ApplicationError(
+          "VALIDATION_ERROR",
+          "合并来源营养内容必须属于同一种子",
+          400,
+        );
+      }
+    }
     const existingMarkdown = await this.contentAccess.readNutrientMarkdown(
       target.contentLocation,
     );
@@ -1392,7 +1474,7 @@ export class NutrientService {
     await this.storage.createCardMergeRecord({
       id: this.idGenerator.nextId("nutrient-card-merge"),
       seedId: target.seedId,
-      sourceCardId: this.normalizeNullableText(input.sourceCardId),
+      sourceCardId,
       targetCardId: target.id,
       sourceTitle: title,
       sourceContentLocation: null,
@@ -1524,24 +1606,6 @@ export class NutrientService {
       throw new ApplicationError("NOT_FOUND", "营养内容不存在", 404);
     }
     return record;
-  }
-
-  private async resolveResearchCard(
-    seedId: string,
-    nutrientCardId: string | null | undefined,
-  ): Promise<string | null> {
-    if (nutrientCardId === undefined || nutrientCardId === null) {
-      return null;
-    }
-    const card = await this.requireCard(nutrientCardId);
-    if (card.seedId !== seedId) {
-      throw new ApplicationError(
-        "VALIDATION_ERROR",
-        "营养研究会话不能绑定其他种子的营养内容",
-        400,
-      );
-    }
-    return card.id;
   }
 
   private async requireCard(cardId: string): Promise<NutrientCardRecord> {
@@ -1712,15 +1776,21 @@ export class NutrientService {
   private async *streamNutrientResearchAgent(
     session: NutrientResearchSessionRecord,
     message: string,
+    options: StreamNutrientResearchMessageOptions = {},
   ): AsyncGenerator<NutrientResearchStreamEvent, AgentTaskResult> {
     const agent = this.requireAgentPort();
     const task = await this.buildResearchAgentTask(session, message);
     if (agent.streamTask === undefined) {
-      return await agent.runTask(task);
+      return await agent.runTask(task, {
+        signal: options.signal,
+      });
     }
 
-    const stream = agent.streamTask(task);
+    const stream = agent.streamTask(task, {
+      signal: options.signal,
+    });
     while (true) {
+      assertNotAborted(options.signal);
       const event = await stream.next();
       if (event.done === true) {
         return event.value;
@@ -1746,6 +1816,33 @@ export class NutrientService {
           type: "progress",
           stage: "agent_started",
           message: event.value.message,
+          metadata: event.value.metadata,
+        };
+      } else if (event.value.type === "tool_call_started") {
+        yield {
+          type: "tool_call_started",
+          toolName: event.value.toolName,
+          message: event.value.message,
+          metadata: event.value.metadata,
+        };
+      } else if (event.value.type === "tool_call_completed") {
+        yield {
+          type: "tool_call_completed",
+          toolName: event.value.toolName,
+          message: event.value.message,
+          metadata: event.value.metadata,
+        };
+      } else if (event.value.type === "tool_call_failed") {
+        yield {
+          type: "tool_call_failed",
+          toolName: event.value.toolName,
+          message: event.value.message,
+          metadata: event.value.metadata,
+        };
+      } else if (event.value.type === "task_cancelled") {
+        yield {
+          type: "cancelled",
+          message: event.value.message,
         };
       }
     }
@@ -1760,7 +1857,6 @@ export class NutrientService {
       input: await this.buildResearchAgentInput(session, message),
       metadata: {
         seedId: session.seedId,
-        nutrientCardId: session.nutrientCardId,
         sessionId: session.id,
       },
     };
@@ -1803,10 +1899,6 @@ export class NutrientService {
     message: string,
   ): Promise<Record<string, unknown>> {
     const seed = await this.seedStorage.findSeedById(session.seedId);
-    const card =
-      session.nutrientCardId === null
-        ? null
-        : await this.storage.findCardById(session.nutrientCardId);
     const recentMessages = (
       await this.storage.listResearchMessagesBySession(session.id)
     )
@@ -1819,8 +1911,6 @@ export class NutrientService {
     return {
       seedId: session.seedId,
       seedTitle: seed?.title ?? "",
-      nutrientCardId: session.nutrientCardId,
-      nutrientCardTitle: card?.title ?? "",
       sessionId: session.id,
       message,
       recentMessages,
@@ -1857,15 +1947,6 @@ export class NutrientService {
       ...session,
       updatedAt: timestamp,
     });
-    if (session.nutrientCardId !== null) {
-      const card = await this.storage.findCardById(session.nutrientCardId);
-      if (card !== null) {
-        await this.storage.saveCard({
-          ...card,
-          lastResearchedAt: timestamp,
-        });
-      }
-    }
   }
 
   private requireAgentPort(): AgentPort {
@@ -2115,7 +2196,6 @@ export class NutrientService {
       contentLocation: record.contentLocation,
       settledContentId: record.settledContentId,
       defaultForGrowth: record.defaultForGrowth,
-      conversationId: record.conversationId,
       lastResearchedAt: record.lastResearchedAt,
       lastReferencedAt: record.lastReferencedAt,
       createdAt: record.createdAt,
@@ -2141,7 +2221,6 @@ export class NutrientService {
     return {
       id: record.id,
       seedId: record.seedId,
-      nutrientCardId: record.nutrientCardId,
       title: record.title,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
@@ -2193,4 +2272,11 @@ export class NutrientService {
       resolvedAt: record.resolvedAt,
     };
   }
+}
+
+function assertNotAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted !== true) {
+    return;
+  }
+  throw new ApplicationError("AGENT_TASK_CANCELLED", "Agent task cancelled", 499);
 }

@@ -9,6 +9,7 @@ export interface LlmCompletionInput {
   messages: LlmMessage[];
   model?: string;
   temperature?: number;
+  signal?: AbortSignal;
 }
 
 export interface LlmCompletionResult {

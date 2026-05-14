@@ -56,6 +56,7 @@ export class OpenAiCompatibleLlmAdapter implements LlmAdapter {
           authorization: `Bearer ${this.apiKey}`,
           "content-type": "application/json",
         },
+        signal: input.signal,
         body: JSON.stringify({
           model: input.model ?? this.model,
           messages: input.messages,
@@ -107,6 +108,7 @@ export class OpenAiCompatibleLlmAdapter implements LlmAdapter {
           authorization: `Bearer ${this.apiKey}`,
           "content-type": "application/json",
         },
+        signal: input.signal,
         body: JSON.stringify({
           model: input.model ?? this.model,
           messages: input.messages,

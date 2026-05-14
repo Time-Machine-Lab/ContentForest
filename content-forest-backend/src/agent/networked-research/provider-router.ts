@@ -82,12 +82,16 @@ export class NetworkProviderRouter {
         continue;
       }
       initialProviderNames.push(provider.name);
+      const rawItemCountBeforeProvider = rawItems.length;
       try {
         collectRawItems(
           rawItems,
           restrictedStatuses,
           await provider.research(routedRequest, plan),
         );
+        if (rawItems.length > rawItemCountBeforeProvider) {
+          break;
+        }
       } catch (error) {
         failures.push(providerFailureFromError({
           providerName: provider.name,
@@ -107,13 +111,17 @@ export class NetworkProviderRouter {
     }
 
     const normalizedInitial = normalizeResearchResults(rawItems, this.now);
-    const explorationReason = explorationTriggerReason(
-      routedRequest,
-      plan,
-      normalizedInitial,
-    );
+    const explorationProviders = this.providers.filter(isExplorationProvider);
+    const explicitDeepExploration = routedRequest.deepExploration === true;
+    const explorationReason =
+      explorationProviders.length > 0 || explicitDeepExploration
+        ? explorationTriggerReason(
+            routedRequest,
+            plan,
+            normalizedInitial,
+          )
+        : null;
     if (explorationReason !== null) {
-      const explorationProviders = this.providers.filter(isExplorationProvider);
       let explored = false;
       for (const provider of explorationProviders) {
         if (!provider.canExplore(routedRequest, plan, normalizedInitial)) {

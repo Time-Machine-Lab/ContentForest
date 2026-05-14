@@ -20,11 +20,19 @@ describe("Nutrient research SSE route", () => {
     const api = readWorkspace("docs/api/nutrient.yaml");
 
     expect(api).toContain("/api/nutrient-research-sessions/{sessionId}/messages/stream");
+    expect(api).toContain("/api/seeds/{seedId}/nutrient-research-sessions");
     expect(api).toContain("text/event-stream");
     expect(api).toContain("NutrientResearchStreamEvent");
+    expect(api).toContain("tool_call_started");
+    expect(api).toContain("cancelled");
     expect(main).toContain("messages\\/stream");
     expect(main).toContain("streamResearchMessage");
+    expect(main).toContain("deleteResearchSession");
+    expect(main).toContain("method === \"DELETE\"");
+    expect(main).toContain("GET,POST,PATCH,DELETE,OPTIONS");
     expect(main).toContain("sendSse");
+    expect(main).toContain("AbortController");
+    expect(main).toContain("listResearchSessions");
     expect(main).toContain("\"content-type\": \"text/event-stream; charset=utf-8\"");
     expect(main).toContain("event: ${event.type}");
   });

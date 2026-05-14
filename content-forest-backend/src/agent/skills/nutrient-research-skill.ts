@@ -15,7 +15,6 @@ export class NutrientResearchSkill implements SkillContract {
     input.trace.record("skill_progress", "Nutrient research started", {
       stage: "nutrient_research_started",
       seedId: readOptionalString(input.context.input.seedId),
-      nutrientCardId: readOptionalString(input.context.input.nutrientCardId),
     });
 
     const research = await readToolRecord(input.tools, NETWORKED_RESEARCH_TOOL_NAME, {
@@ -95,8 +94,6 @@ function buildPromptContext(input: {
       {
         seedId: input.taskInput.seedId ?? null,
         seedTitle: input.taskInput.seedTitle ?? "",
-        nutrientCardId: input.taskInput.nutrientCardId ?? null,
-        nutrientCardTitle: input.taskInput.nutrientCardTitle ?? "",
       },
       null,
       2,

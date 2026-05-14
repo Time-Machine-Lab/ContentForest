@@ -5,6 +5,7 @@ import type {
   AgentTaskContext,
   AgentTaskFailureResult,
   AgentTaskResult,
+  AgentTaskRunOptions,
   AgentTaskStreamEvent,
   AgentTaskSuccessResult,
 } from "./agent-task.js";
@@ -55,15 +56,19 @@ export class AgentRuntime implements AgentPort {
     this.nextTaskId = dependencies.nextTaskId ?? (() => crypto.randomUUID());
   }
 
-  public async runTask(task: AgentTask): Promise<AgentTaskResult> {
-    return this.executeTask(task);
+  public async runTask(
+    task: AgentTask,
+    options: AgentTaskRunOptions = {},
+  ): Promise<AgentTaskResult> {
+    return this.executeTask(task, undefined, options);
   }
 
   public async *streamTask(
     task: AgentTask,
+    options: AgentTaskRunOptions = {},
   ): AsyncGenerator<AgentTaskStreamEvent, AgentTaskResult> {
     const queue = new AsyncEventQueue<AgentTaskStreamEvent, AgentTaskResult>();
-    void this.executeTask(task, (event) => queue.push(event))
+    void this.executeTask(task, (event) => queue.push(event), options)
       .then((result) => queue.close(result))
       .catch((error) => queue.close(toRuntimeFailureResult(task, error, this.nextTaskId())));
 
@@ -79,6 +84,7 @@ export class AgentRuntime implements AgentPort {
   private async executeTask(
     task: AgentTask,
     emit?: (event: AgentTaskStreamEvent) => void | Promise<void>,
+    options: AgentTaskRunOptions = {},
   ): Promise<AgentTaskResult> {
     const taskId = task.taskId ?? this.nextTaskId();
     const startedAt = this.now().toISOString();
@@ -96,6 +102,7 @@ export class AgentRuntime implements AgentPort {
     const trace = new AgentTrace(this.now);
 
     try {
+      assertNotAborted(options.signal);
       if (!isAgentTaskType(task.type)) {
         throw new ApplicationError(
           "VALIDATION_ERROR",
@@ -110,6 +117,7 @@ export class AgentRuntime implements AgentPort {
         input: task.input,
         metadata: task.metadata ?? {},
         startedAt,
+        abortSignal: options.signal,
       };
       trace.record("task_started", `Agent task started: ${context.taskType}`, {
         taskId,
@@ -121,6 +129,7 @@ export class AgentRuntime implements AgentPort {
         context,
         trace,
         exchangeLog,
+        emit,
       );
       const skillRuntime = new SkillRuntime({
         registry: this.skillRegistry,
@@ -129,7 +138,9 @@ export class AgentRuntime implements AgentPort {
         trace,
         exchangeLog,
       });
+      assertNotAborted(options.signal);
       const output = await skillRuntime.executeTask(task, context, emit);
+      assertNotAborted(options.signal);
       const validatedOutput = this.outputValidator.validate(output, context);
       trace.record("output_validated", "Agent output validated", {
         taskId,
@@ -244,6 +255,13 @@ function toFailure(error: unknown): { code: string; message: string } {
     code: "AGENT_RUNTIME_ERROR",
     message: error instanceof Error ? error.message : "Agent runtime failed",
   };
+}
+
+function assertNotAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted !== true) {
+    return;
+  }
+  throw new ApplicationError("AGENT_TASK_CANCELLED", "Agent task cancelled", 499);
 }
 
 function toRuntimeFailureResult(

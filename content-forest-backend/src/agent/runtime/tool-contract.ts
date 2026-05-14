@@ -9,11 +9,19 @@ export interface ToolOutput {
   metadata?: Record<string, unknown>;
 }
 
+export interface ToolExecutionOptions {
+  signal?: AbortSignal;
+}
+
 export interface ToolContract {
   name: string;
   description: string;
   readOnly: true;
-  execute(input: ToolInput, context: AgentTaskContext): Promise<ToolOutput>;
+  execute(
+    input: ToolInput,
+    context: AgentTaskContext,
+    options?: ToolExecutionOptions,
+  ): Promise<ToolOutput>;
 }
 
 export interface ToolCaller {
