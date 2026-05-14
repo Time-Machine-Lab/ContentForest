@@ -131,7 +131,7 @@ test('nutrient research chat loads sessions and submits messages', () => {
   assert.equal(dialog.includes('researchTimelineItems'), true)
   assert.equal(dialog.includes('v-for="item in researchTimelineItems"'), true)
   assert.equal(dialog.includes("toolStatus?: 'running' | 'completed' | 'failed'"), true)
-  assert.equal(dialog.includes('?????'), true)
+  assert.equal(dialog.includes('可沉淀营养'), true)
   assert.equal(dialog.includes("localStatus: 'pending'"), true)
   assert.equal(dialog.includes("localStatus: 'failed'"), true)
   assert.equal(dialog.includes('AbortController'), true)
@@ -164,10 +164,10 @@ test('nutrient research chat renders depositable blocks with actions', () => {
   assert.equal(dialog.includes('keepSuggestionAsNewCard'), true)
   assert.equal(dialog.includes('mergeSuggestionIntoCard'), true)
   assert.equal(dialog.includes('ignoreDepositableBlock'), true)
-  assert.equal(dialog.includes('?????'), true)
-  assert.equal(dialog.includes('??????'), true)
+  assert.equal(dialog.includes('保存为卡片'), true)
+  assert.equal(dialog.includes('合并到内容'), true)
   assert.equal(dialog.includes('合并到当前内容'), false)
-  assert.equal(dialog.includes('??'), true)
+  assert.equal(dialog.includes('忽略'), true)
 })
 
 test('nutrient workbench accepts and ignores nutrient suggestions', () => {

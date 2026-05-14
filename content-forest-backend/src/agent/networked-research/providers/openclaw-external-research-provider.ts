@@ -133,12 +133,18 @@ export class OpenClawExternalResearchProvider implements NetworkProvider {
         message: [
           buildExternalResearchInstructions(),
           "",
+          "When browser extension capabilities are available, prioritize using the browser extension to search, open, and observe relevant platform pages before falling back to generic web search.",
+          "Prefer direct platform/page observation evidence from the browser extension for cases, URLs, and engagement metrics; if the browser extension is blocked by login, captcha, safety limits, or unavailable tools, report that limitation explicitly.",
+          "",
           "Return only the JSON research package. Do not include markdown fences.",
           "",
           buildExternalResearchInput(request, plan),
         ].join("\n"),
       });
-      const parsed = parseExternalResearchOutput(extractOpenClawOutputText(output));
+      const parsed = parseExternalResearchOutput(
+        extractOpenClawOutputText(output),
+        "OpenClaw external research provider",
+      );
       for (const item of parsed.items) {
         items.push(mapExternalItem(item, {
           capturedAt,

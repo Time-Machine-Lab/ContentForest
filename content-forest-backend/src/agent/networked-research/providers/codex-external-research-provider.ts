@@ -404,14 +404,17 @@ function extractOutputText(response: CodexResearchResponse): string {
   return text;
 }
 
-export function parseExternalResearchOutput(value: string): ExternalResearchOutput {
+export function parseExternalResearchOutput(
+  value: string,
+  providerLabel = "Codex external research provider",
+): ExternalResearchOutput {
   let parsed: unknown;
   try {
     parsed = JSON.parse(extractJsonObject(value));
   } catch {
     throw new NetworkProviderError(
       "provider_error",
-      "Codex external research provider returned invalid JSON",
+      `${providerLabel} returned invalid JSON`,
     );
   }
   const record = readRecord(parsed);
@@ -426,7 +429,7 @@ export function parseExternalResearchOutput(value: string): ExternalResearchOutp
   if (summary.length === 0 && items.length === 0 && depositableBlocks.length === 0 && limitations.length === 0) {
     throw new NetworkProviderError(
       "empty_result",
-      "Codex external research provider returned no usable research content",
+      `${providerLabel} returned no usable research content`,
     );
   }
   return {

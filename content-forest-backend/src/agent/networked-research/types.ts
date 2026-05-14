@@ -127,6 +127,16 @@ export interface NetworkProviderFailure {
   phase?: NetworkResearchPhase | "observe";
 }
 
+export interface NetworkProviderRunTrace {
+  providerName: string;
+  phase: NetworkResearchPhase;
+  status: "success" | "failure";
+  durationMs: number;
+  resultCount: number;
+  restrictedCount: number;
+  failureCode?: NetworkProviderFailure["code"];
+}
+
 export interface NetworkResearchTrace {
   queryPlan: {
     queryCount: number;
@@ -136,6 +146,7 @@ export interface NetworkResearchTrace {
   };
   initialSearch: {
     providers: string[];
+    providerRuns: NetworkProviderRunTrace[];
     resultCount: number;
     failureCount: number;
   };
@@ -143,6 +154,7 @@ export interface NetworkResearchTrace {
     triggered: boolean;
     reason: string | null;
     providers: string[];
+    providerRuns: NetworkProviderRunTrace[];
     resultCount: number;
     restrictedCount: number;
   };

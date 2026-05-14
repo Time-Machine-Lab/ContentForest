@@ -229,6 +229,7 @@ describe("networked research module", () => {
     expect(client.runCalls).toHaveLength(1);
     expect(client.deleteCalls).toHaveLength(1);
     expect(client.runCalls[0]?.message).toContain("Return only the JSON research package");
+    expect(client.runCalls[0]?.message).toContain("prioritize using the browser extension");
     expect(result.mode).toBe("research");
     if (result.mode !== "research") {
       throw new Error("expected research result");
@@ -301,6 +302,19 @@ describe("networked research module", () => {
       "openclaw_external_research",
       "codex_external_research",
     ]);
+    expect(result.trace.initialSearch.providerRuns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerName: "openclaw_external_research",
+          status: "failure",
+          failureCode: "provider_error",
+        }),
+        expect.objectContaining({
+          providerName: "codex_external_research",
+          status: "success",
+        }),
+      ]),
+    );
   });
 
   it("falls back to Codex when OpenClaw times out", async () => {
@@ -338,6 +352,32 @@ describe("networked research module", () => {
         expect.objectContaining({ providerName: "codex_external_research" }),
       ]),
     );
+  });
+
+  it("reports empty OpenClaw output with an OpenClaw-specific failure reason", async () => {
+    const openClaw = new OpenClawExternalResearchProvider({
+      gatewayUrl: "ws://openclaw.example",
+      authToken: "sk-openclaw-secret",
+      client: new FakeOpenClawClient({
+        output: externalResearchPackage({}),
+      }),
+    });
+    const router = new NetworkProviderRouter({ providers: [openClaw] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "Research AI product promotion cases",
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.failures[0]).toMatchObject({
+      providerName: "openclaw_external_research",
+      code: "empty_result",
+      reason: "OpenClaw external research provider returned no usable research content",
+    });
   });
 
   it("deletes the OpenClaw session after success and after failure", async () => {

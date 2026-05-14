@@ -1304,21 +1304,21 @@ function errorMessage(error: unknown) {
                           type="button"
                           @click="toggleMessageCollapsed(item.message.id)"
                         >
-                          <span>{{ item.message.collapsed ? '??????' : '??????' }}</span>
-                          <strong>{{ item.message.localStatus === 'pending' ? '???' : '????' }}</strong>
+                          <span>{{ item.message.collapsed ? '展开思考' : '收起思考' }}</span>
+                          <strong>{{ item.message.localStatus === 'pending' ? '思考中' : '思考记录' }}</strong>
                         </button>
-                        <MarkdownViewer v-if="!item.message.collapsed" class="cf-nutrient-thought-body" :markdown="item.message.content || '????????...'" />
+                        <MarkdownViewer v-if="!item.message.collapsed" class="cf-nutrient-thought-body" :markdown="item.message.content || '正在思考...'" />
                       </template>
                       <template v-else-if="item.message.localKind === 'tool'">
                         <div class="cf-nutrient-tool-body">
-                          <span class="cf-nutrient-tool-status" :class="`is-${item.message.toolStatus || 'running'}`">{{ item.message.toolStatus ? toolStatusLabel(item.message.toolStatus) : '???' }}</span>
+                          <span class="cf-nutrient-tool-status" :class="`is-${item.message.toolStatus || 'running'}`">{{ item.message.toolStatus ? toolStatusLabel(item.message.toolStatus) : '调用中' }}</span>
                           <MarkdownViewer :markdown="item.message.content" />
                           <pre v-if="formatMetadata(item.message.metadata)" class="cf-nutrient-tool-meta">{{ formatMetadata(item.message.metadata) }}</pre>
                         </div>
                       </template>
                       <template v-else-if="item.message.localKind === 'progress'">
                         <div class="cf-nutrient-tool-body">
-                          <span class="cf-nutrient-tool-status is-running">??</span>
+                          <span class="cf-nutrient-tool-status is-running">进度</span>
                           <MarkdownViewer :markdown="item.message.content" />
                           <pre v-if="formatMetadata(item.message.metadata)" class="cf-nutrient-tool-meta">{{ formatMetadata(item.message.metadata) }}</pre>
                         </div>
@@ -1331,7 +1331,7 @@ function errorMessage(error: unknown) {
                     <template v-else>
                       <header>
                         <div>
-                          <span>?????</span>
+                          <span>可沉淀营养</span>
                           <strong>{{ item.block.title }}</strong>
                         </div>
                       </header>
@@ -1343,7 +1343,7 @@ function errorMessage(error: unknown) {
                           :disabled="Boolean(operationLoading)"
                           @click="keepSuggestionAsNewCard(item.block)"
                         >
-                          {{ operationLoading === `create-block:${item.block.id}` ? '???' : '?????' }}
+                          {{ operationLoading === `create-block:${item.block.id}` ? '创建中' : '保存为卡片' }}
                         </button>
                         <button
                           class="cf-nutrient-btn cf-nutrient-btn-secondary"
@@ -1351,9 +1351,9 @@ function errorMessage(error: unknown) {
                           :disabled="Boolean(operationLoading)"
                           @click="mergeSuggestionIntoCard(item.block)"
                         >
-                          {{ operationLoading === `merge-block:${item.block.id}` ? '???' : '??????' }}
+                          {{ operationLoading === `merge-block:${item.block.id}` ? '合并中' : '合并到内容' }}
                         </button>
-                        <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="ignoreDepositableBlock(item.block.id)">??</button>
+                        <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="ignoreDepositableBlock(item.block.id)">忽略</button>
                       </div>
                     </template>
                   </article>
@@ -1376,7 +1376,7 @@ function errorMessage(error: unknown) {
                     <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="closeMergeTargetSelector">关闭</button>
                   </header>
                   <div class="cf-nutrient-filter-row">
-                    <input v-model="mergeTargetSearch" type="search" placeholder="搜索目标营养内容" />
+                    <input v-model="mergeTargetSearch" type="search" placeholder="搜索目标营养内容">
                     <div class="cf-nutrient-segmented-filter" role="group" aria-label="合并目标状态筛选">
                       <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'all' }" @click="mergeTargetStatusFilter = 'all'">全部</button>
                       <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'unsettled' }" @click="mergeTargetStatusFilter = 'unsettled'">草稿</button>
@@ -1456,7 +1456,7 @@ function errorMessage(error: unknown) {
             </header>
 
             <div class="cf-nutrient-filter-row cf-nutrient-card-filter">
-              <input v-model="cardSearch" type="search" placeholder="搜索营养内容" />
+              <input v-model="cardSearch" type="search" placeholder="搜索营养内容">
               <div class="cf-nutrient-segmented-filter" role="group" aria-label="营养内容状态筛选">
                 <button type="button" :class="{ 'is-active': cardStatusFilter === 'all' }" @click="cardStatusFilter = 'all'">全部</button>
                 <button type="button" :class="{ 'is-active': cardStatusFilter === 'unsettled' }" @click="cardStatusFilter = 'unsettled'">草稿</button>

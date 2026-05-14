@@ -10,6 +10,7 @@ import type {
   NetworkProvider,
   NetworkProviderEntry,
   NetworkProviderFailure,
+  NetworkProviderRunTrace,
   NetworkResearchContextPackage,
   NetworkResearchResult,
   NetworkRestrictedStatus,
@@ -51,6 +52,8 @@ export class NetworkProviderRouter {
     const rawItems: RawNetworkResearchItem[] = [];
     const initialProviderNames: string[] = [];
     const deepProviderNames: string[] = [];
+    const initialProviderRuns: NetworkProviderRunTrace[] = [];
+    const deepProviderRuns: NetworkProviderRunTrace[] = [];
 
     const initialProviders = [
       ...this.providers.filter(isSearchProvider),
@@ -62,18 +65,39 @@ export class NetworkProviderRouter {
           continue;
         }
         initialProviderNames.push(provider.name);
+        const providerStartedAt = Date.now();
+        const rawItemCountBeforeProvider = rawItems.length;
+        const restrictedCountBeforeProvider = restrictedStatuses.length;
         try {
           collectRawItems(
             rawItems,
             restrictedStatuses,
             await provider.search(routedRequest, plan),
           );
+          initialProviderRuns.push({
+            providerName: provider.name,
+            phase: "initial_search",
+            status: "success",
+            durationMs: Date.now() - providerStartedAt,
+            resultCount: rawItems.length - rawItemCountBeforeProvider,
+            restrictedCount: restrictedStatuses.length - restrictedCountBeforeProvider,
+          });
         } catch (error) {
-          failures.push(providerFailureFromError({
+          const failure = providerFailureFromError({
             providerName: provider.name,
             error,
             phase: "initial_search",
-          }));
+          });
+          failures.push(failure);
+          initialProviderRuns.push({
+            providerName: provider.name,
+            phase: "initial_search",
+            status: "failure",
+            durationMs: Date.now() - providerStartedAt,
+            resultCount: rawItems.length - rawItemCountBeforeProvider,
+            restrictedCount: restrictedStatuses.length - restrictedCountBeforeProvider,
+            failureCode: failure.code,
+          });
         }
         continue;
       }
@@ -82,22 +106,42 @@ export class NetworkProviderRouter {
         continue;
       }
       initialProviderNames.push(provider.name);
+      const providerStartedAt = Date.now();
       const rawItemCountBeforeProvider = rawItems.length;
+      const restrictedCountBeforeProvider = restrictedStatuses.length;
       try {
         collectRawItems(
           rawItems,
           restrictedStatuses,
           await provider.research(routedRequest, plan),
         );
+        initialProviderRuns.push({
+          providerName: provider.name,
+          phase: "initial_search",
+          status: "success",
+          durationMs: Date.now() - providerStartedAt,
+          resultCount: rawItems.length - rawItemCountBeforeProvider,
+          restrictedCount: restrictedStatuses.length - restrictedCountBeforeProvider,
+        });
         if (rawItems.length > rawItemCountBeforeProvider) {
           break;
         }
       } catch (error) {
-        failures.push(providerFailureFromError({
+        const failure = providerFailureFromError({
           providerName: provider.name,
           error,
           phase: "initial_search",
-        }));
+        });
+        failures.push(failure);
+        initialProviderRuns.push({
+          providerName: provider.name,
+          phase: "initial_search",
+          status: "failure",
+          durationMs: Date.now() - providerStartedAt,
+          resultCount: rawItems.length - rawItemCountBeforeProvider,
+          restrictedCount: restrictedStatuses.length - restrictedCountBeforeProvider,
+          failureCode: failure.code,
+        });
       }
     }
 
@@ -129,6 +173,9 @@ export class NetworkProviderRouter {
         }
         explored = true;
         deepProviderNames.push(provider.name);
+        const providerStartedAt = Date.now();
+        const rawItemCountBeforeProvider = rawItems.length;
+        const restrictedCountBeforeProvider = restrictedStatuses.length;
         try {
           collectRawItems(
             rawItems,
@@ -139,12 +186,30 @@ export class NetworkProviderRouter {
               candidates: normalizedInitial,
             }),
           );
+          deepProviderRuns.push({
+            providerName: provider.name,
+            phase: "deep_exploration",
+            status: "success",
+            durationMs: Date.now() - providerStartedAt,
+            resultCount: rawItems.length - rawItemCountBeforeProvider,
+            restrictedCount: restrictedStatuses.length - restrictedCountBeforeProvider,
+          });
         } catch (error) {
-          failures.push(providerFailureFromError({
+          const failure = providerFailureFromError({
             providerName: provider.name,
             error,
             phase: "deep_exploration",
-          }));
+          });
+          failures.push(failure);
+          deepProviderRuns.push({
+            providerName: provider.name,
+            phase: "deep_exploration",
+            status: "failure",
+            durationMs: Date.now() - providerStartedAt,
+            resultCount: rawItems.length - rawItemCountBeforeProvider,
+            restrictedCount: restrictedStatuses.length - restrictedCountBeforeProvider,
+            failureCode: failure.code,
+          });
         }
       }
       if (!explored) {
@@ -185,6 +250,7 @@ export class NetworkProviderRouter {
         },
         initialSearch: {
           providers: initialProviderNames,
+          providerRuns: initialProviderRuns,
           resultCount: normalizedInitial.length,
           failureCount: failures.filter((failure) => failure.phase === "initial_search").length,
         },
@@ -192,6 +258,7 @@ export class NetworkProviderRouter {
           triggered: explorationReason !== null,
           reason: explorationReason,
           providers: deepProviderNames,
+          providerRuns: deepProviderRuns,
           resultCount: results.filter((result) => result.phase === "deep_exploration").length,
           restrictedCount: restrictedStatuses.filter(
             (status) => status.phase === "deep_exploration",
