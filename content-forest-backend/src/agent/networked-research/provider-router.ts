@@ -55,9 +55,10 @@ export class NetworkProviderRouter {
     const initialProviderRuns: NetworkProviderRunTrace[] = [];
     const deepProviderRuns: NetworkProviderRunTrace[] = [];
 
+    const researchProviders = this.providers.filter(isLegacyResearchProvider);
     const initialProviders = [
       ...this.providers.filter(isSearchProvider),
-      ...this.providers.filter(isLegacyResearchProvider),
+      ...researchProviders.filter((provider) => !isCodexExternalResearchProvider(provider)),
     ];
     for (const provider of initialProviders) {
       if (isSearchProvider(provider)) {
@@ -145,25 +146,20 @@ export class NetworkProviderRouter {
       }
     }
 
-    if (initialProviderNames.length === 0) {
-      failures.push({
-        providerName: "provider_router",
-        reason: "No available initial search provider",
-        code: "provider_unavailable",
-        phase: "initial_search",
-      });
-    }
-
     const normalizedInitial = normalizeResearchResults(rawItems, this.now);
     const explorationProviders = this.providers.filter(isExplorationProvider);
+    const codexDeepResearchProviders = researchProviders.filter(isCodexExternalResearchProvider);
     const explicitDeepExploration = routedRequest.deepExploration === true;
     const explorationReason =
-      explorationProviders.length > 0 || explicitDeepExploration
-        ? explorationTriggerReason(
-            routedRequest,
+      explorationProviders.length > 0 || codexDeepResearchProviders.length > 0 || explicitDeepExploration
+        ? coverageGateTriggerReason({
+            request: routedRequest,
             plan,
-            normalizedInitial,
-          )
+            initialResults: normalizedInitial,
+            failures,
+            restrictedStatuses,
+            initialProviderRuns,
+          })
         : null;
     if (explorationReason !== null) {
       let explored = false;
@@ -212,10 +208,54 @@ export class NetworkProviderRouter {
           });
         }
       }
+      for (const provider of codexDeepResearchProviders) {
+        if (!provider.canResearch(routedRequest) || provider.research === undefined) {
+          continue;
+        }
+        explored = true;
+        deepProviderNames.push(provider.name);
+        const providerStartedAt = Date.now();
+        const rawItemCountBeforeProvider = rawItems.length;
+        const restrictedCountBeforeProvider = restrictedStatuses.length;
+        try {
+          collectRawItems(
+            rawItems,
+            restrictedStatuses,
+            forceResearchPhase(
+              await provider.research(routedRequest, plan),
+              "deep_exploration",
+            ),
+          );
+          deepProviderRuns.push({
+            providerName: provider.name,
+            phase: "deep_exploration",
+            status: "success",
+            durationMs: Date.now() - providerStartedAt,
+            resultCount: rawItems.length - rawItemCountBeforeProvider,
+            restrictedCount: restrictedStatuses.length - restrictedCountBeforeProvider,
+          });
+        } catch (error) {
+          const failure = providerFailureFromError({
+            providerName: provider.name,
+            error,
+            phase: "deep_exploration",
+          });
+          failures.push(failure);
+          deepProviderRuns.push({
+            providerName: provider.name,
+            phase: "deep_exploration",
+            status: "failure",
+            durationMs: Date.now() - providerStartedAt,
+            resultCount: rawItems.length - rawItemCountBeforeProvider,
+            restrictedCount: restrictedStatuses.length - restrictedCountBeforeProvider,
+            failureCode: failure.code,
+          });
+        }
+      }
       if (!explored) {
         failures.push({
           providerName: "provider_router",
-          reason: "No available platform browser strategy for deep exploration",
+          reason: "No available coverage gate provider for deep research",
           code: "strategy_unavailable",
           phase: "deep_exploration",
         });
@@ -235,6 +275,15 @@ export class NetworkProviderRouter {
       0,
       normalizeMaxResults(request.maxResults),
     );
+    const qualityGate = buildQualityGateTrace({
+      request: routedRequest,
+      plan,
+      results,
+      restrictedStatuses,
+      failures,
+      codexTriggered: deepProviderNames.includes("codex_external_research"),
+      codexTriggerReason: explorationReason,
+    });
     return {
       mode: "research",
       queryPlan: plan,
@@ -264,6 +313,7 @@ export class NetworkProviderRouter {
             (status) => status.phase === "deep_exploration",
           ).length,
         },
+        qualityGate,
       },
     };
   }
@@ -340,22 +390,103 @@ function collectRawItems(
   }
 }
 
-function explorationTriggerReason(
-  request: Extract<NetworkDataRequest, { mode: "research" }>,
-  plan: ReturnType<typeof planNetworkResearch>,
-  initialResults: NetworkResearchResult[],
-): string | null {
+function forceResearchPhase(
+  items: RawNetworkResearchItem[],
+  phase: "deep_exploration",
+): RawNetworkResearchItem[] {
+  return items.map((item) => {
+    if (item.restrictedStatus !== undefined) {
+      return {
+        restrictedStatus: {
+          ...item.restrictedStatus,
+          phase,
+        },
+      };
+    }
+    return {
+      ...item,
+      phase,
+    };
+  });
+}
+
+function coverageGateTriggerReason(input: {
+  request: Extract<NetworkDataRequest, { mode: "research" }>;
+  plan: ReturnType<typeof planNetworkResearch>;
+  initialResults: NetworkResearchResult[];
+  failures: NetworkProviderFailure[];
+  restrictedStatuses: NetworkRestrictedStatus[];
+  initialProviderRuns: NetworkProviderRunTrace[];
+}): string | null {
+  const {
+    request,
+    plan,
+    initialResults,
+    failures,
+    restrictedStatuses,
+    initialProviderRuns,
+  } = input;
   if (request.deepExploration === true || plan.requestedDeepExploration) {
     return "requested_deep_exploration";
   }
-  if (plan.targetPlatform === "小红书" && plan.intent === "platform_cases") {
-    return "platform_strategy_required";
+  if (initialProviderRuns.length === 0) {
+    return plan.targetPlatform === null ? "broad_research_request" : "provider_unavailable";
+  }
+  if (
+    failures.some((failure) => failure.code === "provider_unavailable") &&
+    initialResults.length === 0
+  ) {
+    return "provider_unavailable";
+  }
+  if (restrictedStatuses.length > 0 && initialResults.length === 0) {
+    return "platform_restricted";
   }
   const expected = request.maxResults ?? plan.expectedResultCount ?? 3;
+  if (plan.targetPlatform === "小红书" && plan.intent === "platform_cases") {
+    const completeObservedCases = initialResults.filter(
+      (result) => result.resultQuality === "complete_observed_case",
+    ).length;
+    if (completeObservedCases < Math.min(expected, 5)) {
+      return "insufficient_complete_observed_cases";
+    }
+    return null;
+  }
+  if (plan.targetPlatform === null || plan.intent === "general") {
+    return initialResults.length === 0 ? "broad_research_request" : null;
+  }
   if (initialResults.length < Math.min(expected, 2)) {
     return "insufficient_initial_results";
   }
   return null;
+}
+
+function buildQualityGateTrace(input: {
+  request: Extract<NetworkDataRequest, { mode: "research" }>;
+  plan: ReturnType<typeof planNetworkResearch>;
+  results: NetworkResearchResult[];
+  restrictedStatuses: NetworkRestrictedStatus[];
+  failures: NetworkProviderFailure[];
+  codexTriggered: boolean;
+  codexTriggerReason: string | null;
+}): NetworkResearchContextPackage["trace"]["qualityGate"] {
+  return {
+    targetResultCount: input.request.maxResults ?? input.plan.expectedResultCount ?? 3,
+    completeObservedCaseCount: input.results.filter(
+      (result) => result.resultQuality === "complete_observed_case",
+    ).length,
+    observedCaseCount: input.results.filter(
+      (result) => result.resultQuality === "observed_case",
+    ).length,
+    candidateLeadCount: input.results.filter(
+      (result) => result.resultQuality === "candidate_lead",
+    ).length,
+    restrictedCount: input.restrictedStatuses.length,
+    providerUnavailable: input.failures.some(
+      (failure) => failure.code === "provider_unavailable",
+    ),
+    codexTriggered: input.codexTriggered,
+    codexTriggerReason: input.codexTriggerReason,
+  };
 }
 
 function isSearchProvider(provider: NetworkProviderEntry): provider is NetworkSearchProvider {
@@ -370,9 +501,13 @@ function isLegacyResearchProvider(provider: NetworkProviderEntry): provider is N
   return "canResearch" in provider && typeof provider.canResearch === "function";
 }
 
+function isCodexExternalResearchProvider(provider: NetworkProvider): boolean {
+  return provider.name === "codex_external_research";
+}
+
 function normalizeMaxResults(value: number | undefined): number {
   if (value === undefined) {
     return 8;
   }
-  return Math.min(Math.max(value, 1), 12);
+  return Math.min(Math.max(value, 1), 15);
 }

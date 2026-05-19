@@ -102,49 +102,45 @@ describe("Agent LLM config", () => {
     expect(getAgentLlmStartupWarnings(config).join("\n")).not.toContain("sk-test");
   });
 
-  it("loads OpenClaw external research config and fallback without leaking tokens", () => {
+  it("loads Xiaohongshu CLI research config", () => {
     const config = loadAppConfig(
       {
-        CONTENT_FOREST_RESEARCH_PROVIDER: "openclaw-external-agent",
-        CONTENT_FOREST_RESEARCH_FALLBACK_PROVIDER: "codex-external-agent",
-        CONTENT_FOREST_OPENCLAW_GATEWAY_URL: "ws://openclaw.example",
-        CONTENT_FOREST_OPENCLAW_AUTH_TOKEN: "sk-openclaw-secret-value",
-        CONTENT_FOREST_OPENCLAW_TIMEOUT_MS: "120000",
-        CONTENT_FOREST_OPENCLAW_SESSION_PREFIX: "content-forest-test",
-        CONTENT_FOREST_OPENCLAW_DELETE_SESSION_ON_FINISH: "true",
-        CONTENT_FOREST_CODEX_RESEARCH_BASE_URL: "http://codex-provider.example/v1",
-        CONTENT_FOREST_CODEX_RESEARCH_API_KEY: "sk-codex-secret-value",
+        CONTENT_FOREST_XIAOHONGSHU_CLI_ENABLED: "true",
+        CONTENT_FOREST_XIAOHONGSHU_CLI_PATH: "D:/tools/xhs.exe",
+        CONTENT_FOREST_XIAOHONGSHU_CLI_TIMEOUT_MS: "45000",
+        CONTENT_FOREST_XIAOHONGSHU_CLI_MAX_RESULTS: "5",
+        CONTENT_FOREST_XIAOHONGSHU_CLI_DEFAULT_SORT: "popular",
+        CONTENT_FOREST_XIAOHONGSHU_CLI_CHECK_LOGIN: "false",
       },
       "D:/project/content-forest-backend",
     );
 
-    expect(config.agent.externalResearch.provider).toBe("openclaw-external-agent");
-    expect(config.agent.externalResearch.fallbackProvider).toBe("codex-external-agent");
-    expect(config.agent.externalResearch.openClaw).toMatchObject({
+    expect(config.agent.externalResearch.xiaohongshu).toMatchObject({
       enabled: true,
-      gatewayUrl: "ws://openclaw.example",
-      timeoutMs: 120000,
-      sessionPrefix: "content-forest-test",
-      deleteSessionOnFinish: true,
-      isAvailable: true,
+      cliPath: "D:/tools/xhs.exe",
+      timeoutMs: 45000,
+      maxResults: 5,
+      defaultSort: "popular",
+      checkLogin: false,
       warnings: [],
     });
-    expect(config.agent.externalResearch.codex.isAvailable).toBe(true);
-    expect(getAgentLlmStartupWarnings(config).join("\n")).not.toContain("sk-openclaw");
   });
 
-  it("warns for missing OpenClaw config without exposing auth token values", () => {
+  it("defaults Xiaohongshu CLI provider to xhs command", () => {
     const config = loadAppConfig(
-      {
-        CONTENT_FOREST_RESEARCH_PROVIDER: "openclaw-external-agent",
-        CONTENT_FOREST_OPENCLAW_AUTH_TOKEN: "sk-openclaw-secret-value",
-      },
+      {},
       "D:/project/content-forest-backend",
     );
 
-    const warnings = getAgentLlmStartupWarnings(config).join("\n");
-    expect(warnings).toContain("GATEWAY_URL");
-    expect(warnings).not.toContain("sk-openclaw-secret-value");
+    expect(config.agent.externalResearch.xiaohongshu).toMatchObject({
+      enabled: true,
+      cliPath: "xhs",
+      timeoutMs: 60000,
+      maxResults: 8,
+      defaultSort: "general",
+      checkLogin: true,
+      warnings: [],
+    });
   });
 });
 
@@ -170,8 +166,13 @@ describe("local secret protection", () => {
     expect(sample).toContain("CONTENT_FOREST_RESEARCH_PROVIDER=codex-external-agent");
     expect(sample).toContain("CONTENT_FOREST_RESEARCH_FALLBACK_PROVIDER=");
     expect(sample).toContain("CONTENT_FOREST_CODEX_RESEARCH_API_KEY=your-codex-provider-api-key-here");
-    expect(sample).toContain("CONTENT_FOREST_OPENCLAW_GATEWAY_URL=ws://localhost:18789/");
-    expect(sample).toContain("CONTENT_FOREST_OPENCLAW_AUTH_TOKEN=your-openclaw-token-here");
+    expect(sample).toContain("CONTENT_FOREST_XIAOHONGSHU_CLI_ENABLED=true");
+    expect(sample).toContain("CONTENT_FOREST_XIAOHONGSHU_CLI_PATH=xhs");
+    expect(sample).toContain("CONTENT_FOREST_XIAOHONGSHU_CLI_TIMEOUT_MS=60000");
+    expect(sample).toContain("CONTENT_FOREST_XIAOHONGSHU_CLI_MAX_RESULTS=8");
+    expect(sample).toContain("CONTENT_FOREST_XIAOHONGSHU_CLI_DEFAULT_SORT=general");
+    expect(sample).toContain("CONTENT_FOREST_XIAOHONGSHU_CLI_CHECK_LOGIN=true");
+    expect(sample).not.toContain("OPENCLAW");
     expect(sample).not.toContain("sk-cp-");
   });
 });

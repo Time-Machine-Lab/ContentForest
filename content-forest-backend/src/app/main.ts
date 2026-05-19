@@ -1138,11 +1138,6 @@ function toCreateNutrientCardInput(body: Record<string, unknown>): {
       400,
     );
   }
-  if (
-    false
-  ) {
-    throw new ApplicationError("VALIDATION_ERROR", "会话标识必须是字符串", 400);
-  }
   return {
     title: body.title,
     markdown: body.markdown,
@@ -1182,16 +1177,6 @@ function toSettleNutrientCardInput(body: Record<string, unknown>): {
     throw new ApplicationError("VALIDATION_ERROR", "libraryId must be a string", 400);
   }
   return body.libraryId === undefined ? {} : { libraryId: body.libraryId };
-}
-
-function toLegacyNutrientCardSessionInput(body: Record<string, unknown>): {
-  sessionId: string;
-} {
-  rejectUnexpectedFields(body, ["sessionId"]);
-  if (typeof body.sessionId !== "string") {
-    throw new ApplicationError("VALIDATION_ERROR", "绑定会话需要提供会话标识", 400);
-  }
-  return { sessionId: body.sessionId };
 }
 
 function toFindSimilarNutrientCardsInput(body: Record<string, unknown>): {
@@ -1254,11 +1239,6 @@ function toCreateNutrientResearchSessionInput(body: Record<string, unknown>): {
       "创建营养研究会话需要提供种子",
       400,
     );
-  }
-  if (
-    false
-  ) {
-    throw new ApplicationError("VALIDATION_ERROR", "工作台营养内容必须是字符串", 400);
   }
   if (body.title !== undefined && typeof body.title !== "string") {
     throw new ApplicationError("VALIDATION_ERROR", "会话标题必须是字符串", 400);
@@ -1371,17 +1351,6 @@ function toNutrientGapSuggestionStatus(
     );
   }
   return value;
-}
-
-function toOptionalNullableString(value: string | null): string | null | undefined {
-  if (value === null) {
-    return undefined;
-  }
-  const normalized = value.trim();
-  if (normalized.length === 0) {
-    return undefined;
-  }
-  return normalized === "null" ? null : normalized;
 }
 
 function toReuploadGeneratorInput(body: Record<string, unknown>): {

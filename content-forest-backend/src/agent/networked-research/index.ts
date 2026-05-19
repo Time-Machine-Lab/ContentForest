@@ -16,27 +16,20 @@ export {
   type CodexExternalResearchProviderOptions,
 } from "./providers/codex-external-research-provider.js";
 export {
-  JsonRpcOpenClawGatewayClient,
-  OpenClawExternalResearchProvider,
-  type OpenClawExternalResearchProviderOptions,
-  type OpenClawGatewayClient,
-} from "./providers/openclaw-external-research-provider.js";
-export {
-  ConfiguredSearchApiProvider,
-  type ConfiguredSearchApiProviderOptions,
-  type SearchApiProviderName,
-} from "./providers/configured-search-api-provider.js";
-export {
-  PublicWebSearchProvider,
-  type PublicWebSearchProviderOptions,
-} from "./providers/public-web-search-provider.js";
-export {
-  PlatformDataPlaceholderProvider,
-  WebPageFetchPlaceholderProvider,
-} from "./providers/placeholder-providers.js";
+  ExecFileXiaohongshuCliRunner,
+  XiaohongshuCliProcessError,
+  XiaohongshuCliResearchProvider,
+  sanitizeDiagnostic as sanitizeXiaohongshuCliDiagnostic,
+  type XiaohongshuCliResearchProviderOptions,
+  type XiaohongshuCliRunOptions,
+  type XiaohongshuCliRunResult,
+  type XiaohongshuCliRunner,
+} from "./providers/xiaohongshu-cli-provider.js";
 export type {
   NetworkDataPackage,
   NetworkDataRequest,
+  NetworkEvidenceAuthor,
+  NetworkEvidenceCompleteness,
   NetworkEngagement,
   NetworkExplorationProvider,
   NetworkObservationPackage,

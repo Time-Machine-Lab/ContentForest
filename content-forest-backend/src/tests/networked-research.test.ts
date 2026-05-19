@@ -2,14 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   BrowserResearchProvider,
   CodexExternalResearchProvider,
-  ConfiguredSearchApiProvider,
   NetworkProviderRouter,
-  OpenClawExternalResearchProvider,
-  PublicWebSearchProvider,
+  XiaohongshuCliProcessError,
+  XiaohongshuCliResearchProvider,
+  sanitizeXiaohongshuCliDiagnostic,
   planNetworkResearch,
   type BrowserCli,
   type NetworkProvider,
-  type OpenClawGatewayClient,
+  type XiaohongshuCliRunOptions,
+  type XiaohongshuCliRunResult,
+  type XiaohongshuCliRunner,
 } from "../agent/networked-research/index.js";
 import { NetworkedResearchTool } from "../agent/tools/networked-research-tool.js";
 import type { AgentTaskContext } from "../agent/runtime/agent-task.js";
@@ -23,62 +25,45 @@ const context: AgentTaskContext = {
 };
 
 describe("networked research module", () => {
-  it("plans platform research without blindly prefixing seed title", () => {
+  it("plans platform research and recognizes Xiaohongshu aliases", () => {
     const plan = planNetworkResearch({
       mode: "research",
-      request: "搜索关于小红书爆款的AI产品宣传的帖子，5~10篇",
+      request: "用 xhs 搜索 AI产品 5~10条帖子，保留案例并梳理核心",
       seedTitle: "OpenPlane / 创境",
     });
 
     expect(plan.targetPlatform).toBe("小红书");
-    expect(plan.queries).toHaveLength(4);
-    expect(plan.siteSearchQueries.length).toBeGreaterThan(0);
-    expect(plan.queries.join("\n")).toContain("AI产品宣传");
-    expect(plan.queries.join("\n")).not.toContain("找几篇");
-    expect(plan.queries.join("\n")).not.toContain("OpenPlane");
-  });
-
-  it("cleans task noise from Xiaohongshu case research queries", () => {
-    const plan = planNetworkResearch({
-      mode: "research",
-      request: "找几篇小红书AI产品相关的爆款文章案例 5~10篇，保留案例，并梳理出爆款核心",
-    });
-
-    expect(plan.targetPlatform).toBe("小红书");
     expect(plan.expectedResultCount).toBe(10);
-    expect(plan.requestedDeepExploration).toBe(true);
     expect(plan.queries.join("\n")).toContain("AI产品");
-    expect(plan.queries.join("\n")).toContain("爆款");
-    expect(plan.queries.join("\n")).not.toContain("找几篇");
+    expect(plan.queries.join("\n")).not.toContain("OpenPlane");
     expect(plan.queries.join("\n")).not.toContain("保留案例");
-    expect(plan.queries.join("\n")).not.toContain("梳理");
   });
 
-  it("keeps platform and topic when cleaning longer Xiaohongshu research instructions", () => {
+  it("keeps quoted Xiaohongshu keywords clean and honors requested ranges", () => {
     const plan = planNetworkResearch({
       mode: "research",
-      request: "搜索小红书关于AI产品宣传的爆款文章，从各种方向考察，挑选5~10篇。作为爆款文章案例并总结出相应的规则",
+      request: "使用 “独立开发者AI项目\"关键词获取小红书10~15条帖子，并返回帖子原内容",
     });
 
     expect(plan.targetPlatform).toBe("小红书");
-    expect(plan.intent).toBe("platform_cases");
-    expect(plan.expectedResultCount).toBe(10);
-    expect(plan.contentObject).toContain("AI产品宣传");
-    expect(plan.contentObject).toContain("爆款文章");
-    expect(plan.contentObject).not.toContain("各种方向考察");
-    expect(plan.contentObject).not.toMatch(/\s并\s|^并$|^并\s|\s并$/u);
-    expect(plan.queries.join("\n")).toContain("小红书");
+    expect(plan.contentObject).toBe("独立开发者AI项目");
+    expect(plan.expectedResultCount).toBe(15);
+    expect(plan.queries[0]).toContain("独立开发者AI项目");
+    expect(plan.queries[0]).not.toContain("帖子原内容");
   });
 
-  it("routes research, normalizes, dedupes, and sorts results", async () => {
+  it("routes research, normalizes evidence fields, dedupes, and sorts results", async () => {
     const provider: NetworkProvider = {
       name: "fake_platform",
       canResearch: () => true,
       async research() {
         return [
           {
+            platformItemId: "note_a",
             title: "高互动案例",
             url: "https://example.com/a",
+            author: { name: "作者 A" },
+            coverUrl: "https://example.com/a.jpg",
             snippet: "真实场景和可收藏清单",
             engagement: { likes: 2000, favorites: 300 },
             providerName: "fake_platform",
@@ -110,541 +95,538 @@ describe("networked research module", () => {
     }
     expect(result.results).toHaveLength(1);
     expect(result.results[0]).toMatchObject({
+      platformItemId: "note_a",
       title: "高互动案例",
-      url: "https://example.com/a",
+      author: { name: "作者 A" },
+      coverUrl: "https://example.com/a.jpg",
       providerName: "fake_platform",
       resultQuality: "candidate_lead",
       phase: "initial_search",
     });
   });
 
-  it("delegates research to the Codex external research provider", async () => {
-    let requestBody: Record<string, unknown> | null = null;
-    const provider = new CodexExternalResearchProvider({
-      baseUrl: "http://codex-provider.example/v1",
-      apiKey: "sk-test-secret",
-      model: "gpt-5.5",
-      reasoningEffort: "high",
-      searchContextSize: "low",
-      fetchImpl: async (_url, init) => {
-        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-        return jsonResponse({
-          status: "completed",
-          tool_usage: { web_search: { num_requests: 1 } },
-          output: [{
-            type: "message",
-            content: [{
-              type: "output_text",
-              text: JSON.stringify({
-                summary: "找到小红书 AI 产品宣传候选资料。",
-                items: [{
-                  title: "AI 产品种草案例",
-                  url: "https://www.xiaohongshu.com/explore/abc",
-                  snippet: "真实场景先行，产品后置露出。",
-                  source: "小红书",
-                  platform: "小红书",
-                  publishedAt: null,
-                  observedEvidence: "",
-                  engagement: { likes: 1200 },
-                }],
-                depositableBlocks: [{
-                  title: "小红书 AI 产品宣传营养",
-                  markdown: "先给方法，再给产品；产品露出后置。",
-                }],
-                limitations: [],
-              }),
-            }],
-          }],
-        });
+  it("collects Xiaohongshu search candidates and enriches note details", async () => {
+    const runner = new FakeXiaohongshuRunner([
+      {
+        expectArgs: ["status", "--json"],
+        result: envelope({ authenticated: true }),
       },
-      now: () => new Date("2026-05-13T00:00:00.000Z"),
+      {
+        expectArgs: ["search", "AI产品", "--json", "--sort", "popular", "--page", "1"],
+        result: envelope({
+          items: [{
+            note_id: "note_1",
+            title: "AI 产品试用一天后",
+            desc: "搜索列表摘要",
+            user: { nickname: "产品体验官" },
+            liked_count: "1.2万",
+          }],
+        }),
+      },
+      {
+        expectArgs: ["read", "note_1", "--json"],
+        result: envelope({
+          note_id: "note_1",
+          title: "AI 产品试用一天后",
+          desc: "先写真实使用场景，再给出工具选择理由。",
+          user: { user_id: "user_1", nickname: "产品体验官" },
+          cover_url: "https://img.example.com/cover.jpg",
+          liked_count: "1.2万",
+          comment_count: "34",
+          collected_count: "560",
+          time: "2026-05-01T08:00:00.000Z",
+        }),
+      },
+    ]);
+    const provider = new XiaohongshuCliResearchProvider({
+      runner,
+      defaultSort: "popular",
+      maxResults: 5,
+      now: () => new Date("2026-05-20T00:00:00.000Z"),
     });
     const router = new NetworkProviderRouter({ providers: [provider] });
 
     const result = await router.run({
       mode: "research",
-      request: "搜索小红书 AI 产品宣传爆款文章",
+      request: "搜索小红书 AI产品 1条帖子",
+      targetPlatform: "小红书",
+      maxResults: 1,
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["status", "--json"],
+      ["search", "AI产品", "--json", "--sort", "popular", "--page", "1"],
+      ["read", "note_1", "--json"],
+    ]);
+    expect(result.results[0]).toMatchObject({
+      platformItemId: "note_1",
+      title: "AI 产品试用一天后",
+      url: "https://www.xiaohongshu.com/explore/note_1",
+      author: { id: "user_1", name: "产品体验官" },
+      coverUrl: "https://img.example.com/cover.jpg",
+      engagement: {
+        likes: 12000,
+        comments: 34,
+        favorites: 560,
+      },
+      providerName: "xiaohongshu_cli",
+      resultQuality: "complete_observed_case",
+      evidenceCompleteness: {
+        hasPlatformIdOrUrl: true,
+        hasTitle: true,
+        hasAuthor: true,
+        hasBodyOrExcerpt: true,
+        hasEngagement: true,
+      },
+    });
+    expect(result.trace.qualityGate).toMatchObject({
+      targetResultCount: 1,
+      completeObservedCaseCount: 1,
+      codexTriggered: false,
+    });
+  });
+
+  it("reads nested Xiaohongshu note_card details from search ids", async () => {
+    const runner = new FakeXiaohongshuRunner([
+      {
+        expectArgs: ["status", "--json"],
+        result: envelope({ authenticated: true }),
+      },
+      {
+        expectArgs: ["search", "独立开发者AI项目", "--json", "--sort", "general", "--page", "1"],
+        result: envelope({
+          items: [{
+            id: "note_nested",
+            model_type: "note",
+            xsec_token: "search-token",
+            note_card: {
+              display_title: "独立开发者 AI 项目复盘",
+              user: { user_id: "user_nested", nickname: "产品作者" },
+              interact_info: {
+                liked_count: "1707",
+                comment_count: "272",
+                collected_count: "1131",
+                shared_count: "304",
+              },
+              cover: { url_default: "https://img.example.com/search-cover.jpg" },
+            },
+          }],
+        }),
+      },
+      {
+        expectArgs: ["read", "note_nested", "--json"],
+        result: envelope({
+          items: [{
+            id: "note_nested",
+            note_card: {
+              note_id: "note_nested",
+              title: "独立开发者 AI 项目复盘",
+              desc: "从 0 到 1 做 AI 产品的完整原帖正文。",
+              user: { user_id: "user_nested", nickname: "产品作者" },
+              interact_info: {
+                liked_count: "1707",
+                comment_count: "272",
+                collected_count: "1131",
+                share_count: "304",
+              },
+              image_list: [{
+                info_list: [{ url: "https://img.example.com/detail-cover.jpg" }],
+              }],
+            },
+          }],
+        }),
+      },
+    ]);
+    const provider = new XiaohongshuCliResearchProvider({
+      runner,
+      maxResults: 15,
+    });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "使用 “独立开发者AI项目\"关键词获取小红书10~15条帖子",
+      targetPlatform: "小红书",
+      maxResults: 1,
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["status", "--json"],
+      ["search", "独立开发者AI项目", "--json", "--sort", "general", "--page", "1"],
+      ["read", "note_nested", "--json"],
+    ]);
+    expect(result.results[0]).toMatchObject({
+      platformItemId: "note_nested",
+      title: "独立开发者 AI 项目复盘",
+      url: "https://www.xiaohongshu.com/explore/note_nested",
+      author: { id: "user_nested", name: "产品作者" },
+      coverUrl: "https://img.example.com/detail-cover.jpg",
+      snippet: "从 0 到 1 做 AI 产品的完整原帖正文。",
+      engagement: {
+        likes: 1707,
+        comments: 272,
+        favorites: 1131,
+        shares: 304,
+      },
+      providerName: "xiaohongshu_cli",
+      resultQuality: "complete_observed_case",
+    });
+    expect(result.trace.qualityGate).toMatchObject({
+      completeObservedCaseCount: 1,
+      codexTriggered: false,
+    });
+  });
+
+  it("expands Xiaohongshu searches when the exact keyword is too narrow", async () => {
+    const runner = new FakeXiaohongshuRunner([
+      {
+        expectArgs: ["status", "--json"],
+        result: envelope({ authenticated: true }),
+      },
+      {
+        expectArgs: ["search", "独立开发者AI项目", "--json", "--sort", "general", "--page", "1"],
+        result: envelope({ items: [] }),
+      },
+      {
+        expectArgs: ["search", "独立开发者AI项目 案例", "--json", "--sort", "general", "--page", "1"],
+        result: envelope({
+          items: [{
+            id: "expanded_note",
+            note_card: {
+              display_title: "AI 产品独立开发案例",
+              user: { nickname: "作者A" },
+              interact_info: { liked_count: "10", collected_count: "20", comment_count: "3" },
+            },
+          }],
+        }),
+      },
+      {
+        expectArgs: ["read", "expanded_note", "--json"],
+        result: envelope({
+          items: [{
+            id: "expanded_note",
+            note_card: {
+              title: "AI 产品独立开发案例",
+              desc: "保留原帖正文。",
+              user: { nickname: "作者A" },
+              interact_info: { liked_count: "10", collected_count: "20", comment_count: "3" },
+            },
+          }],
+        }),
+      },
+    ]);
+    const provider = new XiaohongshuCliResearchProvider({ runner, maxResults: 15 });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "使用 “独立开发者AI项目\"关键词获取小红书10~15条帖子",
+      targetPlatform: "小红书",
+      maxResults: 1,
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(result.results[0]).toMatchObject({
+      platformItemId: "expanded_note",
+      title: "AI 产品独立开发案例",
+      providerName: "xiaohongshu_cli",
+    });
+  });
+
+  it("maps Xiaohongshu login restrictions without triggering interactive login", async () => {
+    const runner = new FakeXiaohongshuRunner([
+      {
+        expectArgs: ["status", "--json"],
+        result: JSON.stringify({
+          ok: false,
+          error: {
+            code: "not_authenticated",
+            message: "cookie expired at C:\\Users\\alice\\.xiaohongshu-cli\\cookies.json",
+          },
+        }),
+      },
+    ]);
+    const provider = new XiaohongshuCliResearchProvider({ runner });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "小红书 AI 产品案例",
       targetPlatform: "小红书",
     });
 
-    expect(requestBody).toMatchObject({
-      model: "gpt-5.5",
-      reasoning: { effort: "high" },
-      tool_choice: "required",
-    });
-    expect(JSON.stringify(requestBody)).toContain("web_search");
-    expect(JSON.stringify(requestBody)).toContain("engagementJson");
-    expect(JSON.stringify(requestBody)).not.toContain("\"type\":[\"string\",\"null\"]");
     expect(result.mode).toBe("research");
     if (result.mode !== "research") {
       throw new Error("expected research result");
     }
-    expect(result.results).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          title: "AI 产品种草案例",
-          url: "https://www.xiaohongshu.com/explore/abc",
-          providerName: "codex_external_research",
-          resultQuality: "candidate_lead",
-        }),
-        expect.objectContaining({
-          title: "小红书 AI 产品宣传营养",
-          providerName: "codex_external_research",
-        }),
-      ]),
-    );
+    expect(result.results).toHaveLength(0);
+    expect(result.restrictedStatuses[0]).toMatchObject({
+      code: "restricted_by_login",
+      providerName: "xiaohongshu_cli",
+      phase: "initial_search",
+    });
+    expect(JSON.stringify(result)).not.toContain("alice");
+    expect(JSON.stringify(result)).toContain("[redacted-local-path]");
   });
 
-  it("delegates research to OpenClaw and normalizes successful results", async () => {
-    const client = new FakeOpenClawClient({
-      output: externalResearchPackage({
-        summary: "OpenClaw found useful AI product promotion examples.",
-        items: [{
-          title: "OpenClaw Xiaohongshu AI case",
-          url: "https://www.xiaohongshu.com/explore/openclaw-case",
-          snippet: "A real scene first, product mention later.",
-          source: "Xiaohongshu",
-          platform: "Xiaohongshu",
-          publishedAt: "",
-          observedEvidence: "Visible post detail with saves and likes.",
-          engagementJson: "{\"likes\":1800,\"favorites\":460}",
-        }],
-      }),
-    });
-    const provider = new OpenClawExternalResearchProvider({
-      gatewayUrl: "ws://openclaw.example",
-      authToken: "sk-openclaw-secret",
-      sessionPrefix: "content-forest-test",
-      client,
-      now: () => new Date("2026-05-13T00:00:00.000Z"),
-    });
-    const router = new NetworkProviderRouter({ providers: [provider] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "Find Xiaohongshu AI product promotion cases",
-      targetPlatform: "Xiaohongshu",
-    });
-
-    expect(client.runCalls).toHaveLength(1);
-    expect(client.deleteCalls).toHaveLength(1);
-    expect(client.runCalls[0]?.message).toContain("Return only the JSON research package");
-    expect(client.runCalls[0]?.message).toContain("prioritize using the browser extension");
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.results).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          title: "OpenClaw Xiaohongshu AI case",
-          providerName: "openclaw_external_research",
-          resultQuality: "observed_case",
-        }),
+  it("runs Codex only after the coverage gate when Xiaohongshu evidence is insufficient", async () => {
+    const xhs = new XiaohongshuCliResearchProvider({
+      runner: new FakeXiaohongshuRunner([
+        {
+          expectArgs: ["status", "--json"],
+          result: envelope({ authenticated: true }),
+        },
+        {
+          expectArgs: ["search", "AI产品", "--json", "--sort", "general", "--page", "1"],
+          result: envelope({
+            items: [{
+              note_id: "candidate_1",
+              title: "只有搜索列表",
+              desc: "没有详情互动",
+              user: { nickname: "作者" },
+            }],
+          }),
+        },
+        {
+          expectArgs: ["read", "candidate_1", "--json"],
+          error: new XiaohongshuCliProcessError({
+            message: "read failed",
+            stdout: JSON.stringify({
+              ok: false,
+              error: { code: "verification_required", message: "NeedVerify" },
+            }),
+          }),
+        },
       ]),
-    );
-    expect(result.trace.initialSearch.providers).toEqual(["openclaw_external_research"]);
-  });
-
-  it("falls back to Codex when OpenClaw fails", async () => {
-    const openClaw = new OpenClawExternalResearchProvider({
-      gatewayUrl: "ws://openclaw.example",
-      authToken: "sk-openclaw-secret",
-      client: new FakeOpenClawClient({
-        error: new Error("OpenClaw provider failed"),
-      }),
     });
     const codex = new CodexExternalResearchProvider({
       baseUrl: "http://codex-provider.example/v1",
       apiKey: "sk-codex-secret",
       fetchImpl: async () => jsonResponse(codexResearchResponse({
-        summary: "Codex fallback worked.",
+        summary: "Codex deep research补充了背景和候选方向。",
         items: [{
-          title: "Codex fallback case",
-          url: "https://example.com/fallback",
-          snippet: "Fallback result",
+          title: "Codex candidate",
+          url: "https://example.com/candidate",
+          snippet: "只能作为候选线索。",
           source: "Web",
-          platform: "",
+          platform: "小红书",
           publishedAt: "",
           observedEvidence: "",
           engagementJson: "",
         }],
       })),
     });
-    const router = new NetworkProviderRouter({ providers: [openClaw, codex] });
+    const router = new NetworkProviderRouter({ providers: [xhs, codex] });
 
     const result = await router.run({
       mode: "research",
-      request: "Research AI product promotion cases",
+      request: "小红书 AI产品 5条帖子",
+      targetPlatform: "小红书",
+      maxResults: 5,
     });
 
     expect(result.mode).toBe("research");
     if (result.mode !== "research") {
       throw new Error("expected research result");
     }
-    expect(result.failures).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          providerName: "openclaw_external_research",
-          code: "provider_error",
-        }),
-      ]),
-    );
+    expect(result.trace.initialSearch.providers).toEqual(["xiaohongshu_cli"]);
+    expect(result.trace.deepExploration).toMatchObject({
+      triggered: true,
+      reason: "insufficient_complete_observed_cases",
+      providers: ["codex_external_research"],
+    });
+    expect(result.trace.qualityGate).toMatchObject({
+      codexTriggered: true,
+      codexTriggerReason: "insufficient_complete_observed_cases",
+    });
     expect(result.results).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          title: "Codex fallback case",
+          title: "Codex candidate",
           providerName: "codex_external_research",
-        }),
-      ]),
-    );
-    expect(result.trace.initialSearch.providers).toEqual([
-      "openclaw_external_research",
-      "codex_external_research",
-    ]);
-    expect(result.trace.initialSearch.providerRuns).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          providerName: "openclaw_external_research",
-          status: "failure",
-          failureCode: "provider_error",
-        }),
-        expect.objectContaining({
-          providerName: "codex_external_research",
-          status: "success",
+          phase: "deep_exploration",
+          resultQuality: "candidate_lead",
         }),
       ]),
     );
   });
 
-  it("falls back to Codex when OpenClaw times out", async () => {
-    const openClaw = new OpenClawExternalResearchProvider({
-      gatewayUrl: "ws://openclaw.example",
-      authToken: "sk-openclaw-secret",
-      client: new FakeOpenClawClient({
-        error: new Error("OpenClaw Gateway request timed out"),
-      }),
-    });
-    const codex = new CodexExternalResearchProvider({
-      baseUrl: "http://codex-provider.example/v1",
-      apiKey: "sk-codex-secret",
-      fetchImpl: async () => jsonResponse(codexResearchResponse({
-        summary: "Codex fallback after timeout.",
-      })),
-    });
-    const router = new NetworkProviderRouter({ providers: [openClaw, codex] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "Research AI product promotion cases",
+  it("uses Xiaohongshu CLI and Codex by default without OpenClaw or legacy search providers", async () => {
+    const tool = new NetworkedResearchTool(undefined, {
+      xiaohongshu: {
+        enabled: false,
+      },
+      CONTENT_FOREST_RESEARCH_PROVIDER: "codex-external-agent",
+      CONTENT_FOREST_CODEX_RESEARCH_BASE_URL: "",
+      CONTENT_FOREST_CODEX_RESEARCH_API_KEY: "",
     });
 
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.failures[0]).toMatchObject({
-      providerName: "openclaw_external_research",
-      code: "timeout",
-    });
-    expect(result.results).toEqual(
+    const output = await tool.execute(
+      { mode: "research", request: "研究小红书 AI 产品宣传", targetPlatform: "小红书" },
+      context,
+    );
+    const content = output.content as {
+      restrictedStatuses: Array<{ providerName: string }>;
+      failures: Array<{ providerName: string }>;
+      trace: {
+        initialSearch: { providers: string[] };
+        deepExploration: { providers: string[] };
+      };
+    };
+
+    expect(content.trace.initialSearch.providers).toEqual(["xiaohongshu_cli"]);
+    expect(content.restrictedStatuses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerName: "xiaohongshu_cli" }),
+      ]),
+    );
+    expect(content.failures).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ providerName: "codex_external_research" }),
       ]),
     );
+    expect(JSON.stringify(content)).not.toContain("openclaw");
+    expect(JSON.stringify(content)).not.toContain("public_web_search");
+    expect(JSON.stringify(content)).not.toContain("search_api");
   });
 
-  it("reports empty OpenClaw output with an OpenClaw-specific failure reason", async () => {
-    const openClaw = new OpenClawExternalResearchProvider({
-      gatewayUrl: "ws://openclaw.example",
-      authToken: "sk-openclaw-secret",
-      client: new FakeOpenClawClient({
-        output: externalResearchPackage({}),
-      }),
-    });
-    const router = new NetworkProviderRouter({ providers: [openClaw] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "Research AI product promotion cases",
-    });
-
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.failures[0]).toMatchObject({
-      providerName: "openclaw_external_research",
-      code: "empty_result",
-      reason: "OpenClaw external research provider returned no usable research content",
-    });
-  });
-
-  it("deletes the OpenClaw session after success and after failure", async () => {
-    const successClient = new FakeOpenClawClient({
-      output: externalResearchPackage({ summary: "success" }),
-    });
-    const failureClient = new FakeOpenClawClient({
-      error: new Error("OpenClaw failed"),
-    });
-
-    await new NetworkProviderRouter({
-      providers: [
-        new OpenClawExternalResearchProvider({
-          gatewayUrl: "ws://openclaw.example",
-          authToken: "sk-openclaw-secret",
-          client: successClient,
-        }),
-      ],
-    }).run({ mode: "research", request: "research success" });
-    await new NetworkProviderRouter({
-      providers: [
-        new OpenClawExternalResearchProvider({
-          gatewayUrl: "ws://openclaw.example",
-          authToken: "sk-openclaw-secret",
-          client: failureClient,
-        }),
-      ],
-    }).run({ mode: "research", request: "research failure" });
-
-    expect(successClient.deleteCalls).toHaveLength(1);
-    expect(failureClient.deleteCalls).toHaveLength(1);
-  });
-
-  it("records OpenClaw session deletion failure without discarding results", async () => {
-    const provider = new OpenClawExternalResearchProvider({
-      gatewayUrl: "ws://openclaw.example",
-      authToken: "sk-openclaw-secret",
-      client: new FakeOpenClawClient({
-        output: externalResearchPackage({ summary: "usable result" }),
-        deleteError: new Error("cleanup failed with Bearer sk-openclaw-secret"),
-      }),
-    });
-    const router = new NetworkProviderRouter({ providers: [provider] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "Research AI product promotion cases",
-    });
-
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.results).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          title: "OpenClaw 外部研究摘要",
-          providerName: "openclaw_external_research",
-        }),
-      ]),
-    );
-    expect(result.restrictedStatuses).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          code: "unknown",
-          providerName: "openclaw_external_research",
-        }),
-      ]),
-    );
-    expect(JSON.stringify(result)).not.toContain("sk-openclaw-secret");
-  });
-
-  it("does not leak OpenClaw auth token in failures or config warnings", () => {
-    const provider = new OpenClawExternalResearchProvider({
-      gatewayUrl: "ws://openclaw.example",
-      authToken: "sk-openclaw-secret-value",
-      client: new FakeOpenClawClient({
-        error: new Error("Authorization failed for Bearer sk-openclaw-secret-value"),
-      }),
-    });
-    const router = new NetworkProviderRouter({ providers: [provider] });
-
-    return router.run({
-      mode: "research",
-      request: "Research AI product promotion cases",
-    }).then((result) => {
-      expect(JSON.stringify(result)).not.toContain("sk-openclaw-secret-value");
-      expect(JSON.stringify(result)).toContain("[redacted-secret]");
-    });
-  });
-
-  it("maps Codex external research limitations to restricted statuses", async () => {
-    const provider = new CodexExternalResearchProvider({
-      baseUrl: "http://codex-provider.example/v1",
-      apiKey: "sk-test-secret",
-      fetchImpl: async () => jsonResponse({
-        status: "completed",
-        output: [{
-          type: "message",
-          content: [{
-            type: "output_text",
-            text: JSON.stringify({
-              summary: "",
-              items: [],
-              depositableBlocks: [],
-              limitations: [{
-                code: "access_denied",
-                reason: "小红书页面提示 IP 存在风险。",
-                url: "https://www.xiaohongshu.com/search_result",
-              }],
-            }),
-          }],
-        }],
-      }),
-    });
-    const router = new NetworkProviderRouter({ providers: [provider] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "搜索小红书 AI 产品宣传爆款文章",
-    });
-
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.restrictedStatuses).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          code: "access_denied",
-          providerName: "codex_external_research",
-          phase: "initial_search",
-        }),
-      ]),
-    );
-  });
-
-  it("returns structured Codex provider failures without leaking secrets", async () => {
-    const provider = new CodexExternalResearchProvider({
-      baseUrl: "http://codex-provider.example/v1",
-      apiKey: "sk-test-secret-value",
-      fetchImpl: async () => {
-        throw new Error("network failed with Authorization: Bearer sk-test-secret-value");
+  it("does not throw when the Xiaohongshu CLI executable is missing", async () => {
+    const tool = new NetworkedResearchTool(undefined, {
+      xiaohongshu: {
+        enabled: true,
+        cliPath: "D:\\Code\\Project\\Github\\missing-xiaohongshu-cli\\xhs.exe",
       },
-    });
-    const router = new NetworkProviderRouter({ providers: [provider] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "研究 AI 产品宣传",
+      CONTENT_FOREST_RESEARCH_PROVIDER: "codex-external-agent",
+      CONTENT_FOREST_CODEX_RESEARCH_BASE_URL: "",
+      CONTENT_FOREST_CODEX_RESEARCH_API_KEY: "",
     });
 
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.failures[0]).toMatchObject({
-      providerName: "codex_external_research",
-      code: "network_error",
-      phase: "initial_search",
-    });
-    expect(JSON.stringify(result.failures)).not.toContain("sk-test-secret-value");
-    expect(JSON.stringify(result.failures)).not.toContain("Bearer sk-test");
-  });
+    const output = await tool.execute(
+      {
+        mode: "research",
+        request: "xiaohongshu AI product examples",
+        targetPlatform: "xiaohongshu",
+        maxResults: 5,
+      },
+      context,
+    );
+    const content = output.content as {
+      failures: Array<{ providerName: string; code: string }>;
+      trace: {
+        qualityGate: { providerUnavailable: boolean };
+      };
+    };
 
-  it("fails Codex external research when config is missing", async () => {
-    const router = new NetworkProviderRouter({
-      providers: [new CodexExternalResearchProvider()],
-    });
-
-    const result = await router.run({
-      mode: "research",
-      request: "研究 AI 产品宣传",
-    });
-
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.failures).toEqual(
+    expect(content.failures).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          providerName: "codex_external_research",
+          providerName: "xiaohongshu_cli",
           code: "provider_unavailable",
         }),
       ]),
     );
+    expect(content.trace.qualityGate.providerUnavailable).toBe(true);
   });
 
-  it("fails Codex external research on invalid structured JSON", async () => {
-    const router = new NetworkProviderRouter({
-      providers: [
-        new CodexExternalResearchProvider({
-          baseUrl: "http://codex-provider.example/v1",
-          apiKey: "sk-test-secret",
-          fetchImpl: async () => jsonResponse({
-            status: "completed",
-            output: [{
-              type: "message",
-              content: [{ type: "output_text", text: "not json" }],
-            }],
-          }),
-        }),
-      ],
+  it("sanitizes Xiaohongshu CLI diagnostics", () => {
+    const sanitized = sanitizeXiaohongshuCliDiagnostic(
+      "Cookie: a_very_long_secret_value C:\\Users\\alice\\.xiaohongshu-cli\\cookies.json Bearer sk-test-secret-value",
+    );
+
+    expect(sanitized).not.toContain("alice");
+    expect(sanitized).not.toContain("sk-test-secret-value");
+    expect(sanitized).toContain("[redacted-local-path]");
+    expect(sanitized).toContain("[redacted-secret]");
+  });
+
+  it("returns structured Xiaohongshu failures for non-JSON output", async () => {
+    const provider = new XiaohongshuCliResearchProvider({
+      runner: new FakeXiaohongshuRunner([
+        {
+          expectArgs: ["status", "--json"],
+          result: "not json",
+        },
+      ]),
     });
+    const router = new NetworkProviderRouter({ providers: [provider] });
 
     const result = await router.run({
       mode: "research",
-      request: "研究 AI 产品宣传",
+      request: "小红书 AI 产品案例",
+      targetPlatform: "小红书",
     });
 
     expect(result.mode).toBe("research");
     if (result.mode !== "research") {
       throw new Error("expected research result");
     }
-    expect(result.failures).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          providerName: "codex_external_research",
-          code: "provider_error",
-        }),
-      ]),
-    );
+    expect(result.failures[0]).toMatchObject({
+      providerName: "xiaohongshu_cli",
+      code: "provider_error",
+      phase: "initial_search",
+    });
   });
 
-  it("maps Codex external research HTTP and timeout failures", async () => {
-    const httpRouter = new NetworkProviderRouter({
+  it("redacts Xiaohongshu process failures and timeout failures", async () => {
+    const failureRouter = new NetworkProviderRouter({
       providers: [
-        new CodexExternalResearchProvider({
-          baseUrl: "http://codex-provider.example/v1",
-          apiKey: "sk-test-secret",
-          fetchImpl: async () => jsonResponse({}, 403),
+        new XiaohongshuCliResearchProvider({
+          runner: new FakeXiaohongshuRunner([
+            {
+              expectArgs: ["status", "--json"],
+              error: new XiaohongshuCliProcessError({
+                message: "failed with Bearer sk-secret-value",
+                stderr: "cookie=very-long-cookie-value C:\\Users\\alice\\.xiaohongshu-cli\\cookies.json",
+                failureCode: "provider_error",
+              }),
+            },
+          ]),
         }),
       ],
     });
-    const httpResult = await httpRouter.run({
+    const failureResult = await failureRouter.run({
       mode: "research",
-      request: "研究 AI 产品宣传",
+      request: "小红书 AI 产品案例",
+      targetPlatform: "小红书",
     });
 
-    expect(httpResult.mode).toBe("research");
-    if (httpResult.mode !== "research") {
+    expect(failureResult.mode).toBe("research");
+    if (failureResult.mode !== "research") {
       throw new Error("expected research result");
     }
-    expect(httpResult.failures[0]).toMatchObject({
-      providerName: "codex_external_research",
-      code: "missing_api_key",
-    });
+    expect(JSON.stringify(failureResult)).not.toContain("sk-secret-value");
+    expect(JSON.stringify(failureResult)).not.toContain("alice");
 
     const timeoutRouter = new NetworkProviderRouter({
       providers: [
-        new CodexExternalResearchProvider({
-          baseUrl: "http://codex-provider.example/v1",
-          apiKey: "sk-test-secret",
-          timeoutMs: 1,
-          fetchImpl: (_url, init) =>
-            new Promise((_resolve, reject) => {
-              init?.signal?.addEventListener("abort", () => {
-                reject(new DOMException("Aborted", "AbortError"));
-              });
-            }),
+        new XiaohongshuCliResearchProvider({
+          runner: new FakeXiaohongshuRunner([
+            {
+              expectArgs: ["status", "--json"],
+              error: new XiaohongshuCliProcessError({
+                message: "xiaohongshu-cli command timed out",
+                failureCode: "timeout",
+              }),
+            },
+          ]),
         }),
       ],
     });
     const timeoutResult = await timeoutRouter.run({
       mode: "research",
-      request: "研究 AI 产品宣传",
+      request: "小红书 AI 产品案例",
+      targetPlatform: "小红书",
     });
 
     expect(timeoutResult.mode).toBe("research");
@@ -652,219 +634,9 @@ describe("networked research module", () => {
       throw new Error("expected research result");
     }
     expect(timeoutResult.failures[0]).toMatchObject({
-      providerName: "codex_external_research",
+      providerName: "xiaohongshu_cli",
       code: "timeout",
     });
-  });
-
-  it("normalizes configured search API results as candidate leads", async () => {
-    const provider = new ConfiguredSearchApiProvider({
-      provider: "brave",
-      apiKey: "test-key",
-      fetchImpl: async () => new Response(JSON.stringify({
-        web: {
-          results: [{
-            title: "小红书 AI 产品案例",
-            url: "https://www.xiaohongshu.com/explore/abc",
-            description: "一个候选搜索结果摘要",
-          }],
-        },
-      }), { status: 200 }),
-    });
-    const router = new NetworkProviderRouter({ providers: [provider] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "小红书 AI 产品爆款案例",
-    });
-
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.results[0]).toMatchObject({
-      title: "小红书 AI 产品案例",
-      resultQuality: "candidate_lead",
-      phase: "initial_search",
-    });
-  });
-
-  it("uses public web search as a no-key initial search fallback", async () => {
-    const provider = new PublicWebSearchProvider({
-      fetchImpl: async () => new Response(`
-        <div class="result">
-          <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fxhs-ai">小红书 AI 产品爆款案例</a>
-          <a class="result__snippet">拆解 AI 产品在小红书的标题、封面和种草表达。</a>
-        </div>
-      `, { status: 200 }),
-    });
-    const router = new NetworkProviderRouter({ providers: [provider] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "搜索小红书关于AI产品宣传的爆款文章",
-    });
-
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.results[0]).toMatchObject({
-      title: "小红书 AI 产品爆款案例",
-      url: "https://example.com/xhs-ai",
-      providerName: "public_web_search",
-      resultQuality: "candidate_lead",
-    });
-  });
-
-  it("falls back to Sogou when DuckDuckGo public search fails", async () => {
-    const provider = new PublicWebSearchProvider({
-      fetchImpl: async (url) => {
-        if (String(url).includes("duckduckgo")) {
-          throw new Error("fetch failed");
-        }
-        return new Response(`
-          <div class="vrwrap">
-            <h3 class="vr-title"><a href="/link?url=abc"><em><!--red_beg-->AI<!--red_end--></em>生成小红书爆款种草文案</a></h3>
-            <div class="fz-mid space-txt">用AI写出爆款种草文案，提高工作效率。</div>
-          </div>
-        `, { status: 200 });
-      },
-    });
-    const router = new NetworkProviderRouter({ providers: [provider] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "小红书 AI 产品爆款案例",
-    });
-
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.results[0]).toMatchObject({
-      providerName: "public_web_search",
-      source: "Sogou Web",
-    });
-    expect(result.results[0]?.title).toContain("小红书爆款种草文案");
-  });
-
-  it("returns a structured missing key failure for configured search providers", async () => {
-    const provider = new ConfiguredSearchApiProvider({
-      provider: "brave",
-      apiKey: "",
-    });
-    const router = new NetworkProviderRouter({ providers: [provider] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "研究 AI 产品内容",
-    });
-
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.failures).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          providerName: "search_api_brave",
-          code: "missing_api_key",
-          phase: "initial_search",
-        }),
-      ]),
-    );
-  });
-
-  it("uses only Codex external research by default while keeping legacy providers constructable", async () => {
-    const tool = new NetworkedResearchTool(undefined, {
-      CONTENT_FOREST_RESEARCH_PROVIDER: "codex-external-agent",
-      CONTENT_FOREST_CODEX_RESEARCH_BASE_URL: "",
-      CONTENT_FOREST_CODEX_RESEARCH_API_KEY: "",
-    });
-
-    const output = await tool.execute(
-      { mode: "research", request: "研究 AI 产品宣传" },
-      context,
-    );
-
-    const content = output.content as {
-      failures: Array<{ providerName: string }>;
-      trace: {
-        initialSearch: { providers: string[] };
-        deepExploration: { triggered: boolean; providers: string[] };
-      };
-    };
-    expect(content.failures).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ providerName: "codex_external_research" }),
-      ]),
-    );
-    expect(JSON.stringify(content)).not.toContain("public_web_search");
-    expect(JSON.stringify(content)).not.toContain("browser_research");
-    expect(JSON.stringify(content.failures)).not.toContain("provider_router");
-    expect(new PublicWebSearchProvider()).toBeInstanceOf(PublicWebSearchProvider);
-    expect(new BrowserResearchProvider({ allowedDomains: ["example.com"] })).toBeInstanceOf(
-      BrowserResearchProvider,
-    );
-    expect(content.trace.initialSearch.providers).toEqual(["codex_external_research"]);
-    expect(content.trace.deepExploration).toMatchObject({
-      triggered: false,
-      providers: [],
-    });
-  });
-
-  it("prioritizes OpenClaw when it is configured even if Codex is selected", async () => {
-    const tool = new NetworkedResearchTool(undefined, {
-      CONTENT_FOREST_RESEARCH_PROVIDER: "codex-external-agent",
-      CONTENT_FOREST_CODEX_RESEARCH_BASE_URL: "",
-      CONTENT_FOREST_CODEX_RESEARCH_API_KEY: "",
-      CONTENT_FOREST_OPENCLAW_GATEWAY_URL: "ws://openclaw.example",
-      CONTENT_FOREST_OPENCLAW_AUTH_TOKEN: "sk-openclaw-secret",
-    });
-
-    const output = await tool.execute(
-      { mode: "research", request: "Research AI product promotion" },
-      context,
-    );
-
-    const content = output.content as {
-      failures: Array<{ providerName: string }>;
-      trace: { initialSearch: { providers: string[] } };
-    };
-    expect(content.trace.initialSearch.providers[0]).toBe("openclaw_external_research");
-    expect(JSON.stringify(content)).toContain("openclaw_external_research");
-  });
-
-  it("routes research using the platform inferred by the query planner", async () => {
-    let routedPlatform: string | undefined;
-    const provider: NetworkProvider = {
-      name: "platform_sensitive",
-      canResearch: (request) => request.targetPlatform === "TikTok",
-      async research(request, plan) {
-        routedPlatform = request.targetPlatform;
-        return [{
-          title: "TikTok AI product case",
-          url: "https://example.com/tiktok-ai",
-          snippet: `plan:${plan.targetPlatform}`,
-          providerName: "platform_sensitive",
-        }];
-      },
-      canObserve: () => false,
-    };
-    const router = new NetworkProviderRouter({ providers: [provider] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "Find TikTok AI product promotion viral cases",
-    });
-
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(routedPlatform).toBe("TikTok");
-    expect(result.results).toHaveLength(1);
   });
 
   it("uses agent-browser sessions and extracts visible observation metrics", async () => {
@@ -893,183 +665,37 @@ describe("networked research module", () => {
       },
     });
   });
-
-  it("uses Xiaohongshu browser strategy for deep exploration instead of Bing search UI", async () => {
-    const cli = new RecordingCli("小红书 搜索 AI产品 爆款 笔记 点赞 1万 收藏 200 评论 50");
-    const provider = new BrowserResearchProvider({
-      cli,
-      allowedDomains: ["xiaohongshu.com"],
-    });
-    const router = new NetworkProviderRouter({
-      providers: [provider],
-      now: () => new Date("2026-05-13T00:00:00.000Z"),
-    });
-
-    const result = await router.run({
-      mode: "research",
-      request: "找几篇小红书AI产品相关的爆款文章案例 5~10篇，保留案例，并梳理出爆款核心",
-    });
-
-    const openCall = cli.calls.find((call) => call.args.includes("open"));
-    expect(openCall?.args.join(" ")).toContain("xiaohongshu.com");
-    expect(openCall?.args.join(" ")).not.toContain("bing.com");
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.results[0]).toMatchObject({
-      source: "小红书站内观察",
-      resultQuality: "observed_case",
-      phase: "deep_exploration",
-    });
-  });
-
-  it("reports captcha pages as restricted statuses instead of research results", async () => {
-    const cli = new RecordingCli("请解决以下难题以继续 Cloudflare 请验证您是真人");
-    const provider = new BrowserResearchProvider({
-      cli,
-      allowedDomains: ["xiaohongshu.com"],
-    });
-    const router = new NetworkProviderRouter({ providers: [provider] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "小红书 AI 产品真实案例",
-      deepExploration: true,
-    });
-
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.results).toHaveLength(0);
-    expect(result.restrictedStatuses).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          code: "restricted_by_captcha",
-          phase: "deep_exploration",
-        }),
-      ]),
-    );
-  });
-
-  it("reports Xiaohongshu safety limit pages as restricted statuses", async () => {
-    const cli = new RecordingCli("安全限制 IP存在风险，请切换可靠网络环境后重试 300012");
-    const provider = new BrowserResearchProvider({
-      cli,
-      allowedDomains: ["xiaohongshu.com", "*.xiaohongshu.com"],
-    });
-    const router = new NetworkProviderRouter({ providers: [provider] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "小红书 AI 产品真实案例",
-      deepExploration: true,
-    });
-
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.restrictedStatuses).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          code: "access_denied",
-          phase: "deep_exploration",
-        }),
-      ]),
-    );
-  });
-
-  it("falls back to snapshot when browser open times out after partial navigation", async () => {
-    const cli = new OpenFailsSnapshotSucceedsCli("安全限制 IP存在风险，请切换可靠网络环境后重试 300012");
-    const provider = new BrowserResearchProvider({
-      cli,
-      allowedDomains: ["xiaohongshu.com", "*.xiaohongshu.com"],
-    });
-    const router = new NetworkProviderRouter({ providers: [provider] });
-
-    const result = await router.run({
-      mode: "research",
-      request: "小红书 AI 产品真实案例",
-      deepExploration: true,
-    });
-
-    expect(result.mode).toBe("research");
-    if (result.mode !== "research") {
-      throw new Error("expected research result");
-    }
-    expect(result.failures).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ phase: "deep_exploration" }),
-      ]),
-    );
-    expect(result.restrictedStatuses[0]).toMatchObject({
-      code: "access_denied",
-      providerName: "xiaohongshu_browser_strategy",
-    });
-  });
-
-  it("rejects browser access outside allowed domains", async () => {
-    const provider = new BrowserResearchProvider({
-      cli: new RecordingCli(""),
-      allowedDomains: ["xiaohongshu.com"],
-    });
-
-    await expect(
-      provider.observe?.({
-        mode: "observe",
-        url: "https://example.com/post",
-      }),
-    ).rejects.toMatchObject({
-      code: "VALIDATION_ERROR",
-    });
-  });
-
-  it("returns readable browser provider failures when CLI is unavailable", async () => {
-    const provider = new BrowserResearchProvider({
-      cli: {
-        async run() {
-          throw new Error("agent-browser command not found");
-        },
-      },
-      allowedDomains: ["xiaohongshu.com"],
-    });
-
-    await expect(
-      provider.observe?.({
-        mode: "observe",
-        url: "https://www.xiaohongshu.com/explore/abc",
-      }),
-    ).rejects.toThrow("agent-browser command not found");
-  });
-
-  it("returns readable provider failures through the networked research tool", async () => {
-    const provider: NetworkProvider = {
-      name: "broken",
-      canResearch: () => true,
-      async research() {
-        throw new Error("missing api key");
-      },
-      canObserve: () => false,
-    };
-    const tool = new NetworkedResearchTool(
-      new NetworkProviderRouter({ providers: [provider] }),
-    );
-
-    const output = await tool.execute(
-      { mode: "research", request: "研究小红书 AI 产品内容" },
-      context,
-    );
-
-    expect(output.content).toMatchObject({ mode: "research" });
-    expect((output.content as { failures: unknown[] }).failures).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ providerName: "broken", reason: "missing api key" }),
-      ]),
-    );
-  });
 });
+
+class FakeXiaohongshuRunner implements XiaohongshuCliRunner {
+  public readonly calls: Array<{ args: string[]; options: XiaohongshuCliRunOptions }> = [];
+
+  public constructor(private readonly script: Array<{
+    expectArgs: string[];
+    result?: string;
+    error?: Error;
+  }>) {}
+
+  public async run(
+    args: string[],
+    options: XiaohongshuCliRunOptions,
+  ): Promise<XiaohongshuCliRunResult> {
+    this.calls.push({ args, options });
+    const next = this.script.shift();
+    if (next === undefined) {
+      throw new Error(`unexpected xhs call: ${args.join(" ")}`);
+    }
+    expect(args).toEqual(next.expectArgs);
+    if (next.error !== undefined) {
+      throw next.error;
+    }
+    return {
+      stdout: next.result ?? envelope({}),
+      stderr: "",
+      exitCode: 0,
+    };
+  }
+}
 
 class RecordingCli implements BrowserCli {
   public readonly calls: Array<{ args: string[]; timeoutMs: number }> = [];
@@ -1082,73 +708,11 @@ class RecordingCli implements BrowserCli {
   }
 }
 
-class OpenFailsSnapshotSucceedsCli implements BrowserCli {
-  public constructor(private readonly snapshot: string) {}
-
-  public async run(args: string[], _timeoutMs: number): Promise<string> {
-    if (args.includes("open")) {
-      throw new Error("Command timed out after 30000ms");
-    }
-    return this.snapshot;
-  }
-}
-
-class FakeOpenClawClient implements OpenClawGatewayClient {
-  public readonly runCalls: Array<{
-    message: string;
-    sessionKey: string;
-    runId: string;
-    timeoutMs: number;
-  }> = [];
-  public readonly deleteCalls: string[] = [];
-
-  public constructor(private readonly options: {
-    output?: unknown;
-    error?: Error;
-    deleteError?: Error;
-  }) {}
-
-  public async runAgent(input: {
-    message: string;
-    sessionKey: string;
-    runId: string;
-    timeoutMs: number;
-  }): Promise<unknown> {
-    this.runCalls.push(input);
-    if (this.options.error !== undefined) {
-      throw this.options.error;
-    }
-    return this.options.output ?? externalResearchPackage({ summary: "fake openclaw output" });
-  }
-
-  public async deleteSession(sessionKey: string): Promise<void> {
-    this.deleteCalls.push(sessionKey);
-    if (this.options.deleteError !== undefined) {
-      throw this.options.deleteError;
-    }
-  }
-}
-
-function externalResearchPackage(input: {
-  summary?: string;
-  items?: Array<{
-    title: string;
-    url: string;
-    snippet: string;
-    source: string;
-    platform: string;
-    publishedAt: string;
-    observedEvidence: string;
-    engagementJson: string;
-  }>;
-  depositableBlocks?: Array<{ title: string; markdown: string }>;
-  limitations?: Array<{ code: string; reason: string; url: string }>;
-}): string {
+function envelope(data: unknown): string {
   return JSON.stringify({
-    summary: input.summary ?? "",
-    items: input.items ?? [],
-    depositableBlocks: input.depositableBlocks ?? [],
-    limitations: input.limitations ?? [],
+    ok: true,
+    schema_version: "1.0",
+    data,
   });
 }
 
@@ -1173,7 +737,12 @@ function codexResearchResponse(input: {
       type: "message",
       content: [{
         type: "output_text",
-        text: externalResearchPackage(input),
+        text: JSON.stringify({
+          summary: input.summary ?? "",
+          items: input.items ?? [],
+          depositableBlocks: input.depositableBlocks ?? [],
+          limitations: input.limitations ?? [],
+        }),
       }],
     }],
   };

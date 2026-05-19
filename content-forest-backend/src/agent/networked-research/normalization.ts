@@ -59,22 +59,34 @@ function normalizeResearchItem(
   const capturedAt = item.capturedAt ?? fallbackCapturedAt;
   const publishedAt = normalizeOptionalDate(item.publishedAt ?? null);
   const engagement = sanitizeEngagement(item.engagement ?? {});
+  const author = normalizeAuthor(item.author);
+  const evidenceCompleteness = normalizeEvidenceCompleteness(item, {
+    title,
+    url,
+    snippet,
+    author,
+    engagement,
+  });
   return {
+    platformItemId: normalizeNullableText(item.platformItemId ?? null),
     title: truncate(title.length > 0 ? title : snippet, 180),
     url,
+    author,
+    coverUrl: normalizeNullableText(item.coverUrl ?? null),
     source: item.source ?? sourceDomain,
     sourceDomain,
     platform: item.platform ?? null,
-    snippet: truncate(snippet, 800),
+    snippet: truncate(snippet, 2000),
     publishedAt,
     capturedAt,
     freshness: freshnessOf(publishedAt, capturedAt),
     engagement,
-    rawExcerpt: truncate(item.rawExcerpt ?? snippet, 1200),
+    rawExcerpt: truncate(item.rawExcerpt ?? snippet, 6000),
     providerName: item.providerName ?? "unknown",
     relevanceScore: scoreItem({ title, snippet, engagement, publishedAt }),
     phase: normalizePhase(item.phase),
-    resultQuality: normalizeQuality(item.resultQuality, item),
+    resultQuality: normalizeQuality(item.resultQuality, item, evidenceCompleteness),
+    evidenceCompleteness,
     observedAt: normalizeOptionalDate(item.observedAt ?? null),
   };
 }
@@ -160,6 +172,43 @@ function sanitizeEngagement(value: NetworkEngagement): NetworkEngagement {
   return result;
 }
 
+function normalizeAuthor(
+  value: RawNetworkResearchItem["author"],
+): NonNullable<NetworkResearchResult["author"]> {
+  if (value === undefined) {
+    return {};
+  }
+  return {
+    id: normalizeNullableText(value.id) ?? undefined,
+    name: normalizeNullableText(value.name) ?? undefined,
+    url: normalizeNullableText(value.url) ?? undefined,
+  };
+}
+
+function normalizeEvidenceCompleteness(
+  item: RawNetworkResearchItem,
+  normalized: {
+    title: string;
+    url: string;
+    snippet: string;
+    author: NetworkResearchResult["author"];
+    engagement: NetworkEngagement;
+  },
+): NetworkResearchResult["evidenceCompleteness"] {
+  return {
+    hasPlatformIdOrUrl:
+      normalizeNullableText(item.platformItemId ?? null) !== null ||
+      normalized.url.length > 0,
+    hasTitle: normalized.title.length > 0,
+    hasAuthor: normalizeNullableText(normalized.author.name) !== null,
+    hasBodyOrExcerpt:
+      normalized.snippet.length > 0 ||
+      normalizeNullableText(item.rawExcerpt ?? null) !== null,
+    hasEngagement: Object.keys(normalized.engagement).length > 0,
+    ...item.evidenceCompleteness,
+  };
+}
+
 function normalizeOptionalDate(value: string | null): string | null {
   if (value === null || value.trim().length === 0) {
     return null;
@@ -169,6 +218,14 @@ function normalizeOptionalDate(value: string | null): string | null {
     return null;
   }
   return new Date(time).toISOString();
+}
+
+function normalizeNullableText(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = normalizeText(value);
+  return normalized.length > 0 ? normalized : null;
 }
 
 function normalizeUrl(value: string): string {
@@ -194,9 +251,25 @@ function normalizePhase(value: NetworkResearchPhase | undefined): NetworkResearc
 function normalizeQuality(
   value: NetworkResearchResultQuality | undefined,
   item: RawNetworkResearchItem,
+  evidenceCompleteness: NetworkResearchResult["evidenceCompleteness"],
 ): NetworkResearchResultQuality {
   if (value !== undefined) {
     return value;
+  }
+  if (item.platform === "小红书") {
+    const complete =
+      evidenceCompleteness.hasPlatformIdOrUrl &&
+      evidenceCompleteness.hasTitle &&
+      evidenceCompleteness.hasAuthor &&
+      evidenceCompleteness.hasBodyOrExcerpt &&
+      evidenceCompleteness.hasEngagement;
+    if (complete) {
+      return "complete_observed_case";
+    }
+    if (item.observedAt !== undefined || item.phase === "deep_exploration") {
+      return "observed_case";
+    }
+    return "candidate_lead";
   }
   if (item.phase === "deep_exploration") {
     const hasObservedSignals =

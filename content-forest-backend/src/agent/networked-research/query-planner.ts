@@ -163,6 +163,10 @@ function inferIntent(text: string): ResearchQueryPlan["intent"] {
 }
 
 function extractContentObject(text: string, platform: string | null): string {
+  const quoted = extractQuotedKeyword(text);
+  if (quoted.length > 0) {
+    return quoted.slice(0, 80);
+  }
   let result = text;
   if (platform !== null) {
     result = result.replaceAll(platform, " ");
@@ -175,6 +179,11 @@ function extractContentObject(text: string, platform: string | null): string {
     .replace(/[,，。.!！?？]/g, " ")
     .trim();
   return normalizeSpaces(result).slice(0, 80);
+}
+
+function extractQuotedKeyword(text: string): string {
+  const match = /["“'‘]([^"”'’]{2,80})["”'’]/u.exec(text);
+  return match?.[1]?.replace(/\s+/g, " ").trim() ?? "";
 }
 
 function stripTaskNoise(text: string): string {

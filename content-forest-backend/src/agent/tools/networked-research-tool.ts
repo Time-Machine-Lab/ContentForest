@@ -1,12 +1,8 @@
 import { ApplicationError } from "../../shared/errors/application-error.js";
 import {
-  BrowserResearchProvider,
   CodexExternalResearchProvider,
   NetworkProviderRouter,
-  OpenClawExternalResearchProvider,
-  PlatformDataPlaceholderProvider,
-  PublicWebSearchProvider,
-  WebPageFetchPlaceholderProvider,
+  XiaohongshuCliResearchProvider,
   type NetworkDataRequest,
   type NetworkProviderEntry,
 } from "../networked-research/index.js";
@@ -81,8 +77,8 @@ export function createDefaultNetworkProviderRouter(
 ): NetworkProviderRouter {
   return new NetworkProviderRouter({
     providers: providers ?? [
+      new XiaohongshuCliResearchProvider(toXiaohongshuCliResearchOptions(env)),
       ...createExternalAgentProviders(env),
-      ...createExplicitLegacyProviders(env),
     ],
   });
 }
@@ -114,13 +110,13 @@ export interface NetworkedResearchToolEnv {
     timeoutMs?: number;
     maxOutputTokens?: number;
   };
-  openClaw?: {
+  xiaohongshu?: {
     enabled?: boolean;
-    gatewayUrl?: string;
-    authToken?: string;
+    cliPath?: string;
     timeoutMs?: number;
-    sessionPrefix?: string;
-    deleteSessionOnFinish?: boolean;
+    maxResults?: number;
+    defaultSort?: string;
+    checkLogin?: boolean;
   };
   CONTENT_FOREST_RESEARCH_PROVIDER?: string;
   CONTENT_FOREST_RESEARCH_FALLBACK_PROVIDER?: string;
@@ -134,15 +130,12 @@ export interface NetworkedResearchToolEnv {
   CONTENT_FOREST_CODEX_RESEARCH_SEARCH_CONTEXT_SIZE?: string;
   CONTENT_FOREST_CODEX_RESEARCH_TIMEOUT_MS?: string;
   CONTENT_FOREST_CODEX_RESEARCH_MAX_OUTPUT_TOKENS?: string;
-  CONTENT_FOREST_OPENCLAW_GATEWAY_URL?: string;
-  CONTENT_FOREST_OPENCLAW_AUTH_TOKEN?: string;
-  CONTENT_FOREST_OPENCLAW_TIMEOUT_MS?: string;
-  CONTENT_FOREST_OPENCLAW_SESSION_PREFIX?: string;
-  CONTENT_FOREST_OPENCLAW_DELETE_SESSION_ON_FINISH?: string;
-  CONTENT_FOREST_ENABLE_LEGACY_NETWORK_PROVIDERS?: string;
-  CONTENT_FOREST_SEARCH_PROVIDER?: string;
-  CONTENT_FOREST_SEARCH_API_KEY?: string;
-  CONTENT_FOREST_SEARCH_ENDPOINT?: string;
+  CONTENT_FOREST_XIAOHONGSHU_CLI_ENABLED?: string;
+  CONTENT_FOREST_XIAOHONGSHU_CLI_PATH?: string;
+  CONTENT_FOREST_XIAOHONGSHU_CLI_TIMEOUT_MS?: string;
+  CONTENT_FOREST_XIAOHONGSHU_CLI_MAX_RESULTS?: string;
+  CONTENT_FOREST_XIAOHONGSHU_CLI_DEFAULT_SORT?: string;
+  CONTENT_FOREST_XIAOHONGSHU_CLI_CHECK_LOGIN?: string;
 }
 
 function parseNetworkDataRequest(input: ToolInput): NetworkDataRequest {
@@ -161,6 +154,7 @@ function parseNetworkDataRequest(input: ToolInput): NetworkDataRequest {
     nutrientCardTitle: readOptionalString(input.nutrientCardTitle) || undefined,
     targetPlatform: readOptionalString(input.targetPlatform) || undefined,
     maxResults: normalizeMaxResults(input.maxResults),
+    deepExploration: readOptionalBoolean(input.deepExploration, false),
   };
 }
 
@@ -202,8 +196,8 @@ function normalizeMaxResults(value: unknown): number | undefined {
   if (value === undefined) {
     return undefined;
   }
-  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 12) {
-    throw new ApplicationError("VALIDATION_ERROR", "研究结果数量必须在 1 到 12 之间", 400);
+  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 15) {
+    throw new ApplicationError("VALIDATION_ERROR", "研究结果数量必须在 1 到 15 之间", 400);
   }
   return value as number;
 }
@@ -267,10 +261,6 @@ function createExternalAgentProviders(env: NetworkedResearchToolEnv): NetworkPro
   const selected = selectedResearchProviders(env);
   const providers: NetworkProviderEntry[] = [];
   for (const provider of selected) {
-    if (provider === "openclaw-external-agent") {
-      providers.push(new OpenClawExternalResearchProvider(toOpenClawExternalResearchOptions(env)));
-      continue;
-    }
     if (provider === "codex-external-agent" || provider === "external-agent" || provider === "") {
       providers.push(new CodexExternalResearchProvider(toCodexExternalResearchOptions(env)));
     }
@@ -280,61 +270,31 @@ function createExternalAgentProviders(env: NetworkedResearchToolEnv): NetworkPro
     : [new CodexExternalResearchProvider(toCodexExternalResearchOptions(env))];
 }
 
-function toOpenClawExternalResearchOptions(env: NetworkedResearchToolEnv) {
-  const openClaw = env.openClaw;
+function toXiaohongshuCliResearchOptions(env: NetworkedResearchToolEnv) {
+  const xiaohongshu = env.xiaohongshu;
   return {
     enabled: readOptionalBoolean(
-      openClaw?.enabled,
-      selectedResearchProviders(env).includes("openclaw-external-agent"),
+      xiaohongshu?.enabled ?? env.CONTENT_FOREST_XIAOHONGSHU_CLI_ENABLED,
+      true,
     ),
-    gatewayUrl: readOptionalString(
-      openClaw?.gatewayUrl ?? env.CONTENT_FOREST_OPENCLAW_GATEWAY_URL,
-    ),
-    authToken: readOptionalString(
-      openClaw?.authToken ?? env.CONTENT_FOREST_OPENCLAW_AUTH_TOKEN,
-    ),
+    cliPath:
+      readOptionalString(xiaohongshu?.cliPath ?? env.CONTENT_FOREST_XIAOHONGSHU_CLI_PATH) ||
+      "xhs",
     timeoutMs:
-      openClaw?.timeoutMs ??
-      readOptionalPositiveInteger(env.CONTENT_FOREST_OPENCLAW_TIMEOUT_MS, 180000),
-    sessionPrefix:
+      xiaohongshu?.timeoutMs ??
+      readOptionalPositiveInteger(env.CONTENT_FOREST_XIAOHONGSHU_CLI_TIMEOUT_MS, 60000),
+    maxResults:
+      xiaohongshu?.maxResults ??
+      readOptionalPositiveInteger(env.CONTENT_FOREST_XIAOHONGSHU_CLI_MAX_RESULTS, 8),
+    defaultSort:
       readOptionalString(
-        openClaw?.sessionPrefix ?? env.CONTENT_FOREST_OPENCLAW_SESSION_PREFIX,
-      ) || "content-forest",
-    deleteSessionOnFinish: readOptionalBoolean(
-      openClaw?.deleteSessionOnFinish,
-      readOptionalBoolean(env.CONTENT_FOREST_OPENCLAW_DELETE_SESSION_ON_FINISH, true),
+        xiaohongshu?.defaultSort ?? env.CONTENT_FOREST_XIAOHONGSHU_CLI_DEFAULT_SORT,
+      ) || "general",
+    checkLogin: readOptionalBoolean(
+      xiaohongshu?.checkLogin ?? env.CONTENT_FOREST_XIAOHONGSHU_CLI_CHECK_LOGIN,
+      true,
     ),
   };
-}
-
-function createExplicitLegacyProviders(env: NetworkedResearchToolEnv): NetworkProviderEntry[] {
-  if (!readOptionalBoolean(env.CONTENT_FOREST_ENABLE_LEGACY_NETWORK_PROVIDERS, false)) {
-    return [];
-  }
-  return [
-    new PublicWebSearchProvider(),
-    new BrowserResearchProvider({
-      allowedDomains: [
-        "xiaohongshu.com",
-        "*.xiaohongshu.com",
-        "www.xiaohongshu.com",
-        "douyin.com",
-        "*.douyin.com",
-        "tiktok.com",
-        "*.tiktok.com",
-        "instagram.com",
-        "*.instagram.com",
-        "youtube.com",
-        "*.youtube.com",
-        "x.com",
-        "*.x.com",
-        "twitter.com",
-        "*.twitter.com",
-      ],
-    }),
-    new WebPageFetchPlaceholderProvider(),
-    new PlatformDataPlaceholderProvider(),
-  ];
 }
 
 function isCodexExternalResearchSelected(env: NetworkedResearchToolEnv): boolean {
@@ -354,32 +314,7 @@ function selectedResearchProviders(env: NetworkedResearchToolEnv): string[] {
     (provider, index, providers) =>
       provider.length > 0 && providers.indexOf(provider) === index,
   );
-  if (hasOpenClawConfig(env) && !configured.includes("openclaw-external-agent")) {
-    configured.unshift("openclaw-external-agent");
-  }
-  return configured.sort((left, right) =>
-    providerPriority(left) - providerPriority(right)
-  );
-}
-
-function providerPriority(provider: string): number {
-  if (provider === "openclaw-external-agent") {
-    return 0;
-  }
-  if (provider === "codex-external-agent" || provider === "external-agent" || provider === "") {
-    return 1;
-  }
-  return 2;
-}
-
-function hasOpenClawConfig(env: NetworkedResearchToolEnv): boolean {
-  const gatewayUrl = readOptionalString(
-    env.openClaw?.gatewayUrl ?? env.CONTENT_FOREST_OPENCLAW_GATEWAY_URL,
-  );
-  const authToken = readOptionalString(
-    env.openClaw?.authToken ?? env.CONTENT_FOREST_OPENCLAW_AUTH_TOKEN,
-  );
-  return gatewayUrl.length > 0 && authToken.length > 0;
+  return configured;
 }
 
 function readOptionalBoolean(value: unknown, fallback: boolean): boolean {

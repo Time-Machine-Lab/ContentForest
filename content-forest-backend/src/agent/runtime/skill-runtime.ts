@@ -234,6 +234,7 @@ class TracedLlmAdapter implements LlmAdapter {
 }
 
 function sanitizeLlmInput(input: LlmCompletionInput): Omit<LlmCompletionInput, "signal"> {
-  const { signal: _signal, ...serializable } = input;
-  return serializable;
+  const serializable: Partial<LlmCompletionInput> = { ...input };
+  delete serializable.signal;
+  return serializable as Omit<LlmCompletionInput, "signal">;
 }

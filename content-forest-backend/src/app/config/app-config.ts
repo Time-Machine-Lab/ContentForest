@@ -46,14 +46,13 @@ export interface CodexExternalResearchConfig {
   warnings: string[];
 }
 
-export interface OpenClawExternalResearchConfig {
+export interface XiaohongshuCliResearchConfig {
   enabled: boolean;
-  gatewayUrl: string;
-  authToken: string;
+  cliPath: string;
   timeoutMs: number;
-  sessionPrefix: string;
-  deleteSessionOnFinish: boolean;
-  isAvailable: boolean;
+  maxResults: number;
+  defaultSort: string;
+  checkLogin: boolean;
   warnings: string[];
 }
 
@@ -61,7 +60,7 @@ export interface ExternalResearchConfig extends CodexExternalResearchConfig {
   provider: string;
   fallbackProvider: string;
   codex: CodexExternalResearchConfig;
-  openClaw: OpenClawExternalResearchConfig;
+  xiaohongshu: XiaohongshuCliResearchConfig;
 }
 
 export interface AgentExchangeLogConfig {
@@ -94,11 +93,12 @@ export interface AppConfigEnv {
   CONTENT_FOREST_CODEX_RESEARCH_SEARCH_CONTEXT_SIZE?: string;
   CONTENT_FOREST_CODEX_RESEARCH_TIMEOUT_MS?: string;
   CONTENT_FOREST_CODEX_RESEARCH_MAX_OUTPUT_TOKENS?: string;
-  CONTENT_FOREST_OPENCLAW_GATEWAY_URL?: string;
-  CONTENT_FOREST_OPENCLAW_AUTH_TOKEN?: string;
-  CONTENT_FOREST_OPENCLAW_TIMEOUT_MS?: string;
-  CONTENT_FOREST_OPENCLAW_SESSION_PREFIX?: string;
-  CONTENT_FOREST_OPENCLAW_DELETE_SESSION_ON_FINISH?: string;
+  CONTENT_FOREST_XIAOHONGSHU_CLI_ENABLED?: string;
+  CONTENT_FOREST_XIAOHONGSHU_CLI_PATH?: string;
+  CONTENT_FOREST_XIAOHONGSHU_CLI_TIMEOUT_MS?: string;
+  CONTENT_FOREST_XIAOHONGSHU_CLI_MAX_RESULTS?: string;
+  CONTENT_FOREST_XIAOHONGSHU_CLI_DEFAULT_SORT?: string;
+  CONTENT_FOREST_XIAOHONGSHU_CLI_CHECK_LOGIN?: string;
 }
 
 export function loadAppConfig(
@@ -160,18 +160,14 @@ export function loadExternalResearchConfig(
     env.CONTENT_FOREST_RESEARCH_FALLBACK_PROVIDER,
   );
   const codex = loadCodexExternalResearchConfig(env, provider, fallbackProvider);
-  const openClaw = loadOpenClawExternalResearchConfig(
-    env,
-    provider,
-    fallbackProvider,
-  );
+  const xiaohongshu = loadXiaohongshuCliResearchConfig(env);
   return {
     ...codex,
     provider,
     fallbackProvider,
     codex,
-    openClaw,
-    warnings: [...codex.warnings, ...openClaw.warnings],
+    xiaohongshu,
+    warnings: [...codex.warnings, ...xiaohongshu.warnings],
   };
 }
 
@@ -235,47 +231,38 @@ export function loadCodexExternalResearchConfig(
   };
 }
 
-export function loadOpenClawExternalResearchConfig(
+export function loadXiaohongshuCliResearchConfig(
   env: AppConfigEnv,
-  selectedProvider: string = normalizeResearchProvider(env.CONTENT_FOREST_RESEARCH_PROVIDER),
-  fallbackProvider: string = normalizeResearchProvider(
-    env.CONTENT_FOREST_RESEARCH_FALLBACK_PROVIDER,
-  ),
-): OpenClawExternalResearchConfig {
-  const gatewayUrl = env.CONTENT_FOREST_OPENCLAW_GATEWAY_URL?.trim() ?? "";
-  const authToken = env.CONTENT_FOREST_OPENCLAW_AUTH_TOKEN?.trim() ?? "";
-  const timeoutMs = normalizePositiveInteger(
-    env.CONTENT_FOREST_OPENCLAW_TIMEOUT_MS,
-    180000,
-  );
-  const sessionPrefix =
-    env.CONTENT_FOREST_OPENCLAW_SESSION_PREFIX?.trim() || "content-forest";
-  const deleteSessionOnFinish = normalizeBooleanWithDefault(
-    env.CONTENT_FOREST_OPENCLAW_DELETE_SESSION_ON_FINISH,
+): XiaohongshuCliResearchConfig {
+  const enabled = normalizeBooleanWithDefault(
+    env.CONTENT_FOREST_XIAOHONGSHU_CLI_ENABLED,
     true,
   );
-  const enabled =
-    selectedProvider === "openclaw-external-agent" ||
-    fallbackProvider === "openclaw-external-agent";
-  const missingFields = enabled
-    ? [
-        gatewayUrl.length === 0 ? "GATEWAY_URL" : null,
-        authToken.length === 0 ? "AUTH_TOKEN" : null,
-      ].filter((field): field is string => field !== null)
-    : [];
-
+  const cliPath = env.CONTENT_FOREST_XIAOHONGSHU_CLI_PATH?.trim() || "xhs";
+  const timeoutMs = normalizePositiveInteger(
+    env.CONTENT_FOREST_XIAOHONGSHU_CLI_TIMEOUT_MS,
+    60000,
+  );
+  const maxResults = Math.min(
+    Math.max(normalizePositiveInteger(env.CONTENT_FOREST_XIAOHONGSHU_CLI_MAX_RESULTS, 8), 1),
+    15,
+  );
+  const defaultSort =
+    env.CONTENT_FOREST_XIAOHONGSHU_CLI_DEFAULT_SORT?.trim() || "general";
+  const checkLogin = normalizeBooleanWithDefault(
+    env.CONTENT_FOREST_XIAOHONGSHU_CLI_CHECK_LOGIN,
+    true,
+  );
   return {
     enabled,
-    gatewayUrl,
-    authToken,
+    cliPath,
     timeoutMs,
-    sessionPrefix,
-    deleteSessionOnFinish,
-    isAvailable: enabled && gatewayUrl.length > 0 && authToken.length > 0,
-    warnings: missingFields.map(
-      (field) =>
-        `OpenClaw external research config is missing ${field}. Set CONTENT_FOREST_OPENCLAW_${field}.`,
-    ),
+    maxResults,
+    defaultSort,
+    checkLogin,
+    warnings: cliPath.length === 0 && enabled
+      ? ["Xiaohongshu CLI path is empty. Set CONTENT_FOREST_XIAOHONGSHU_CLI_PATH."]
+      : [],
   };
 }
 

@@ -70,9 +70,26 @@ export interface NetworkEngagement {
   [key: string]: number | string | boolean | null | undefined;
 }
 
+export interface NetworkEvidenceAuthor {
+  id?: string;
+  name?: string;
+  url?: string;
+}
+
+export interface NetworkEvidenceCompleteness {
+  hasPlatformIdOrUrl: boolean;
+  hasTitle: boolean;
+  hasAuthor: boolean;
+  hasBodyOrExcerpt: boolean;
+  hasEngagement: boolean;
+}
+
 export interface RawNetworkResearchItem {
+  platformItemId?: string | null;
   title?: string;
   url?: string;
+  author?: NetworkEvidenceAuthor;
+  coverUrl?: string | null;
   snippet?: string;
   source?: string;
   sourceDomain?: string;
@@ -84,13 +101,17 @@ export interface RawNetworkResearchItem {
   providerName?: string;
   phase?: NetworkResearchPhase;
   resultQuality?: NetworkResearchResultQuality;
+  evidenceCompleteness?: Partial<NetworkEvidenceCompleteness>;
   observedAt?: string | null;
   restrictedStatus?: NetworkRestrictedStatus;
 }
 
 export interface NetworkResearchResult {
+  platformItemId: string | null;
   title: string;
   url: string;
+  author: NetworkEvidenceAuthor;
+  coverUrl: string | null;
   source: string;
   sourceDomain: string;
   platform: string | null;
@@ -104,6 +125,7 @@ export interface NetworkResearchResult {
   relevanceScore: number;
   phase: NetworkResearchPhase;
   resultQuality: NetworkResearchResultQuality;
+  evidenceCompleteness: NetworkEvidenceCompleteness;
   observedAt: string | null;
 }
 
@@ -157,6 +179,16 @@ export interface NetworkResearchTrace {
     providerRuns: NetworkProviderRunTrace[];
     resultCount: number;
     restrictedCount: number;
+  };
+  qualityGate: {
+    targetResultCount: number;
+    completeObservedCaseCount: number;
+    observedCaseCount: number;
+    candidateLeadCount: number;
+    restrictedCount: number;
+    providerUnavailable: boolean;
+    codexTriggered: boolean;
+    codexTriggerReason: string | null;
   };
 }
 
