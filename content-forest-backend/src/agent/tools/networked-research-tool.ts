@@ -2,6 +2,7 @@ import { ApplicationError } from "../../shared/errors/application-error.js";
 import {
   CodexExternalResearchProvider,
   NetworkProviderRouter,
+  TikhubMcpPlatformProvider,
   XiaohongshuCliResearchProvider,
   type NetworkDataRequest,
   type NetworkProviderEntry,
@@ -78,6 +79,7 @@ export function createDefaultNetworkProviderRouter(
   return new NetworkProviderRouter({
     providers: providers ?? [
       new XiaohongshuCliResearchProvider(toXiaohongshuCliResearchOptions(env)),
+      new TikhubMcpPlatformProvider(toTikhubMcpPlatformOptions(env)),
       ...createExternalAgentProviders(env),
     ],
   });
@@ -118,6 +120,16 @@ export interface NetworkedResearchToolEnv {
     defaultSort?: string;
     checkLogin?: boolean;
   };
+  tikhub?: {
+    enabled?: boolean;
+    baseUrl?: string;
+    apiKey?: string;
+    enableAllPlatforms?: boolean;
+    enabledPlatforms?: string[];
+    excludedPlatforms?: string[];
+    timeoutMs?: number;
+    maxResults?: number;
+  };
   CONTENT_FOREST_RESEARCH_PROVIDER?: string;
   CONTENT_FOREST_RESEARCH_FALLBACK_PROVIDER?: string;
   CONTENT_FOREST_CODEX_RESEARCH_BASE_URL?: string;
@@ -136,6 +148,14 @@ export interface NetworkedResearchToolEnv {
   CONTENT_FOREST_XIAOHONGSHU_CLI_MAX_RESULTS?: string;
   CONTENT_FOREST_XIAOHONGSHU_CLI_DEFAULT_SORT?: string;
   CONTENT_FOREST_XIAOHONGSHU_CLI_CHECK_LOGIN?: string;
+  CONTENT_FOREST_TIKHUB_MCP_ENABLED?: string;
+  CONTENT_FOREST_TIKHUB_MCP_BASE_URL?: string;
+  CONTENT_FOREST_TIKHUB_MCP_API_KEY?: string;
+  CONTENT_FOREST_TIKHUB_MCP_ENABLE_ALL_PLATFORMS?: string;
+  CONTENT_FOREST_TIKHUB_MCP_ENABLED_PLATFORMS?: string;
+  CONTENT_FOREST_TIKHUB_MCP_EXCLUDED_PLATFORMS?: string;
+  CONTENT_FOREST_TIKHUB_MCP_TIMEOUT_MS?: string;
+  CONTENT_FOREST_TIKHUB_MCP_MAX_RESULTS?: string;
 }
 
 function parseNetworkDataRequest(input: ToolInput): NetworkDataRequest {
@@ -297,6 +317,38 @@ function toXiaohongshuCliResearchOptions(env: NetworkedResearchToolEnv) {
   };
 }
 
+function toTikhubMcpPlatformOptions(env: NetworkedResearchToolEnv) {
+  const tikhub = env.tikhub;
+  return {
+    enabled: readOptionalBoolean(
+      tikhub?.enabled ?? env.CONTENT_FOREST_TIKHUB_MCP_ENABLED,
+      true,
+    ),
+    baseUrl:
+      readOptionalString(tikhub?.baseUrl ?? env.CONTENT_FOREST_TIKHUB_MCP_BASE_URL) ||
+      "https://mcp.tikhub.io",
+    apiKey: readOptionalString(
+      tikhub?.apiKey ?? env.CONTENT_FOREST_TIKHUB_MCP_API_KEY,
+    ),
+    enableAllPlatforms: readOptionalBoolean(
+      tikhub?.enableAllPlatforms ?? env.CONTENT_FOREST_TIKHUB_MCP_ENABLE_ALL_PLATFORMS,
+      true,
+    ),
+    enabledPlatforms:
+      tikhub?.enabledPlatforms ??
+      readCsv(env.CONTENT_FOREST_TIKHUB_MCP_ENABLED_PLATFORMS),
+    excludedPlatforms:
+      tikhub?.excludedPlatforms ??
+      readCsv(env.CONTENT_FOREST_TIKHUB_MCP_EXCLUDED_PLATFORMS || "xiaohongshu,xhs,rednote"),
+    timeoutMs:
+      tikhub?.timeoutMs ??
+      readOptionalPositiveInteger(env.CONTENT_FOREST_TIKHUB_MCP_TIMEOUT_MS, 60000),
+    maxResults:
+      tikhub?.maxResults ??
+      readOptionalPositiveInteger(env.CONTENT_FOREST_TIKHUB_MCP_MAX_RESULTS, 8),
+  };
+}
+
 function isCodexExternalResearchSelected(env: NetworkedResearchToolEnv): boolean {
   return selectedResearchProviders(env).some((provider) =>
     provider === "" || provider === "codex-external-agent" || provider === "external-agent"
@@ -358,4 +410,11 @@ function readSearchContextSize(value: string | undefined): "low" | "medium" | "h
 function readOptionalPositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readCsv(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => item.length > 0);
 }

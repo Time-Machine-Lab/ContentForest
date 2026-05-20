@@ -82,6 +82,7 @@ function normalizeResearchItem(
     freshness: freshnessOf(publishedAt, capturedAt),
     engagement,
     rawExcerpt: truncate(item.rawExcerpt ?? snippet, 6000),
+    rawMetadata: sanitizeRawMetadata(item.rawMetadata ?? {}),
     providerName: item.providerName ?? "unknown",
     relevanceScore: scoreItem({ title, snippet, engagement, publishedAt }),
     phase: normalizePhase(item.phase),
@@ -89,6 +90,21 @@ function normalizeResearchItem(
     evidenceCompleteness,
     observedAt: normalizeOptionalDate(item.observedAt ?? null),
   };
+}
+
+function sanitizeRawMetadata(value: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (
+      typeof item === "number" && Number.isFinite(item) ||
+      typeof item === "string" ||
+      typeof item === "boolean" ||
+      item === null
+    ) {
+      result[key] = item;
+    }
+  }
+  return result;
 }
 
 function dedupeResearchResults(

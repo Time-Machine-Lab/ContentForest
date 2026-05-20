@@ -126,6 +126,35 @@ describe("Agent LLM config", () => {
     });
   });
 
+  it("loads TikHub MCP research config without leaking keys in warnings", () => {
+    const config = loadAppConfig(
+      {
+        CONTENT_FOREST_TIKHUB_MCP_ENABLED: "true",
+        CONTENT_FOREST_TIKHUB_MCP_BASE_URL: "https://mcp.tikhub.io",
+        CONTENT_FOREST_TIKHUB_MCP_API_KEY: "tikhub-test-secret-value",
+        CONTENT_FOREST_TIKHUB_MCP_ENABLE_ALL_PLATFORMS: "false",
+        CONTENT_FOREST_TIKHUB_MCP_ENABLED_PLATFORMS: "twitter,bilibili",
+        CONTENT_FOREST_TIKHUB_MCP_EXCLUDED_PLATFORMS: "xiaohongshu,xhs,rednote",
+        CONTENT_FOREST_TIKHUB_MCP_TIMEOUT_MS: "45000",
+        CONTENT_FOREST_TIKHUB_MCP_MAX_RESULTS: "5",
+      },
+      "D:/project/content-forest-backend",
+    );
+
+    expect(config.agent.externalResearch.tikhub).toMatchObject({
+      enabled: true,
+      baseUrl: "https://mcp.tikhub.io",
+      enableAllPlatforms: false,
+      enabledPlatforms: ["twitter", "bilibili"],
+      excludedPlatforms: ["xiaohongshu", "xhs", "rednote"],
+      timeoutMs: 45000,
+      maxResults: 5,
+      isAvailable: true,
+      warnings: [],
+    });
+    expect(getAgentLlmStartupWarnings(config).join("\n")).not.toContain("tikhub-test-secret-value");
+  });
+
   it("defaults Xiaohongshu CLI provider to xhs command", () => {
     const config = loadAppConfig(
       {},
@@ -165,6 +194,11 @@ describe("local secret protection", () => {
     expect(sample).toContain("CONTENT_FOREST_AGENT_EXCHANGE_LOG_MAX_CONTENT_CHARS=4000");
     expect(sample).toContain("CONTENT_FOREST_RESEARCH_PROVIDER=codex-external-agent");
     expect(sample).toContain("CONTENT_FOREST_RESEARCH_FALLBACK_PROVIDER=");
+    expect(sample).toContain("CONTENT_FOREST_TIKHUB_MCP_ENABLED=true");
+    expect(sample).toContain("CONTENT_FOREST_TIKHUB_MCP_BASE_URL=https://mcp.tikhub.io");
+    expect(sample).toContain("CONTENT_FOREST_TIKHUB_MCP_API_KEY=your-tikhub-api-key-here");
+    expect(sample).toContain("CONTENT_FOREST_TIKHUB_MCP_ENABLE_ALL_PLATFORMS=true");
+    expect(sample).toContain("CONTENT_FOREST_TIKHUB_MCP_EXCLUDED_PLATFORMS=xiaohongshu,xhs,rednote");
     expect(sample).toContain("CONTENT_FOREST_CODEX_RESEARCH_API_KEY=your-codex-provider-api-key-here");
     expect(sample).toContain("CONTENT_FOREST_XIAOHONGSHU_CLI_ENABLED=true");
     expect(sample).toContain("CONTENT_FOREST_XIAOHONGSHU_CLI_PATH=xhs");

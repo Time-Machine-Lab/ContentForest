@@ -17,6 +17,7 @@ export type NetworkRestrictedStatusCode =
   | "access_denied"
   | "empty_result"
   | "layout_changed"
+  | "platform_capability_unavailable"
   | "timeout"
   | "domain_not_allowed"
   | "unknown";
@@ -98,6 +99,7 @@ export interface RawNetworkResearchItem {
   capturedAt?: string;
   engagement?: NetworkEngagement;
   rawExcerpt?: string;
+  rawMetadata?: Record<string, unknown>;
   providerName?: string;
   phase?: NetworkResearchPhase;
   resultQuality?: NetworkResearchResultQuality;
@@ -121,6 +123,7 @@ export interface NetworkResearchResult {
   freshness: "fresh" | "recent" | "unknown";
   engagement: NetworkEngagement;
   rawExcerpt: string;
+  rawMetadata: Record<string, unknown>;
   providerName: string;
   relevanceScore: number;
   phase: NetworkResearchPhase;

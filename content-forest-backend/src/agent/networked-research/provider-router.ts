@@ -438,11 +438,17 @@ function coverageGateTriggerReason(input: {
   ) {
     return "provider_unavailable";
   }
+  if (
+    failures.some((failure) => failure.code === "platform_capability_unavailable") &&
+    initialResults.length === 0
+  ) {
+    return "platform_capability_unavailable";
+  }
   if (restrictedStatuses.length > 0 && initialResults.length === 0) {
     return "platform_restricted";
   }
   const expected = request.maxResults ?? plan.expectedResultCount ?? 3;
-  if (plan.targetPlatform === "小红书" && plan.intent === "platform_cases") {
+  if (plan.targetPlatform !== null && plan.intent === "platform_cases") {
     const completeObservedCases = initialResults.filter(
       (result) => result.resultQuality === "complete_observed_case",
     ).length;

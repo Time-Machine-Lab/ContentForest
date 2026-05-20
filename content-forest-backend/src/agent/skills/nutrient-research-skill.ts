@@ -123,10 +123,11 @@ function buildPromptContext(input: {
     [
       "说明：resultQuality=candidate_lead 只代表候选线索，不能称为已验证真实案例；",
       "resultQuality=observed_case 或 complete_observed_case 才代表 Provider 读取过平台详情或观察证据；",
-      "小红书 complete_observed_case 至少应具备可复查 ID/URL、标题、作者、正文或摘要，以及任一互动数据。",
-      "restrictedStatuses 表示验证码、登录墙、Cookie 过期、IP 限制、布局变化、Provider 不可用等限制，必须如实说明限制，不得基于这些内容编造帖子、作者或互动数据。",
+      "平台 complete_observed_case 至少应具备可复查 ID/URL、标题、作者、正文或摘要，以及任一互动数据。",
+      "小红书实采证据来自 xiaohongshu-cli；非小红书社媒实采证据来自 TikHub MCP；Codex external research 只能作为候选线索、背景补盲或综合分析。",
+      "restrictedStatuses 表示验证码、登录墙、Cookie 过期、IP 限制、布局变化、MCP 工具不可用、平台能力不足、Provider 不可用等限制，必须如实说明限制，不得基于这些内容编造帖子、作者或互动数据。",
       "可沉淀营养块要服务创作迁移，优先提炼标题钩子、封面策略、正文结构、用户痛点、评论语言和互动信号；每个关键结论应能回溯到具体 result 标题、URL、平台 ID 或明确说明证据不足。",
-      "Codex external research 若出现在 deepExploration/qualityGate 中，只能作为补盲、背景或候选线索，不能替代小红书实采证据。",
+      "Codex external research 若出现在 deepExploration/qualityGate 中，只能作为补盲、背景或候选线索，不能替代平台实采证据。",
       "营养分类方法：先判断用户明确要求沉淀哪几类营养，再只输出这些类别，避免把一个明确任务拆成许多零散策略块。",
       "evidence_case_library：用于原帖、原文、帖子详情、案例、样本、封面、作者、互动数据等要求；必须保留单个案例的原始结构。",
       "factor_patterns：用于原因、条件、爆款因素、规律、共性、总结等要求；应与案例库分开，并引用已观察案例。",
@@ -459,8 +460,9 @@ function buildRawCaseMarkdown(
   results: RawCaseResearchResult[],
 ): string {
   const grouped = groupRawCases(results);
+  const title = inferCaseLibraryTitle(results);
   const lines = [
-    `# 小红书原帖案例库：${keyword}`,
+    `# ${title}：${keyword}`,
     "",
     `> 共 ${results.length} 条。以下内容保留原帖标题、正文、封面链接和互动数据；不做策略拆解。`,
   ];
@@ -478,7 +480,7 @@ function buildRawCaseMarkdown(
         `- 作者：${item.author.name ?? "未获取"}${item.author.id !== undefined ? `（${item.author.id}）` : ""}`,
         `- 发布时间：${item.publishedAt ?? "未获取"}`,
         `- 封面：${item.coverUrl ?? "未获取"}`,
-        `- 数据：点赞 ${formatMetric(item.engagement.likes)} / 收藏 ${formatMetric(item.engagement.favorites)} / 评论 ${formatMetric(item.engagement.comments)} / 分享 ${formatMetric(item.engagement.shares)}`,
+        `- 数据：点赞 ${formatMetric(item.engagement.likes)} / 收藏 ${formatMetric(item.engagement.favorites)} / 评论或回复 ${formatMetric(item.engagement.comments)} / 分享或转发 ${formatMetric(item.engagement.shares ?? item.engagement.retweets)} / 引用 ${formatMetric(item.engagement.quotes)} / 浏览 ${formatMetric(item.engagement.views)}`,
         `- 证据质量：${item.resultQuality || "unknown"}`,
         "",
         "**原帖内容**",

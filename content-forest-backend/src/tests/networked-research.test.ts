@@ -3,9 +3,13 @@ import {
   BrowserResearchProvider,
   CodexExternalResearchProvider,
   NetworkProviderRouter,
+  TikhubMcpClient,
+  TikhubMcpPlatformProvider,
   XiaohongshuCliProcessError,
   XiaohongshuCliResearchProvider,
+  defaultTikhubMcpPlatformSlugs,
   sanitizeXiaohongshuCliDiagnostic,
+  sanitizeTikhubDiagnostic,
   planNetworkResearch,
   type BrowserCli,
   type NetworkProvider,
@@ -501,6 +505,234 @@ describe("networked research module", () => {
     expect(JSON.stringify(content)).not.toContain("search_api");
   });
 
+  it("initializes TikHub MCP sessions and calls tools with redacted diagnostics", async () => {
+    const fetcher = new RecordingFetch([
+      rpcResponse({ protocolVersion: "2024-11-05" }, {
+        headers: { "mcp-session-id": "session_secret_value_123456789" },
+      }),
+      rpcResponse({
+        tools: [{
+          name: "search_tweets",
+          description: "Search public tweets",
+          inputSchema: { type: "object", properties: { query: { type: "string" } } },
+        }],
+      }),
+      rpcResponse({
+        content: [{
+          type: "text",
+          text: JSON.stringify({ data: { items: [] } }),
+        }],
+      }),
+    ]);
+    const client = new TikhubMcpClient({
+      baseUrl: "https://mcp.tikhub.io",
+      apiKey: "tikhub-test-secret",
+      fetchImpl: fetcher.fetch,
+    });
+
+    const tools = await client.listTools("twitter");
+    await client.callTool({
+      platform: "twitter",
+      toolName: "search_tweets",
+      arguments: { query: "AI product" },
+    });
+
+    expect(tools[0]?.name).toBe("search_tweets");
+    expect(fetcher.calls).toHaveLength(3);
+    expect(fetcher.calls[0]?.body).toMatchObject({ method: "initialize" });
+    expect(fetcher.calls[1]?.headers["mcp-session-id"]).toBe("session_secret_value_123456789");
+    expect(fetcher.calls[1]?.headers.accept).toContain("text/event-stream");
+    expect(fetcher.calls[1]?.headers.authorization).toBe("Bearer tikhub-test-secret");
+    expect(sanitizeTikhubDiagnostic("authorization=secret mcp-session-id=session_secret_value_123456789")).not.toContain("session_secret");
+  });
+
+  it("reinitializes TikHub MCP session once after a session failure", async () => {
+    const fetcher = new RecordingFetch([
+      rpcResponse({ protocolVersion: "2024-11-05" }, {
+        headers: { "mcp-session-id": "session_1" },
+      }),
+      rpcResponse(undefined, {
+        error: { code: -32000, message: "mcp-session-id expired" },
+      }),
+      rpcResponse({ protocolVersion: "2024-11-05" }, {
+        headers: { "mcp-session-id": "session_2" },
+      }),
+      rpcResponse({ tools: [] }),
+    ]);
+    const client = new TikhubMcpClient({
+      baseUrl: "https://mcp.tikhub.io",
+      apiKey: "tikhub-test-secret",
+      fetchImpl: fetcher.fetch,
+    });
+
+    await expect(client.listTools("twitter")).resolves.toEqual([]);
+
+    expect(fetcher.calls.map((call) => call.body.method)).toEqual([
+      "initialize",
+      "tools/list",
+      "initialize",
+      "tools/list",
+    ]);
+    expect(fetcher.calls[3]?.headers["mcp-session-id"]).toBe("session_2");
+  });
+
+  it("routes non-Xiaohongshu social platforms through TikHub MCP and normalizes Twitter evidence", async () => {
+    const fetcher = new RecordingFetch([
+      rpcResponse({ protocolVersion: "2024-11-05" }, {
+        headers: { "mcp-session-id": "twitter_session" },
+      }),
+      rpcResponse({
+        tools: [
+          {
+            name: "search_tweets",
+            description: "Search public tweets",
+            inputSchema: {
+              type: "object",
+              properties: {
+                query: { type: "string" },
+                limit: { type: "number" },
+              },
+            },
+          },
+          {
+            name: "get_tweet_detail",
+            description: "Get tweet detail",
+            inputSchema: {
+              type: "object",
+              properties: {
+                tweet_id: { type: "string" },
+              },
+            },
+          },
+          {
+            name: "like_tweet",
+            description: "Write action",
+            inputSchema: {
+              type: "object",
+              required: ["cookie"],
+              properties: {
+                cookie: { type: "string" },
+              },
+            },
+          },
+        ],
+      }),
+      rpcResponse({
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            data: {
+              items: [{
+                id_str: "2055079539374747769",
+                full_text: "Launching a useful AI product for independent makers.",
+                user: {
+                  id: "user_1",
+                  screen_name: "maker",
+                  name: "Maker",
+                },
+                favorite_count: 42,
+                reply_count: 3,
+                retweet_count: 5,
+                quote_count: 1,
+                view_count: 900,
+                created_at: "2026-05-01T00:00:00.000Z",
+              }],
+            },
+          }),
+        }],
+      }),
+      rpcResponse({
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            data: {
+              id_str: "2055079539374747769",
+              full_text: "Launching a useful AI product for independent makers. Full detail thread.",
+              user: {
+                id: "user_1",
+                screen_name: "maker",
+                name: "Maker",
+              },
+              favorite_count: 42,
+              reply_count: 3,
+              retweet_count: 5,
+              quote_count: 1,
+              view_count: 900,
+              created_at: "2026-05-01T00:00:00.000Z",
+            },
+          }),
+        }],
+      }),
+    ]);
+    const provider = new TikhubMcpPlatformProvider({
+      apiKey: "tikhub-test-secret",
+      fetchImpl: fetcher.fetch,
+      now: () => new Date("2026-05-20T00:00:00.000Z"),
+    });
+    const router = new NetworkProviderRouter({ providers: [provider] });
+
+    const result = await router.run({
+      mode: "research",
+      request: "Twitter AI product posts",
+      targetPlatform: "Twitter",
+      maxResults: 1,
+    });
+
+    expect(result.mode).toBe("research");
+    if (result.mode !== "research") {
+      throw new Error("expected research result");
+    }
+    expect(defaultTikhubMcpPlatformSlugs()).toEqual(
+      expect.arrayContaining(["tiktok", "douyin", "instagram", "twitter", "threads"]),
+    );
+    expect(provider.canResearch({
+      mode: "research",
+      request: "小红书 AI 产品案例",
+      targetPlatform: "xiaohongshu",
+    })).toBe(false);
+    expect(fetcher.calls.map((call) => call.body.method)).toEqual([
+      "initialize",
+      "tools/list",
+      "tools/call",
+      "tools/call",
+    ]);
+    expect(fetcher.calls[2]?.body.params).toMatchObject({
+      name: "search_tweets",
+      arguments: {
+        query: "AI product",
+        limit: 1,
+      },
+    });
+    expect(fetcher.calls[3]?.body.params).toMatchObject({
+      name: "get_tweet_detail",
+      arguments: {
+        tweet_id: "2055079539374747769",
+      },
+    });
+    expect(result.trace.initialSearch.providers).toEqual(["tikhub_mcp_platform"]);
+    expect(result.results[0]).toMatchObject({
+      platformItemId: "2055079539374747769",
+      url: "https://x.com/maker/status/2055079539374747769",
+      author: { id: "user_1", name: "Maker" },
+      platform: "Twitter/X",
+      providerName: "tikhub_mcp_platform",
+      resultQuality: "complete_observed_case",
+      engagement: {
+        likes: 42,
+        comments: 3,
+        shares: 5,
+        retweets: 5,
+        quotes: 1,
+        views: 900,
+      },
+    });
+    expect(result.trace.qualityGate).toMatchObject({
+      completeObservedCaseCount: 1,
+      codexTriggered: false,
+    });
+    expect(JSON.stringify(result)).not.toContain("tikhub-test-secret");
+  });
+
   it("does not throw when the Xiaohongshu CLI executable is missing", async () => {
     const tool = new NetworkedResearchTool(undefined, {
       xiaohongshu: {
@@ -697,6 +929,30 @@ class FakeXiaohongshuRunner implements XiaohongshuCliRunner {
   }
 }
 
+class RecordingFetch {
+  public readonly calls: Array<{
+    url: string;
+    headers: Record<string, string>;
+    body: Record<string, unknown>;
+  }> = [];
+
+  public constructor(private readonly responses: Response[]) {}
+
+  public readonly fetch: typeof fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const headers = headersToRecord(init?.headers);
+    const body = typeof init?.body === "string"
+      ? JSON.parse(init.body) as Record<string, unknown>
+      : {};
+    this.calls.push({ url, headers, body });
+    const next = this.responses.shift();
+    if (next === undefined) {
+      throw new Error(`unexpected fetch: ${url}`);
+    }
+    return next;
+  };
+}
+
 class RecordingCli implements BrowserCli {
   public readonly calls: Array<{ args: string[]; timeoutMs: number }> = [];
 
@@ -706,6 +962,37 @@ class RecordingCli implements BrowserCli {
     this.calls.push({ args, timeoutMs });
     return args.includes("snapshot") ? this.snapshot : "";
   }
+}
+
+function rpcResponse(
+  result: unknown,
+  options: {
+    status?: number;
+    headers?: Record<string, string>;
+    error?: { code: number; message: string };
+  } = {},
+): Response {
+  return new Response(JSON.stringify({
+    jsonrpc: "2.0",
+    id: "test",
+    result,
+    error: options.error,
+  }), {
+    status: options.status ?? 200,
+    headers: {
+      "content-type": "application/json",
+      ...options.headers,
+    },
+  });
+}
+
+function headersToRecord(value: HeadersInit | undefined): Record<string, string> {
+  const result: Record<string, string> = {};
+  const headers = new Headers(value);
+  headers.forEach((item, key) => {
+    result[key.toLowerCase()] = item;
+  });
+  return result;
 }
 
 function envelope(data: unknown): string {

@@ -9,12 +9,25 @@ export { normalizeObservationResult, normalizeResearchResults } from "./normaliz
 export { NetworkProviderRouter } from "./provider-router.js";
 export { planNetworkResearch } from "./query-planner.js";
 export {
+  sanitizeTikhubDiagnostic,
+  TikhubMcpClient,
+  type TikhubMcpClientOptions,
+  type TikhubMcpPlatformInfo,
+  type TikhubMcpTool,
+} from "./tikhub-mcp-client.js";
+export {
   BrowserResearchProvider,
 } from "./providers/browser-research-provider.js";
 export {
   CodexExternalResearchProvider,
   type CodexExternalResearchProviderOptions,
 } from "./providers/codex-external-research-provider.js";
+export {
+  defaultTikhubMcpPlatformSlugs,
+  TikhubMcpPlatformProvider,
+  type TikhubMcpPlatformProviderOptions,
+  type TikhubPlatformCapabilityMatrix,
+} from "./providers/tikhub-mcp-platform-provider.js";
 export {
   ExecFileXiaohongshuCliRunner,
   XiaohongshuCliProcessError,

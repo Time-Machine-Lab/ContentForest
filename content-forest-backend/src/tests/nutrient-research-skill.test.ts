@@ -422,6 +422,94 @@ describe("NutrientResearchSkill", () => {
     expect(content.depositableBlocks[1]?.markdown).toContain("具体结果先行");
   });
 
+  it("keeps TikHub platform evidence distinct from Codex deep research in nutrient output", async () => {
+    const skill = new NutrientResearchSkill();
+    const tools: ToolCaller = {
+      async callTool(name) {
+        if (name !== NETWORKED_RESEARCH_TOOL_NAME) {
+          throw new Error(`unknown tool: ${name}`);
+        }
+        return {
+          content: {
+            mode: "research",
+            queryPlan: {
+              contentObject: "AI product",
+              queries: ["Twitter AI product"],
+              siteSearchQueries: [],
+            },
+            results: [{
+              platformItemId: "tweet_1",
+              title: "Launching an AI product",
+              url: "https://x.com/maker/status/tweet_1",
+              author: { id: "user_1", name: "Maker" },
+              rawExcerpt: "Launching an AI product for independent makers. Full details in the thread.",
+              snippet: "Launching an AI product for independent makers.",
+              engagement: { likes: 42, comments: 3, retweets: 5, quotes: 1, views: 900 },
+              providerName: "tikhub_mcp_platform",
+              platform: "Twitter/X",
+              source: "Twitter/X",
+              resultQuality: "complete_observed_case",
+            }, {
+              platformItemId: null,
+              title: "Codex background",
+              url: "https://example.com/background",
+              author: {},
+              rawExcerpt: "Market background only.",
+              snippet: "Market background only.",
+              engagement: {},
+              providerName: "codex_external_research",
+              platform: "Twitter/X",
+              source: "Codex external research",
+              resultQuality: "candidate_lead",
+            }],
+            failures: [],
+            restrictedStatuses: [],
+            trace: {
+              queryPlan: { queryCount: 1, siteSearchQueryCount: 0, targetPlatform: "X", intent: "platform_cases" },
+              initialSearch: { providers: ["tikhub_mcp_platform"], resultCount: 1, failureCount: 0 },
+              deepExploration: { triggered: true, reason: "requested_deep_exploration", providers: ["codex_external_research"], resultCount: 1, restrictedCount: 0 },
+            },
+          },
+        };
+      },
+    };
+    const llm = new SequenceLlm([
+      JSON.stringify({
+        type: "nutrient_research_result",
+        message: "should not be used",
+        depositableBlocks: [],
+      }),
+    ]);
+
+    const output = await skill.execute({
+      context: {
+        taskId: "agent-task_1",
+        taskType: "nutrient_research",
+        input: {
+          seedId: "seed_1",
+          message: "收集 Twitter AI product 帖子详情和帖子数据",
+          recentMessages: [],
+        },
+        metadata: {},
+        startedAt: "2026-01-01T00:00:00.000Z",
+      },
+      tools,
+      llm,
+      trace: new AgentTrace(() => new Date("2026-01-01T00:00:00.000Z")),
+    });
+
+    expect(llm.inputs).toHaveLength(0);
+    const content = output.content as {
+      depositableBlocks: Array<{ title: string; markdown: string }>;
+    };
+    expect(content.depositableBlocks).toHaveLength(1);
+    expect(content.depositableBlocks[0]?.title).toContain("Twitter/X原帖案例库");
+    expect(content.depositableBlocks[0]?.markdown).toContain("tweet_1");
+    expect(content.depositableBlocks[0]?.markdown).toContain("转发 5");
+    expect(content.depositableBlocks[0]?.markdown).toContain("浏览 900");
+    expect(content.depositableBlocks[0]?.markdown).not.toContain("Codex background");
+  });
+
   it("accepts plain conversational replies when no nutrient block is produced", async () => {
     const skill = new NutrientResearchSkill();
     const tools = new FakeTools();

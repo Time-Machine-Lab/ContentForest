@@ -56,6 +56,9 @@ function inferFailureCode(
   if (/not in the allowed domains|domain is not allowed|域名不在|域名未授权/.test(normalized)) {
     return "domain_not_allowed";
   }
+  if (/capability|no safe.*tool|unsupported platform|平台能力|工具不可用/.test(normalized)) {
+    return "platform_capability_unavailable";
+  }
   if (/network|fetch|联网|连接/.test(normalized)) {
     return "network_error";
   }

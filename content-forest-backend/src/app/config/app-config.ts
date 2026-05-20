@@ -56,11 +56,25 @@ export interface XiaohongshuCliResearchConfig {
   warnings: string[];
 }
 
+export interface TikhubMcpResearchConfig {
+  enabled: boolean;
+  baseUrl: string;
+  apiKey: string;
+  enableAllPlatforms: boolean;
+  enabledPlatforms: string[];
+  excludedPlatforms: string[];
+  timeoutMs: number;
+  maxResults: number;
+  isAvailable: boolean;
+  warnings: string[];
+}
+
 export interface ExternalResearchConfig extends CodexExternalResearchConfig {
   provider: string;
   fallbackProvider: string;
   codex: CodexExternalResearchConfig;
   xiaohongshu: XiaohongshuCliResearchConfig;
+  tikhub: TikhubMcpResearchConfig;
 }
 
 export interface AgentExchangeLogConfig {
@@ -99,6 +113,14 @@ export interface AppConfigEnv {
   CONTENT_FOREST_XIAOHONGSHU_CLI_MAX_RESULTS?: string;
   CONTENT_FOREST_XIAOHONGSHU_CLI_DEFAULT_SORT?: string;
   CONTENT_FOREST_XIAOHONGSHU_CLI_CHECK_LOGIN?: string;
+  CONTENT_FOREST_TIKHUB_MCP_ENABLED?: string;
+  CONTENT_FOREST_TIKHUB_MCP_BASE_URL?: string;
+  CONTENT_FOREST_TIKHUB_MCP_API_KEY?: string;
+  CONTENT_FOREST_TIKHUB_MCP_ENABLE_ALL_PLATFORMS?: string;
+  CONTENT_FOREST_TIKHUB_MCP_ENABLED_PLATFORMS?: string;
+  CONTENT_FOREST_TIKHUB_MCP_EXCLUDED_PLATFORMS?: string;
+  CONTENT_FOREST_TIKHUB_MCP_TIMEOUT_MS?: string;
+  CONTENT_FOREST_TIKHUB_MCP_MAX_RESULTS?: string;
 }
 
 export function loadAppConfig(
@@ -161,13 +183,15 @@ export function loadExternalResearchConfig(
   );
   const codex = loadCodexExternalResearchConfig(env, provider, fallbackProvider);
   const xiaohongshu = loadXiaohongshuCliResearchConfig(env);
+  const tikhub = loadTikhubMcpResearchConfig(env);
   return {
     ...codex,
     provider,
     fallbackProvider,
     codex,
     xiaohongshu,
-    warnings: [...codex.warnings, ...xiaohongshu.warnings],
+    tikhub,
+    warnings: [...codex.warnings, ...xiaohongshu.warnings, ...tikhub.warnings],
   };
 }
 
@@ -266,6 +290,50 @@ export function loadXiaohongshuCliResearchConfig(
   };
 }
 
+export function loadTikhubMcpResearchConfig(
+  env: AppConfigEnv,
+): TikhubMcpResearchConfig {
+  const enabled = normalizeBooleanWithDefault(
+    env.CONTENT_FOREST_TIKHUB_MCP_ENABLED,
+    true,
+  );
+  const baseUrl =
+    env.CONTENT_FOREST_TIKHUB_MCP_BASE_URL?.trim() || "https://mcp.tikhub.io";
+  const apiKey = env.CONTENT_FOREST_TIKHUB_MCP_API_KEY?.trim() ?? "";
+  const enableAllPlatforms = normalizeBooleanWithDefault(
+    env.CONTENT_FOREST_TIKHUB_MCP_ENABLE_ALL_PLATFORMS,
+    true,
+  );
+  const enabledPlatforms = splitCsv(env.CONTENT_FOREST_TIKHUB_MCP_ENABLED_PLATFORMS);
+  const excludedPlatforms = splitCsv(
+    env.CONTENT_FOREST_TIKHUB_MCP_EXCLUDED_PLATFORMS ?? "xiaohongshu,xhs,rednote",
+  );
+  const timeoutMs = normalizePositiveInteger(
+    env.CONTENT_FOREST_TIKHUB_MCP_TIMEOUT_MS,
+    60000,
+  );
+  const maxResults = Math.min(
+    Math.max(normalizePositiveInteger(env.CONTENT_FOREST_TIKHUB_MCP_MAX_RESULTS, 8), 1),
+    15,
+  );
+  const warnings =
+    enabled && env.CONTENT_FOREST_TIKHUB_MCP_ENABLED !== undefined && apiKey.length === 0
+      ? ["TikHub MCP config is missing API_KEY. Set CONTENT_FOREST_TIKHUB_MCP_API_KEY."]
+      : [];
+  return {
+    enabled,
+    baseUrl,
+    apiKey,
+    enableAllPlatforms,
+    enabledPlatforms,
+    excludedPlatforms,
+    timeoutMs,
+    maxResults,
+    isAvailable: enabled && baseUrl.length > 0 && apiKey.length > 0,
+    warnings,
+  };
+}
+
 export function loadAgentExchangeLogConfig(
   env: AppConfigEnv,
   cwd: string = process.cwd(),
@@ -344,6 +412,13 @@ function normalizePositiveInteger(
 ): number {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function splitCsv(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => item.length > 0);
 }
 
 function getMissingRealLlmFields(config: {

@@ -1,12 +1,23 @@
 ## ADDED Requirements
 
 ### Requirement: 非小红书平台研究必须支持 TikHub MCP Provider
-系统 SHALL 提供 TikHub MCP Provider，用于在联网研究模块中采集非小红书社交平台的搜索结果、帖子详情和互动数据。Provider MUST 通过统一 Provider Router 接入，MUST NOT 将 TikHub API key、Authorization header 或 MCP session id 暴露给 Agent。
+系统 SHALL 提供 TikHub MCP Provider，用于在联网研究模块中采集 TikHub 支持的非小红书社交平台搜索结果、帖子详情和互动数据。Provider MUST 通过统一 Provider Router 接入，MUST 默认注册 TikTok、Douyin、Instagram、Weibo、Bilibili、YouTube、Kuaishou、Zhihu、LinkedIn、Reddit、WeChat、Twitter/X、Threads 等平台，MUST NOT 将 TikHub API key、Authorization header 或 MCP session id 暴露给 Agent。
+
+#### Scenario: 注册非小红书社媒平台
+- **WHEN** 系统启动 TikHub MCP Provider
+- **THEN** 系统 MUST 建立非小红书社媒平台注册表和平台别名映射
+- **AND** 系统 MUST 默认排除 Xiaohongshu/XHS/Rednote
+- **AND** 系统 SHOULD 将 `Others` 和 `TikHub Utilities` 作为辅助命名空间而非默认帖子证据来源
 
 #### Scenario: 路由 Twitter 研究请求
 - **WHEN** 营养汲取 Agent 请求研究 Twitter/X 平台上的 AI 产品相关帖子
 - **THEN** 系统 MUST 通过 Provider Router 选择 TikHub MCP Provider
 - **AND** 系统 MUST 将目标平台映射到 TikHub `twitter` MCP server
+
+#### Scenario: 路由其他非小红书社媒请求
+- **WHEN** 营养汲取 Agent 请求研究 TikTok、Douyin、Instagram、Weibo、Bilibili、YouTube、Kuaishou、Zhihu、LinkedIn、Reddit、WeChat 或 Threads 平台内容
+- **THEN** 系统 MUST 通过 Provider Router 选择 TikHub MCP Provider
+- **AND** 系统 MUST 将目标平台映射到对应 TikHub MCP server 或返回结构化平台能力不足状态
 
 #### Scenario: 排除小红书平台
 - **WHEN** 用户请求研究小红书平台内容
@@ -26,16 +37,21 @@
 - **THEN** 系统 MUST 重新 initialize 一次
 - **AND** 系统 MUST 只重试当前工具调用一次以避免无限循环
 
-### Requirement: TikHub Twitter 结果必须归一化为平台证据
-系统 SHALL 将 TikHub Twitter/X 工具返回结果归一化为统一研究结果。Twitter/X 结果 MUST 尽量表达 tweet id、链接、正文文本、作者 handle 或名称、发布时间、点赞数、回复数、转发数、引用数、浏览数和采集时间；无法获取的字段 MUST 保持缺失，MUST NOT 伪造。
+### Requirement: TikHub 平台结果必须归一化为平台证据
+系统 SHALL 将 TikHub 工具返回结果归一化为统一研究结果。平台结果 MUST 尽量表达平台、帖子 ID 或链接、标题或正文文本、作者、发布时间、点赞数、评论数或回复数、分享数或转发数、收藏数、浏览数、raw metadata 和采集时间；无法获取的字段 MUST 保持缺失，MUST NOT 伪造。Twitter/X 结果 MUST 额外尽量表达 tweet id、author handle、retweets/reposts 和 quotes。
 
 #### Scenario: 归一化 Twitter 帖子详情
 - **WHEN** TikHub MCP 成功返回 Twitter/X 帖子详情
 - **THEN** 系统 MUST 将正文、作者、链接和互动数据映射为统一研究结果
 - **AND** 系统 MUST 标记 Provider 名称、平台和采集时间
 
-#### Scenario: Twitter 互动字段缺失
-- **WHEN** TikHub MCP 返回的 Twitter/X 结果缺少浏览数或其他互动指标
+#### Scenario: 归一化其他平台帖子详情
+- **WHEN** TikHub MCP 成功返回非 Twitter 的社媒帖子详情
+- **THEN** 系统 MUST 将可获得的正文或标题、作者、链接和互动数据映射为统一研究结果
+- **AND** 系统 MUST 将平台特有字段保留在 raw metadata 中
+
+#### Scenario: 平台互动字段缺失
+- **WHEN** TikHub MCP 返回的结果缺少浏览数或其他互动指标
 - **THEN** 系统 MUST 保留已获得的互动数据
 - **AND** 系统 MUST NOT 使用模型或规则猜测缺失指标
 

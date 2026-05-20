@@ -5,9 +5,16 @@ const PLATFORM_ALIASES: Array<{ platform: string; tokens: string[] }> = [
   { platform: "抖音", tokens: ["抖音", "douyin"] },
   { platform: "TikTok", tokens: ["tiktok", "tik tok"] },
   { platform: "Instagram", tokens: ["instagram", "ins", "reels"] },
+  { platform: "微博", tokens: ["微博", "weibo"] },
+  { platform: "快手", tokens: ["快手", "kuaishou"] },
+  { platform: "知乎", tokens: ["知乎", "zhihu"] },
   { platform: "YouTube", tokens: ["youtube", "yt"] },
   { platform: "X", tokens: ["twitter", "推特", " x ", "x.com"] },
   { platform: "B站", tokens: ["b站", "bilibili"] },
+  { platform: "LinkedIn", tokens: ["linkedin", "linked in", "领英"] },
+  { platform: "Reddit", tokens: ["reddit"] },
+  { platform: "微信", tokens: ["微信", "wechat", "weixin", "公众号"] },
+  { platform: "Threads", tokens: ["threads"] },
 ];
 
 const QUERY_NOISE = [
