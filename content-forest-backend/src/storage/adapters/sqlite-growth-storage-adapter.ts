@@ -6,6 +6,7 @@ import {
 import type {
   GrowthAttemptStatus,
   GrowthAuthorizationScope,
+  GrowthMediaRef,
   GrowthMutationIntensity,
   GrowthMutationPlan,
   GrowthResourceRef,
@@ -33,6 +34,7 @@ interface GrowthTaskRow {
   fruit_count: number;
   nutrient_refs_json: string;
   temporary_nutrient_card_refs_json: string;
+  media_refs_json: string;
   gene_refs_json: string;
   detail_params_json: string;
   search_mode: GrowthSearchMode;
@@ -78,6 +80,7 @@ interface GrowthFailedInputRow {
   fruit_count: number;
   nutrient_refs_json: string;
   temporary_nutrient_card_refs_json: string;
+  media_refs_json: string;
   gene_refs_json: string;
   detail_params_json: string;
   search_mode: GrowthSearchMode;
@@ -108,6 +111,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
           fruit_count,
           nutrient_refs_json,
           temporary_nutrient_card_refs_json,
+          media_refs_json,
           gene_refs_json,
           detail_params_json,
           search_mode,
@@ -120,7 +124,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
           created_at,
           updated_at,
           finished_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
@@ -133,6 +137,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         record.fruitCount,
         JSON.stringify(record.nutrientRefs),
         JSON.stringify(record.temporaryNutrientCardRefs),
+        JSON.stringify(record.mediaRefs),
         JSON.stringify(record.geneRefs),
         JSON.stringify(record.detailParams),
         record.pipelineParams.searchMode,
@@ -176,6 +181,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
               fruit_count = ?,
               nutrient_refs_json = ?,
               temporary_nutrient_card_refs_json = ?,
+              media_refs_json = ?,
               gene_refs_json = ?,
               detail_params_json = ?,
               search_mode = ?,
@@ -196,6 +202,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         record.fruitCount,
         JSON.stringify(record.nutrientRefs),
         JSON.stringify(record.temporaryNutrientCardRefs),
+        JSON.stringify(record.mediaRefs),
         JSON.stringify(record.geneRefs),
         JSON.stringify(record.detailParams),
         record.pipelineParams.searchMode,
@@ -359,13 +366,14 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
           fruit_count,
           nutrient_refs_json,
           temporary_nutrient_card_refs_json,
+          media_refs_json,
           gene_refs_json,
           detail_params_json,
           search_mode,
           mutation_intensity,
           failure_reason,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(source_node_type, source_node_id) DO UPDATE SET
           task_id = excluded.task_id,
           seed_id = excluded.seed_id,
@@ -374,6 +382,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
           fruit_count = excluded.fruit_count,
           nutrient_refs_json = excluded.nutrient_refs_json,
           temporary_nutrient_card_refs_json = excluded.temporary_nutrient_card_refs_json,
+          media_refs_json = excluded.media_refs_json,
           gene_refs_json = excluded.gene_refs_json,
           detail_params_json = excluded.detail_params_json,
           search_mode = excluded.search_mode,
@@ -391,6 +400,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         record.fruitCount,
         JSON.stringify(record.nutrientRefs),
         JSON.stringify(record.temporaryNutrientCardRefs),
+        JSON.stringify(record.mediaRefs),
         JSON.stringify(record.geneRefs),
         JSON.stringify(record.detailParams),
         record.pipelineParams.searchMode,
@@ -442,6 +452,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         fruit_count INTEGER NOT NULL CHECK (fruit_count >= 1 AND fruit_count <= 6),
         nutrient_refs_json TEXT NOT NULL DEFAULT '[]',
         temporary_nutrient_card_refs_json TEXT NOT NULL DEFAULT '[]',
+        media_refs_json TEXT NOT NULL DEFAULT '[]',
         gene_refs_json TEXT NOT NULL DEFAULT '[]',
         detail_params_json TEXT NOT NULL DEFAULT '{}',
         search_mode TEXT NOT NULL DEFAULT 'broad_exploration' CHECK (search_mode IN ('broad_exploration', 'directional_strengthening', 'local_variation', 'negative_feedback_avoidance')),
@@ -501,6 +512,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         fruit_count INTEGER NOT NULL CHECK (fruit_count >= 1 AND fruit_count <= 6),
         nutrient_refs_json TEXT NOT NULL DEFAULT '[]',
         temporary_nutrient_card_refs_json TEXT NOT NULL DEFAULT '[]',
+        media_refs_json TEXT NOT NULL DEFAULT '[]',
         gene_refs_json TEXT NOT NULL DEFAULT '[]',
         detail_params_json TEXT NOT NULL DEFAULT '{}',
         search_mode TEXT NOT NULL DEFAULT 'broad_exploration',
@@ -516,6 +528,11 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
     this.ensureColumn(
       "growth_tasks",
       "temporary_nutrient_card_refs_json",
+      "TEXT NOT NULL DEFAULT '[]'",
+    );
+    this.ensureColumn(
+      "growth_tasks",
+      "media_refs_json",
       "TEXT NOT NULL DEFAULT '[]'",
     );
     this.ensureColumn(
@@ -541,6 +558,11 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
     this.ensureColumn(
       "growth_failed_inputs",
       "temporary_nutrient_card_refs_json",
+      "TEXT NOT NULL DEFAULT '[]'",
+    );
+    this.ensureColumn(
+      "growth_failed_inputs",
+      "media_refs_json",
       "TEXT NOT NULL DEFAULT '[]'",
     );
     this.ensureColumn(
@@ -586,6 +608,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       temporaryNutrientCardRefs: this.parseTemporaryNutrientCardRefs(
         row.temporary_nutrient_card_refs_json,
       ),
+      mediaRefs: this.parseMediaRefs(row.media_refs_json),
       geneRefs: this.parseResourceRefs(row.gene_refs_json),
       detailParams: this.parseRecord(row.detail_params_json),
       pipelineParams: {
@@ -658,6 +681,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       temporaryNutrientCardRefs: this.parseTemporaryNutrientCardRefs(
         row.temporary_nutrient_card_refs_json,
       ),
+      mediaRefs: this.parseMediaRefs(row.media_refs_json),
       geneRefs: this.parseResourceRefs(row.gene_refs_json),
       detailParams: this.parseRecord(row.detail_params_json),
       pipelineParams: {
@@ -687,6 +711,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       temporaryNutrientCardRefs: this.parseTemporaryNutrientCardRefsFromUnknown(
         parsed.temporaryNutrientCardRefs,
       ),
+      mediaRefs: this.parseMediaRefsFromUnknown(parsed.mediaRefs),
       geneRefs: this.parseResourceRefsFromUnknown(parsed.geneRefs),
     };
   }
@@ -736,6 +761,27 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
               "nutrient_card" &&
             typeof (item as GrowthTemporaryNutrientCardRef).resourceId ===
               "string",
+        )
+      : [];
+  }
+
+  private parseMediaRefs(value: string): GrowthMediaRef[] {
+    try {
+      return this.parseMediaRefsFromUnknown(JSON.parse(value) as unknown);
+    } catch {
+      return [];
+    }
+  }
+
+  private parseMediaRefsFromUnknown(value: unknown): GrowthMediaRef[] {
+    return Array.isArray(value)
+      ? value.filter(
+          (item): item is GrowthMediaRef =>
+            typeof item === "object" &&
+            item !== null &&
+            (item as GrowthMediaRef).resourceType === "media" &&
+            typeof (item as GrowthMediaRef).resourceId === "string" &&
+            typeof (item as GrowthMediaRef).usage === "string",
         )
       : [];
   }

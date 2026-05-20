@@ -175,7 +175,7 @@ export function createNutrientApi(fetcher: NutrientFetcher, baseUrl = '') {
       })
     },
     deleteCard(cardId: string) {
-      return fetcher<void>(endpoint(baseUrl, `/api/nutrient-cards/${encodeURIComponent(cardId)}`), {
+      return fetcher<undefined>(endpoint(baseUrl, `/api/nutrient-cards/${encodeURIComponent(cardId)}`), {
         method: 'DELETE',
       })
     },
@@ -216,7 +216,7 @@ export function createNutrientApi(fetcher: NutrientFetcher, baseUrl = '') {
       return fetcher<NutrientResearchSessionDetail>(endpoint(baseUrl, `/api/nutrient-research-sessions/${encodeURIComponent(sessionId)}`))
     },
     deleteResearchSession(sessionId: string) {
-      return fetcher<void>(endpoint(baseUrl, `/api/nutrient-research-sessions/${encodeURIComponent(sessionId)}`), {
+      return fetcher<undefined>(endpoint(baseUrl, `/api/nutrient-research-sessions/${encodeURIComponent(sessionId)}`), {
         method: 'DELETE',
       })
     },

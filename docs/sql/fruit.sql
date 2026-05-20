@@ -8,6 +8,7 @@
 -- - 本表只维护系统事实：身份、物竞天择状态、父节点引用、内容位置、生成器来源、标题、基因标签与审计信息。
 -- - 不提供删除语义；不感兴趣的果实通过 selection_state = 'eliminated' 表达。
 -- - parent_node_type 只表达创建时挂载来源；是否可继续生长由枝化生长领域结合生长锁判断。
+-- - 果实媒体挂载关系由 docs/sql/media.sql 中的 fruit_media_assets 表维护，果实 Markdown 不保存媒体 meta。
 
 CREATE TABLE IF NOT EXISTS fruits (
   id TEXT PRIMARY KEY,

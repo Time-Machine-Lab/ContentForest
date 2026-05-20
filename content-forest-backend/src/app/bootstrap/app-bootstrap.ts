@@ -7,6 +7,7 @@ import type { PublicationController } from "../../interface/http/publication-con
 import type { FeedbackController } from "../../interface/http/feedback-controller.js";
 import type { NutrientController } from "../../interface/http/nutrient-controller.js";
 import type { WorkspaceController } from "../../interface/http/workspace-controller.js";
+import type { MediaController } from "../../interface/http/media-controller.js";
 import { GeneratorController as HttpGeneratorController } from "../../interface/http/generator-controller.js";
 import { FruitController as HttpFruitController } from "../../interface/http/fruit-controller.js";
 import { GeneController as HttpGeneController } from "../../interface/http/gene-controller.js";
@@ -16,6 +17,7 @@ import { FeedbackController as HttpFeedbackController } from "../../interface/ht
 import { NutrientController as HttpNutrientController } from "../../interface/http/nutrient-controller.js";
 import { SeedController as HttpSeedController } from "../../interface/http/seed-controller.js";
 import { WorkspaceController as HttpWorkspaceController } from "../../interface/http/workspace-controller.js";
+import { MediaController as HttpMediaController } from "../../interface/http/media-controller.js";
 import { AgentRuntime } from "../../agent/runtime/agent-runtime.js";
 import { createAgentExchangeLogSink } from "../../agent/runtime/agent-exchange-log.js";
 import { FakeLlmAdapter } from "../../agent/runtime/fake-llm-adapter.js";
@@ -42,6 +44,7 @@ import {
 import { LocalFruitMarkdownContentAccessAdapter } from "../../content-access/adapters/local-fruit-markdown-content-access-adapter.js";
 import { LocalGeneMarkdownContentAccessAdapter } from "../../content-access/adapters/local-gene-markdown-content-access-adapter.js";
 import { LocalGeneratorSkillContentAccessAdapter } from "../../content-access/adapters/local-generator-skill-content-access-adapter.js";
+import { LocalMediaContentAccessAdapter } from "../../content-access/adapters/local-media-content-access-adapter.js";
 import { LocalNutrientMarkdownContentAccessAdapter } from "../../content-access/adapters/local-nutrient-markdown-content-access-adapter.js";
 import { LocalSeedMarkdownContentAccessAdapter } from "../../content-access/adapters/local-seed-markdown-content-access-adapter.js";
 import { FruitService } from "../../modules/fruit/application/fruit-service.js";
@@ -49,6 +52,7 @@ import { FeedbackService } from "../../modules/feedback/application/feedback-ser
 import { GeneService } from "../../modules/gene/application/gene-service.js";
 import { GeneratorService } from "../../modules/generator/application/generator-service.js";
 import { GrowthService } from "../../modules/growth/application/growth-service.js";
+import { MediaService } from "../../modules/media/application/media-service.js";
 import { NutrientService } from "../../modules/nutrient/application/nutrient-service.js";
 import { PublicationService } from "../../modules/publication/application/publication-service.js";
 import { SeedService } from "../../modules/seed/application/seed-service.js";
@@ -58,6 +62,7 @@ import { SqliteFeedbackStorageAdapter } from "../../storage/adapters/sqlite-feed
 import { SqliteGeneStorageAdapter } from "../../storage/adapters/sqlite-gene-storage-adapter.js";
 import { SqliteGeneratorStorageAdapter } from "../../storage/adapters/sqlite-generator-storage-adapter.js";
 import { SqliteGrowthStorageAdapter } from "../../storage/adapters/sqlite-growth-storage-adapter.js";
+import { SqliteMediaStorageAdapter } from "../../storage/adapters/sqlite-media-storage-adapter.js";
 import { SqliteNutrientStorageAdapter } from "../../storage/adapters/sqlite-nutrient-storage-adapter.js";
 import { SqlitePublicationStorageAdapter } from "../../storage/adapters/sqlite-publication-storage-adapter.js";
 import { SqliteSeedStorageAdapter } from "../../storage/adapters/sqlite-seed-storage-adapter.js";
@@ -79,6 +84,7 @@ export interface AppRuntime {
   feedbackController: FeedbackController;
   nutrientController: NutrientController;
   workspaceController: WorkspaceController;
+  mediaController: MediaController;
   close(): void;
 }
 
@@ -97,6 +103,7 @@ export async function bootstrapApp(
   const fruitStorage = new SqliteFruitStorageAdapter(config.databasePath);
   const geneStorage = new SqliteGeneStorageAdapter(config.databasePath);
   const growthStorage = new SqliteGrowthStorageAdapter(config.databasePath);
+  const mediaStorage = new SqliteMediaStorageAdapter(config.databasePath);
   const nutrientStorage = new SqliteNutrientStorageAdapter(config.databasePath);
   const publicationStorage = new SqlitePublicationStorageAdapter(
     config.databasePath,
@@ -115,6 +122,9 @@ export async function bootstrapApp(
     config.contentRootDir,
   );
   const nutrientContentAccess = new LocalNutrientMarkdownContentAccessAdapter(
+    config.contentRootDir,
+  );
+  const mediaContentAccess = new LocalMediaContentAccessAdapter(
     config.contentRootDir,
   );
   const skillRegistry = new SkillRegistry();
@@ -155,6 +165,7 @@ export async function bootstrapApp(
       geneContentAccess,
       nutrientStorage,
       nutrientContentAccess,
+      mediaStorage,
     }),
   );
   toolRegistry.register(
@@ -214,9 +225,14 @@ export async function bootstrapApp(
     afterSeedBriefSaved: (seedId, markdown) =>
       nutrientService.createSuggestionsFromSeedBrief(seedId, markdown).then(() => undefined),
   });
+  const mediaService = new MediaService({
+    storage: mediaStorage,
+    contentAccess: mediaContentAccess,
+  });
   const fruitService = new FruitService({
     storage: fruitStorage,
     contentAccess: fruitContentAccess,
+    mediaStorage,
     onFruitSelectionChanged: ({ seedId, fruitId, selectionState }) => {
       if (selectionState !== "selected" && selectionState !== "eliminated") {
         return Promise.resolve();
@@ -242,6 +258,7 @@ export async function bootstrapApp(
     fruitStorage,
     generatorStorage,
     fruitService,
+    mediaService,
     agentPort: agentRuntime,
     geneUsageTracking: geneService,
     nutrientGapSuggestions: nutrientService,
@@ -262,6 +279,10 @@ export async function bootstrapApp(
             resourceId: ref.resourceId,
           })),
         );
+        await mediaService.assertMediaRefsReferable(
+          scope.seedId,
+          scope.mediaRefs,
+        );
         return {
           ...scope,
           sourceNodeRef: { ...scope.sourceNodeRef },
@@ -269,6 +290,7 @@ export async function bootstrapApp(
           temporaryNutrientCardRefs: scope.temporaryNutrientCardRefs.map((ref) => ({
             ...ref,
           })),
+          mediaRefs: scope.mediaRefs.map((ref) => ({ ...ref })),
           geneRefs: scope.geneRefs.map((ref) => ({ ...ref })),
         };
       },
@@ -290,6 +312,7 @@ export async function bootstrapApp(
     generatorService,
     nutrientService,
     geneService,
+    mediaService,
   });
   const seedController = new HttpSeedController(seedService);
   const generatorController = new HttpGeneratorController(generatorService);
@@ -300,6 +323,7 @@ export async function bootstrapApp(
   const feedbackController = new HttpFeedbackController(feedbackService);
   const nutrientController = new HttpNutrientController(nutrientService);
   const workspaceController = new HttpWorkspaceController(workspaceService);
+  const mediaController = new HttpMediaController(mediaService);
 
   return {
     config,
@@ -312,12 +336,14 @@ export async function bootstrapApp(
     feedbackController,
     nutrientController,
     workspaceController,
+    mediaController,
     close(): void {
       seedStorage.close();
       generatorStorage.close();
       fruitStorage.close();
       geneStorage.close();
       growthStorage.close();
+      mediaStorage.close();
       nutrientStorage.close();
       publicationStorage.close();
       feedbackStorage.close();

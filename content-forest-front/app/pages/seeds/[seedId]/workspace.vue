@@ -3,14 +3,17 @@ import { createFruitApi, type FruitDetail, type FruitSelectionState } from '../.
 import { createFeedbackApi, type FeedbackHistory, type FeedbackSnapshot } from '../../../../src/modules/feedback'
 import { createGeneApi, type GeneEvidenceSource, type GeneSuggestion } from '../../../../src/modules/gene'
 import { createGrowthApi, type GrowthFailedInput, type GrowthMutationIntensity, type GrowthNodeType, type GrowthPathStep, type GrowthSearchMode, type GrowthTaskDetail } from '../../../../src/modules/growth'
+import { createMediaApi, type CreateMediaAssetRequest, type MediaAssetDetail, type SupportedMediaMimeType } from '../../../../src/modules/media'
+import { createNutrientApi, type NutrientCardSummary } from '../../../../src/modules/nutrient'
 import { createPublicationApi, type PublicationRecord } from '../../../../src/modules/publication'
 import { createSeedApi, type SeedBriefDetail } from '../../../../src/modules/seed'
-import { createWorkspaceApi, type WorkspaceNode, type WorkspaceNodeRef, type WorkspaceSnapshot } from '../../../../src/modules/workspace'
+import { createWorkspaceApi, type ReferableWorkspaceMediaAsset, type WorkspaceFruitMediaSummary, type WorkspaceNode, type WorkspaceNodeRef, type WorkspaceSnapshot } from '../../../../src/modules/workspace'
 import NutrientWorkbenchDialog from '../../../components/nutrient/NutrientWorkbenchDialog.vue'
 
 type NodeType = 'seed' | 'fruit'
 type NodeStatus = 'idle' | 'growing' | 'failed'
-type ResourceKind = 'nutrient' | 'gene' | 'nutrient_card'
+type ResourceKind = 'nutrient' | 'gene' | 'nutrient_card' | 'media'
+type MediaUsageValue = 'understand_content' | 'reference_style' | 'reference_structure' | 'generate_copy' | 'platform_sample'
 
 interface TreeNode {
   id: string
@@ -26,6 +29,7 @@ interface TreeNode {
   contentLocation: string
   generatorId?: string | null
   geneTags: string[]
+  media: WorkspaceFruitMediaSummary[]
   records: string[]
   createdAt: string
   updatedAt: string
@@ -46,6 +50,12 @@ interface ResourceRef {
   label: string
   scope: string
   description: string
+  mediaType?: 'image' | 'video'
+  mimeType?: string
+  contentUrl?: string
+  sizeBytes?: number
+  usage?: MediaUsageValue
+  usageNote?: string
 }
 
 interface DragState {
@@ -79,7 +89,7 @@ const route = useRoute()
 const runtimeConfig = useRuntimeConfig()
 const apiBase = String(runtimeConfig.public.apiBase || '')
 
-function fetcher<T>(url: string, options?: { method?: 'GET' | 'POST' | 'PATCH'; body?: unknown }) {
+function fetcher<T>(url: string, options?: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown }) {
   return $fetch<T>(url, {
     method: options?.method,
     body: options?.body as BodyInit | Record<string, unknown> | null | undefined,
@@ -90,6 +100,8 @@ const workspaceApi = createWorkspaceApi(fetcher, apiBase)
 const seedApi = createSeedApi(fetcher, apiBase)
 const fruitApi = createFruitApi(fetcher, apiBase)
 const growthApi = createGrowthApi(fetcher, apiBase)
+const mediaApi = createMediaApi(fetcher, apiBase)
+const nutrientApi = createNutrientApi(fetcher, apiBase)
 const geneApi = createGeneApi(fetcher, apiBase)
 const publicationApi = createPublicationApi(fetcher, apiBase)
 const feedbackApi = createFeedbackApi(fetcher, apiBase)
@@ -133,8 +145,12 @@ const searchModeMenuOpen = ref(false)
 const growthDetailOpen = ref(false)
 const growthIntent = ref('')
 const referencedResources = ref<ResourceRef[]>([])
+const temporaryNutrientCards = ref<NutrientCardSummary[]>([])
 const removedDefaultResourceKeys = ref<string[]>([])
 const growthInputEl = ref<HTMLTextAreaElement | null>(null)
+const mediaInputEl = ref<HTMLInputElement | null>(null)
+const mediaUploading = ref(false)
+const mediaUploadError = ref('')
 const selectedGeneratorId = ref('')
 const fruitCount = ref(3)
 const fruitCountOptions = [1, 2, 3, 4, 5, 6]
@@ -144,6 +160,25 @@ const searchModeOptions: GrowthSearchModeOption[] = [
   { value: 'local_variation', label: '局部变体', hint: '围绕当前表达微调' },
   { value: 'negative_feedback_avoidance', label: '规避负反馈', hint: '避开低效表达' },
 ]
+const mediaUsageOptions = [
+  { value: 'understand_content', label: '理解内容' },
+  { value: 'reference_style', label: '参考风格' },
+  { value: 'reference_structure', label: '参考结构' },
+  { value: 'generate_copy', label: '生成文案' },
+  { value: 'platform_sample', label: '平台样例' },
+] as const
+const defaultMediaUsageOption = mediaUsageOptions[0] as (typeof mediaUsageOptions)[number]
+const defaultMediaUsage = defaultMediaUsageOption.value
+const supportedMediaMimeTypes: SupportedMediaMimeType[] = [
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+]
+const MEDIA_ACCEPT = supportedMediaMimeTypes.join(',')
 const mutationIntensityOptions: GrowthMutationIntensityOption[] = [
   { value: 'conservative', label: '保守', hint: '小步调整' },
   { value: 'balanced', label: '均衡', hint: '推荐' },
@@ -312,6 +347,17 @@ const resourceOptions = computed<ResourceRef[]>(() => {
           : item.library.scope === 'public' ? `公共营养库 · ${item.library.name}` : `种子专属营养库 · ${item.library.name}`,
         description: item.defaultForGrowth ? '默认带入，可在本次移除' : '可作为本次枝化生长参考的营养内容',
       })),
+    ...temporaryNutrientCards.value
+      .filter((item) => item.status === 'unsettled')
+      .map((item) => ({
+        id: item.id,
+        kind: 'nutrient_card' as const,
+        label: item.title,
+        scope: `临时营养 · ${formatDateTime(item.updatedAt)}`,
+        description: '还未沉淀进营养库，可临时参与本次枝化生长',
+      })),
+    ...(resources.mediaAssets ?? [])
+      .map((item) => mediaAssetToResource(item)),
     ...resources.geneInsights
       .filter((item) => item.status === 'active')
       .map((item) => ({
@@ -339,9 +385,15 @@ const filteredResourceGroups = computed(() => [
   },
   {
     kind: 'nutrient_card' as const,
-    title: '草稿营养',
-    subtitle: '草稿营养内容临时参考',
+    title: '临时营养',
+    subtitle: '还未沉淀的营养卡片，可先参与枝化',
     resources: filteredResourceOptions.value.filter((resource) => resource.kind === 'nutrient_card'),
+  },
+  {
+    kind: 'media' as const,
+    title: '媒体',
+    subtitle: '图片、视频与可引用视觉素材',
+    resources: filteredResourceOptions.value.filter((resource) => resource.kind === 'media'),
   },
   {
     kind: 'gene' as const,
@@ -352,7 +404,7 @@ const filteredResourceGroups = computed(() => [
 ].filter((group) => group.resources.length > 0))
 const growthDetailResources = computed(() => referencedResources.value.map((resource) => ({
   ...resource,
-  kindLabel: resource.kind === 'gene' ? '基因' : resource.kind === 'nutrient_card' ? '草稿营养' : '营养',
+  kindLabel: resourceKindLabel(resource.kind),
 })))
 const selectedSearchModeOption = computed<GrowthSearchModeOption>(() => searchModeOptions.find((option) => option.value === selectedSearchMode.value) ?? defaultSearchModeOption)
 const selectedMutationIntensityOption = computed<GrowthMutationIntensityOption>(() => mutationIntensityOptions.find((option) => option.value === selectedMutationIntensity.value) ?? defaultMutationIntensityOption)
@@ -393,6 +445,54 @@ function errorMessage(error: unknown) {
 
 function uniqueStrings(values: string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+}
+
+function resourceKindLabel(kind: ResourceKind) {
+  if (kind === 'media') return '媒体'
+  if (kind === 'gene') return '基因'
+  if (kind === 'nutrient_card') return '临时营养'
+  return '营养'
+}
+
+function resourceIcon(kind: ResourceKind) {
+  if (kind === 'media') return '媒'
+  if (kind === 'gene') return '因'
+  if (kind === 'nutrient_card') return '候'
+  return '养'
+}
+
+function mediaUsageLabel(value: string | undefined) {
+  return mediaUsageOptions.find((option) => option.value === value)?.label ?? defaultMediaUsageOption.label
+}
+
+function mediaAssetToResource(asset: ReferableWorkspaceMediaAsset | MediaAssetDetail, usage: MediaUsageValue = defaultMediaUsage, usageNote = ''): ResourceRef {
+  const typeLabel = asset.mediaType === 'video' ? '视频' : '图片'
+  return {
+    id: asset.id,
+    kind: 'media',
+    label: asset.fileName,
+    scope: `媒体 · ${typeLabel} · ${formatFileSize(asset.sizeBytes)}`,
+    description: asset.mediaType === 'video' ? '可展示和引用，不保证当前 Agent 理解视频内容' : '可作为本次枝化生长的媒体参考',
+    mediaType: asset.mediaType,
+    mimeType: asset.mimeType,
+    contentUrl: asset.contentUrl,
+    sizeBytes: asset.sizeBytes,
+    usage,
+    usageNote,
+  }
+}
+
+function mediaContentSrc(contentUrl: string) {
+  if (/^(https?:|data:|blob:)/i.test(contentUrl)) return contentUrl
+  if (!apiBase || !contentUrl.startsWith('/')) return contentUrl
+  return `${apiBase.replace(/\/$/, '')}${contentUrl}`
+}
+
+function formatFileSize(value: number | null | undefined) {
+  if (!value || value <= 0) return '未知大小'
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / 1024 / 1024).toFixed(1)} MB`
 }
 
 function pathStepStatusLabel(status: GrowthPathStep['status']) {
@@ -455,8 +555,12 @@ async function loadWorkspace(preferredNodeId = selectedNodeId.value) {
   workspaceError.value = ''
 
   try {
-    const nextSnapshot = await workspaceApi.getSeedWorkspace(seedId.value)
+    const [nextSnapshot, nextTemporaryNutrientCards] = await Promise.all([
+      workspaceApi.getSeedWorkspace(seedId.value),
+      nutrientApi.listCards(seedId.value, { status: 'unsettled' }),
+    ])
     snapshot.value = nextSnapshot
+    temporaryNutrientCards.value = nextTemporaryNutrientCards
     if (seedBriefDetail.value?.seedId && seedBriefDetail.value.seedId !== nextSnapshot.seed.id) {
       seedBriefDetail.value = null
       seedBriefDraft.value = ''
@@ -474,10 +578,7 @@ async function loadWorkspace(preferredNodeId = selectedNodeId.value) {
       selectedGeneratorId.value = nextSnapshot.resources.generators[0]?.id || ''
     }
 
-    referencedResources.value = referencedResources.value.filter((resource) => {
-      if (resource.kind === 'nutrient_card') return true
-      return resourceOptions.value.some((item) => item.id === resource.id && item.kind === resource.kind)
-    })
+    referencedResources.value = referencedResources.value.filter((resource) => resourceOptions.value.some((item) => item.id === resource.id && item.kind === resource.kind))
     applyDefaultGrowthNutrients()
     await loadSelectedNodeDetail()
     if (shouldFitAfterLoad) {
@@ -551,6 +652,7 @@ function mapWorkspaceNode(node: WorkspaceNode, position: { x: number; y: number 
       y: position.y,
       contentLocation: snapshot.value?.seed.contentLocation || '',
       geneTags: ['灵感种子', node.archiveState === 'archived' ? '已归档' : '未归档'],
+      media: [],
       records: [node.archiveState === 'archived' ? '种子已归档，工作区只读' : '种子可作为内容树根节点查看'],
       createdAt: snapshot.value?.seed.createdAt || '',
       updatedAt: snapshot.value?.seed.updatedAt || '',
@@ -574,6 +676,7 @@ function mapWorkspaceNode(node: WorkspaceNode, position: { x: number; y: number 
     contentLocation: node.contentLocation,
     generatorId: node.generatorId,
     geneTags: node.geneTags,
+    media: node.media ?? [],
     records: buildFruitRecords(node),
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
@@ -586,6 +689,7 @@ function mapWorkspaceNode(node: WorkspaceNode, position: { x: number; y: number 
 function buildFruitRecords(node: Extract<WorkspaceNode, { nodeType: 'fruit' }>) {
   const records = [`内容路径：${node.contentLocation}`, `更新于：${formatDateTime(node.updatedAt)}`]
   if (node.generatorId) records.unshift(`生成器：${generatorLabel(node.generatorId)}`)
+  if ((node.media ?? []).length > 0) records.unshift(`媒体资源：${node.media.length}`)
   if (node.failedInput.hasFailedInput) records.unshift(`最近失败：${node.failedInput.failureReason || '可恢复输入后重试'}`)
   if (node.growth.isGrowing) records.unshift('枝化生长：生成中')
   return records
@@ -785,6 +889,7 @@ function applyFruitDetail(node: TreeNode, detail: FruitDetail) {
   node.contentLocation = detail.contentLocation
   node.generatorId = detail.generatorId
   node.geneTags = detail.geneTags
+  node.media = detail.media ?? []
   node.createdAt = detail.createdAt
   node.updatedAt = detail.updatedAt
 }
@@ -1554,7 +1659,10 @@ async function toggleEliminatedNodesVisibility() {
 
 function addResource(resource: ResourceRef) {
   if (!referencedResources.value.some((item) => item.id === resource.id && item.kind === resource.kind)) {
-    referencedResources.value = [resource, ...referencedResources.value]
+    referencedResources.value = [{
+      ...resource,
+      usage: resource.kind === 'media' ? (resource.usage ?? defaultMediaUsage) : resource.usage,
+    }, ...referencedResources.value]
   }
   removedDefaultResourceKeys.value = removedDefaultResourceKeys.value.filter((key) => key !== resourceKey(resource))
   growthIntent.value = removeActiveMention(growthIntent.value)
@@ -1585,6 +1693,127 @@ function applyDefaultGrowthNutrients() {
   if (missing.length > 0) {
     referencedResources.value = [...missing, ...referencedResources.value]
   }
+}
+
+function isSupportedMediaMimeType(value: string): value is SupportedMediaMimeType {
+  return supportedMediaMimeTypes.includes(value as SupportedMediaMimeType)
+}
+
+function openMediaUpload() {
+  mediaUploadError.value = ''
+  resourcePopoverOpen.value = false
+  generatorMenuOpen.value = false
+  fruitCountMenuOpen.value = false
+  mutationIntensityMenuOpen.value = false
+  searchModeMenuOpen.value = false
+  mediaInputEl.value?.click()
+}
+
+async function handleMediaFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  await uploadMediaFile(file)
+}
+
+async function uploadMediaFile(file: File) {
+  if (!isSupportedMediaMimeType(file.type)) {
+    mediaUploadError.value = '仅支持 PNG、JPEG、WebP、GIF、MP4、WebM 或 QuickTime'
+    return
+  }
+
+  mediaUploading.value = true
+  mediaUploadError.value = ''
+
+  try {
+    const payload: CreateMediaAssetRequest = {
+      seedId: seedId.value,
+      fileName: file.name,
+      mimeType: file.type,
+      contentBase64: await fileToBase64(file),
+      sourceType: 'user_upload',
+      sourceId: null,
+    }
+    const asset = await mediaApi.createMediaAsset(payload)
+    upsertMediaAssetIntoSnapshot(asset)
+    addResource(mediaAssetToResource(asset))
+  } catch (error) {
+    mediaUploadError.value = errorMessage(error)
+  } finally {
+    mediaUploading.value = false
+  }
+}
+
+function fileToBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('媒体文件读取失败'))
+    reader.onload = () => {
+      const result = String(reader.result || '')
+      resolve(result.includes(',') ? result.split(',')[1] || '' : result)
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+function upsertMediaAssetIntoSnapshot(asset: MediaAssetDetail) {
+  if (!snapshot.value) return
+  const mediaAsset: ReferableWorkspaceMediaAsset = {
+    id: asset.id,
+    seedId: asset.seedId,
+    mediaType: asset.mediaType,
+    mimeType: asset.mimeType,
+    fileName: asset.fileName,
+    sizeBytes: asset.sizeBytes,
+    contentUrl: asset.contentUrl,
+    createdAt: asset.createdAt,
+    updatedAt: asset.updatedAt,
+  }
+  snapshot.value = {
+    ...snapshot.value,
+    resources: {
+      ...snapshot.value.resources,
+      mediaAssets: [
+        mediaAsset,
+        ...(snapshot.value.resources.mediaAssets ?? []).filter((item) => item.id !== asset.id),
+      ],
+    },
+  }
+}
+
+function eventValue(event: Event) {
+  return (event.target as HTMLInputElement | HTMLSelectElement).value
+}
+
+function updateMediaUsage(resource: ResourceRef, usage: string) {
+  if (resource.kind !== 'media') return
+  const nextUsage = mediaUsageOptions.some((option) => option.value === usage) ? usage as MediaUsageValue : defaultMediaUsage
+  referencedResources.value = referencedResources.value.map((item) => {
+    return item.id === resource.id && item.kind === 'media' ? { ...item, usage: nextUsage } : item
+  })
+}
+
+function updateMediaUsageNote(resource: ResourceRef, usageNote: string) {
+  if (resource.kind !== 'media') return
+  referencedResources.value = referencedResources.value.map((item) => {
+    return item.id === resource.id && item.kind === 'media' ? { ...item, usageNote } : item
+  })
+}
+
+function buildMediaUsage(resource: ResourceRef) {
+  const usage = mediaUsageLabel(resource.usage)
+  const note = resource.usageNote?.trim()
+  return note ? `${usage}：${note}` : usage
+}
+
+function restoreMediaUsage(resource: ResourceRef, usage: string) {
+  const matchedOption = mediaUsageOptions.find((option) => usage === option.value || usage.startsWith(option.label))
+  if (!matchedOption) {
+    return { ...resource, usage: defaultMediaUsage, usageNote: usage }
+  }
+  const note = usage.startsWith(`${matchedOption.label}：`) ? usage.slice(matchedOption.label.length + 1).trim() : ''
+  return { ...resource, usage: matchedOption.value, usageNote: note }
 }
 
 function handleNutrientWorkbenchReference(resource: ResourceRef) {
@@ -1700,6 +1929,9 @@ async function startGrowth() {
     const temporaryNutrientCardRefs = referencedResources.value
       .filter((resource) => resource.kind === 'nutrient_card')
       .map((resource) => ({ resourceType: 'nutrient_card' as const, resourceId: resource.id }))
+    const mediaRefs = referencedResources.value
+      .filter((resource) => resource.kind === 'media')
+      .map((resource) => ({ resourceType: 'media' as const, resourceId: resource.id, usage: buildMediaUsage(resource) }))
     const payload = {
       seedId: seedId.value,
       sourceNodeRef: { nodeType: source.nodeType, nodeId: source.id },
@@ -1708,6 +1940,7 @@ async function startGrowth() {
       fruitCount: fruitCount.value,
       nutrientRefs,
       temporaryNutrientCardRefs,
+      mediaRefs,
       geneRefs,
       searchMode: selectedSearchMode.value,
       mutationIntensity: selectedMutationIntensity.value,
@@ -1748,6 +1981,7 @@ function addGrowthPlaceholders(source: TreeNode, count: number, taskId = source.
     contentLocation: '',
     generatorId: selectedGeneratorId.value || null,
     geneTags: ['胚芽装配', '脉冲生成'],
+    media: [],
     records: ['枝化生长任务已提交，等待后端返回真实果实'],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -1866,7 +2100,7 @@ function applyFailedInput(failedInput: GrowthFailedInput) {
   fruitCount.value = failedInput.fruitCount || 3
   selectedSearchMode.value = failedInput.pipelineParams?.searchMode ?? selectedSearchMode.value
   selectedMutationIntensity.value = failedInput.pipelineParams?.mutationIntensity ?? selectedMutationIntensity.value
-  referencedResources.value = [
+  const restoredResources: ResourceRef[] = [
     ...failedInput.nutrientRefs,
     ...failedInput.temporaryNutrientCardRefs,
     ...failedInput.geneRefs,
@@ -1885,6 +2119,22 @@ function applyFailedInput(failedInput: GrowthFailedInput) {
     return null
   })
     .filter((resource): resource is ResourceRef => Boolean(resource))
+
+  let skippedMediaRefs = 0
+  const failedMediaRefs = failedInput.mediaRefs ?? []
+  failedMediaRefs.forEach((ref) => {
+    const matchedResource = resourceOptions.value.find((resource) => resource.id === ref.resourceId && resource.kind === 'media')
+    if (!matchedResource) {
+      skippedMediaRefs += 1
+      return
+    }
+    restoredResources.push(restoreMediaUsage(matchedResource, ref.usage))
+  })
+
+  referencedResources.value = restoredResources
+  if (skippedMediaRefs > 0) {
+    growthError.value = `已跳过 ${skippedMediaRefs} 个不可访问媒体引用`
+  }
 }
 
 async function retryGrowth() {
@@ -2403,6 +2653,34 @@ function formatDateTime(value: string | null | undefined) {
       </header>
 
       <div class="cf-node-detail-body">
+        <section v-if="selectedNode.nodeType === 'fruit' && selectedNode.media.length > 0" class="cf-detail-section">
+          <h2>媒体资源</h2>
+          <div class="cf-media-grid">
+            <article
+              v-for="media in selectedNode.media"
+              :key="media.id"
+              class="cf-media-card"
+              :class="`is-${media.mediaType}`"
+            >
+              <img
+                v-if="media.mediaType === 'image'"
+                :src="mediaContentSrc(media.contentUrl)"
+                :alt="media.fileName"
+              >
+              <video
+                v-else
+                :src="mediaContentSrc(media.contentUrl)"
+                controls
+                preload="metadata"
+              />
+              <div class="cf-media-card-meta">
+                <strong>{{ media.fileName }}</strong>
+                <span>{{ media.mediaType === 'video' ? '视频' : '图片' }} · {{ formatFileSize(media.sizeBytes) }}</span>
+              </div>
+            </article>
+          </div>
+        </section>
+
         <section class="cf-detail-section">
           <h2>正文</h2>
           <p v-if="detailLoading" class="cf-muted">正在读取 Markdown...</p>
@@ -2626,7 +2904,7 @@ function formatDateTime(value: string | null | undefined) {
               type="button"
               @click="addResource(resource)"
             >
-              <span class="cf-resource-icon">{{ resource.kind === 'gene' ? '因' : resource.kind === 'nutrient_card' ? '候' : '养' }}</span>
+              <span class="cf-resource-icon">{{ resourceIcon(resource.kind) }}</span>
               <span class="cf-resource-row-main">
                 <strong>{{ resource.label }}</strong>
                 <span class="cf-resource-meta">{{ resource.scope }}</span>
@@ -2758,7 +3036,7 @@ function formatDateTime(value: string | null | undefined) {
           ref="growthInputEl"
           v-model="growthIntent"
           aria-label="枝化生长意图"
-          placeholder="输入本次枝化生长的想法，或使用 @ 引用营养库和基因库..."
+          placeholder="输入本次枝化生长的想法，或使用 @ 引用营养、媒体和基因..."
           @click="updateResourcePopover"
           @keyup="updateResourcePopover"
           @input="updateResourcePopover"
@@ -2766,10 +3044,21 @@ function formatDateTime(value: string | null | undefined) {
       </div>
 
       <p v-if="growthError" class="cf-inline-error">{{ growthError }}</p>
+      <p v-if="mediaUploading || mediaUploadError" class="cf-inline-error" :class="{ 'is-muted': mediaUploading && !mediaUploadError }">
+        {{ mediaUploading ? '媒体上传中...' : mediaUploadError }}
+      </p>
 
       <div class="cf-growth-footer">
         <div class="cf-growth-tools">
-          <button class="cf-round-tool" type="button" @click="openResourceMention">+</button>
+          <button class="cf-round-tool" type="button" title="引用资源" aria-label="引用资源" @click="openResourceMention">+</button>
+          <button class="cf-round-tool" type="button" title="上传图片或视频" aria-label="上传图片或视频" :disabled="mediaUploading" @click="openMediaUpload">↥</button>
+          <input
+            ref="mediaInputEl"
+            class="cf-media-upload-input"
+            type="file"
+            :accept="MEDIA_ACCEPT"
+            @change="handleMediaFileChange"
+          >
         </div>
         <div class="cf-growth-actions">
           <button class="cf-secondary-action" type="button" @click="growthDetailOpen = !growthDetailOpen">枝化详情</button>
@@ -2814,13 +3103,31 @@ function formatDateTime(value: string | null | undefined) {
         </div>
         <div class="cf-growth-detail-row"><span>引用资源</span><strong>{{ referencedResources.length }}</strong></div>
         <div class="cf-growth-detail-refs">
-          <span
+          <div
             v-for="resource in growthDetailResources"
             :key="`${resource.kind}-${resource.id}`"
             class="cf-ref-chip"
             :class="`is-${resource.kind}`"
           >
             <span>{{ resource.kindLabel }} · {{ resource.label }}</span>
+            <template v-if="resource.kind === 'media'">
+              <select
+                class="cf-media-usage-select"
+                aria-label="媒体用途"
+                :value="resource.usage || defaultMediaUsage"
+                @change="updateMediaUsage(resource, eventValue($event))"
+              >
+                <option v-for="option in mediaUsageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+              <input
+                class="cf-media-usage-note"
+                aria-label="媒体用途备注"
+                :value="resource.usageNote || ''"
+                placeholder="备注"
+                @input="updateMediaUsageNote(resource, eventValue($event))"
+              >
+              <em v-if="resource.mediaType === 'video'">可引用，不保证理解</em>
+            </template>
             <button
               class="cf-mention-remove"
               type="button"
@@ -2829,7 +3136,7 @@ function formatDateTime(value: string | null | undefined) {
             >
               x
             </button>
-          </span>
+          </div>
         </div>
       </div>
     </section>
@@ -4702,6 +5009,55 @@ button:disabled {
   font-size: 12px;
 }
 
+.cf-media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 10px;
+}
+
+.cf-media-card {
+  overflow: hidden;
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(122, 167, 255, .2);
+  border-radius: 8px;
+  background: rgba(122, 167, 255, .07);
+}
+
+.cf-media-card img,
+.cf-media-card video {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  display: block;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, .3);
+  object-fit: cover;
+}
+
+.cf-media-card-meta {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.cf-media-card-meta strong,
+.cf-media-card-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-media-card-meta strong {
+  color: var(--cf-text);
+  font-size: 12px;
+}
+
+.cf-media-card-meta span {
+  color: var(--cf-muted);
+  font-size: 11px;
+}
+
 .cf-gene-grid,
 .cf-growth-detail-refs {
   display: flex;
@@ -5434,6 +5790,12 @@ button:disabled {
   color: #dec9ff;
 }
 
+.cf-mention.is-media {
+  border-color: rgba(122, 167, 255, .3);
+  background: rgba(122, 167, 255, .12);
+  color: #d5e0ff;
+}
+
 .cf-growth-footer {
   justify-content: space-between;
   padding: 0 10px 10px;
@@ -5507,6 +5869,55 @@ button:disabled {
   border-color: rgba(177, 128, 255, .28);
   background: rgba(177, 128, 255, .1);
   color: #dec9ff;
+}
+
+.cf-ref-chip.is-media {
+  max-width: none;
+  flex-wrap: wrap;
+  border-color: rgba(122, 167, 255, .28);
+  background: rgba(122, 167, 255, .1);
+  color: #d5e0ff;
+  white-space: normal;
+}
+
+.cf-ref-chip.is-media > span {
+  flex: 1 1 100%;
+}
+
+.cf-ref-chip.is-media em {
+  flex: 1 1 100%;
+  color: rgba(213, 224, 255, .72);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.cf-media-usage-select,
+.cf-media-usage-note {
+  min-height: 26px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 6px;
+  background: rgba(8, 10, 13, .72);
+  color: var(--cf-text);
+  font-size: 11px;
+}
+
+.cf-media-usage-select {
+  flex: 0 0 96px;
+}
+
+.cf-media-usage-note {
+  flex: 1 1 120px;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.cf-media-upload-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
 }
 
 .cf-send-button {
@@ -5628,6 +6039,12 @@ button:disabled {
   color: #dec9ff;
 }
 
+.cf-resource-group.is-media .cf-resource-icon {
+  border-color: rgba(122, 167, 255, .24);
+  background: rgba(122, 167, 255, .08);
+  color: #d5e0ff;
+}
+
 .cf-resource-row strong,
 .cf-resource-meta {
   display: block;
@@ -5742,6 +6159,10 @@ button:disabled {
   margin: 8px 0;
   color: #ffd7c9;
   font-size: 12px;
+}
+
+.cf-inline-error.is-muted {
+  color: var(--cf-muted);
 }
 
 @keyframes cf-branch-flow {

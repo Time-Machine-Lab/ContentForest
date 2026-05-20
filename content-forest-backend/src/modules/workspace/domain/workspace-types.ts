@@ -9,6 +9,10 @@ import type {
 import type { SelectableGenerator } from "../../generator/domain/generator-types.js";
 import type { GrowthSourceStatus } from "../../growth/domain/growth-types.js";
 import type {
+  FruitMediaAttachmentSummary,
+  MediaAssetSummary,
+} from "../../media/domain/media-types.js";
+import type {
   NutrientGapSuggestion,
   ReferableNutrientContent,
 } from "../../nutrient/domain/nutrient-types.js";
@@ -67,6 +71,7 @@ export interface WorkspaceFruitNode {
   generatorId: string | null;
   summary: string;
   geneTags: string[];
+  media: FruitMediaAttachmentSummary[];
   createdAt: string;
   updatedAt: string;
   growth: GrowthSourceStatus;
@@ -84,6 +89,7 @@ export interface WorkspaceEdge {
 export interface WorkspaceResources {
   generators: SelectableGenerator[];
   nutrients: ReferableNutrientContent[];
+  mediaAssets: MediaAssetSummary[];
   geneInsights: GeneInsightSummary[];
 }
 

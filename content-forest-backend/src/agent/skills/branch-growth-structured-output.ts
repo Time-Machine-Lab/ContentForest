@@ -64,25 +64,20 @@ export async function buildStructuredBranchGrowthCandidate(
 
 export function parseStructuredCandidate(text: string): unknown {
   const cleaned = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-  const direct = tryParseJson(cleaned);
-  if (direct.ok) {
-    return direct.value;
-  }
-
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(cleaned);
-  if (fenced?.[1] !== undefined) {
-    const parsed = tryParseJson(fenced[1].trim());
-    if (parsed.ok) {
+  let firstParsed: unknown | null = null;
+  for (const candidateText of jsonCandidateTexts(cleaned)) {
+    const parsed = tryParseJson(candidateText.trim());
+    if (!parsed.ok) {
+      continue;
+    }
+    firstParsed ??= parsed.value;
+    if (isCandidateFruitLike(parsed.value)) {
       return parsed.value;
     }
   }
 
-  const objectText = extractFirstJsonObject(cleaned);
-  if (objectText !== null) {
-    const parsed = tryParseJson(objectText);
-    if (parsed.ok) {
-      return parsed.value;
-    }
+  if (firstParsed !== null) {
+    return firstParsed;
   }
 
   throw new ApplicationError(
@@ -112,9 +107,11 @@ async function askForCandidate(input: BuildStructuredCandidateInput): Promise<st
           "routeId、routeSummary、mutationOperators、riskWarnings 只能记录本次候选的路线摘要、路线标识、突变算子和风险提示，不得声明已保存、已发布或已完成任务。",
           "referenceUsage 用来声明实际参考了哪些授权资源或参考原子；只声明确实落到候选果实里的项，无法确认时输出 [] 或 status:'unverified'。",
           "referenceUsage 每项必须包含 sourceType、resourceType、resourceId、status、atomIds、actions、slots、usageSummary、evidenceStrength、riskLevel。",
+          "Prefer meta.referenceUsage: [] unless you can copy exact sourceType/resourceType/resourceId/atomIds/actions/slots from the provided reference plan. The backend will derive actual referenceUsage from usedResourceRefs and planned usage.",
+          "Allowed referenceUsage.actions: ground, constrain, shape, style, inherit, adapt, combine, mutate, criticize, avoid. Allowed referenceUsage.slots: title_hook, opening, audience_scenario, body_structure, script_or_shot, visual_audio, proof_evidence, wording_style, cta_conversion, risk_review, fact_check. Do not invent labels such as derive/extract/cite/quote or Chinese resource-category labels.",
           "如果使用了高风险、广告 brief、论文候选主张或 fact_check/risk_review 相关参考，必须填写 riskHandlingSummary 或 factCheckSummary。",
           "warnings 可以记录本次探索方向摘要、内容边界或不确定性，但不要声明系统事实。",
-          "usedResourceRefs 必须是对象数组，每项格式为 {\"resourceType\":\"nutrient\"|\"nutrient_card\"|\"gene\",\"resourceId\":\"资源ID\"}，不要只输出字符串数组。",
+          "usedResourceRefs 必须是对象数组，每项格式为 {\"resourceType\":\"nutrient\"|\"nutrient_card\"|\"media\"|\"gene\",\"resourceId\":\"资源ID\"}，不要只输出字符串数组。",
           `本次唯一允许写入 usedResourceRefs 的资源引用是：${formatAllowedResourceRefs(input.validationOptions)}。`,
           "生成器名称、生成器 Skill、生成器内部 references 文件都不是 gene 或 nutrient，禁止写入 usedResourceRefs。",
           "如果不能确认使用了允许列表中的某个资源，usedResourceRefs 输出空数组。",
@@ -154,7 +151,9 @@ async function askForRepair(
           "meta.summary 必须修复为 5 到 20 个字的果实标题，只保留内容精华。",
           "如果 payload.markdown 含有 <think>、候选分析、策略解释或中间推理，请删除这些内容，只保留用户可见正文。",
           "只输出一个 JSON 对象。",
-          "输出必须符合候选果实结构，usedResourceRefs 必须是对象数组：[{\"resourceType\":\"gene\",\"resourceId\":\"gene_1\"}]；referenceUsage 必须只引用授权资源；routeId、routeSummary、mutationOperators、riskWarnings 为候选 meta，不得声明系统事实。",
+          "输出必须符合候选果实结构，usedResourceRefs 必须是对象数组：[{\"resourceType\":\"media\",\"resourceId\":\"media-asset_1\"}]；referenceUsage 必须只引用授权资源；routeId、routeSummary、mutationOperators、riskWarnings 为候选 meta，不得声明系统事实。",
+          "If referenceUsage contains invalid actions, invalid slots, old enum names, or Chinese category labels, set referenceUsage to [] and keep only authorized usedResourceRefs. The backend will reconstruct actual usage from the plan.",
+          "If high-risk usage is kept, include riskHandlingSummary or factCheckSummary. If you are unsure, set referenceUsage to [].",
           `本次唯一允许写入 usedResourceRefs 的资源引用是：${formatAllowedResourceRefs(input.validationOptions)}。`,
           "如果原始输出包含未授权资源引用，请删除该引用，或仅替换为允许列表中真实匹配的引用；禁止编造资源 ID。",
           "生成器名称、生成器 Skill、生成器内部 references 文件都不是 gene 或 nutrient，禁止写入 usedResourceRefs。",
@@ -181,13 +180,74 @@ function tryParseJson(text: string): { ok: true; value: unknown } | { ok: false 
   }
 }
 
-function extractFirstJsonObject(text: string): string | null {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) {
-    return null;
+function jsonCandidateTexts(text: string): string[] {
+  return [
+    text,
+    ...extractFencedBlocks(text),
+    ...extractBalancedJsonObjects(text),
+  ];
+}
+
+function extractFencedBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  const pattern = /```(?:json)?\s*([\s\S]*?)```/gi;
+  for (const match of text.matchAll(pattern)) {
+    if (match[1] !== undefined) {
+      blocks.push(match[1]);
+    }
   }
-  return text.slice(start, end + 1);
+  return blocks;
+}
+
+function extractBalancedJsonObjects(text: string): string[] {
+  const objects: string[] = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaping = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaping) {
+        escaping = false;
+      } else if (char === "\\") {
+        escaping = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      if (depth === 0) {
+        start = index;
+      }
+      depth += 1;
+      continue;
+    }
+    if (char === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        objects.push(text.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+
+  return objects;
+}
+
+function isCandidateFruitLike(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as { type?: unknown }).type === "candidate_fruit"
+  );
 }
 
 function truncate(value: string, maxLength: number): string {

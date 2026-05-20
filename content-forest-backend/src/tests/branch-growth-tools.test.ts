@@ -11,6 +11,7 @@ import {
 } from "../modules/nutrient/domain/nutrient-types.js";
 import { InMemoryGeneStorageAdapter } from "../storage/adapters/in-memory-gene-storage-adapter.js";
 import { InMemoryGeneratorStorageAdapter } from "../storage/adapters/in-memory-generator-storage-adapter.js";
+import { InMemoryMediaStorageAdapter } from "../storage/adapters/in-memory-media-storage-adapter.js";
 import { InMemoryNutrientStorageAdapter } from "../storage/adapters/in-memory-nutrient-storage-adapter.js";
 import { ReadGeneratorSkillTool } from "../agent/tools/read-generator-skill-tool.js";
 import { ExecuteGeneratorScriptTool } from "../agent/tools/execute-generator-script-tool.js";
@@ -25,6 +26,7 @@ const context: AgentTaskContext = {
       generatorId: "generator_1",
       nutrientRefs: [],
       temporaryNutrientCardRefs: [],
+      mediaRefs: [],
       geneRefs: [],
     },
   },
@@ -39,6 +41,11 @@ function resourceContext(
     resourceType: "nutrient_card";
     resourceId: string;
   }> = [],
+  mediaRefs: Array<{
+    resourceType: "media";
+    resourceId: string;
+    usage: string;
+  }> = [],
 ): AgentTaskContext {
   return {
     ...context,
@@ -49,6 +56,7 @@ function resourceContext(
         generatorId: "generator_1",
         nutrientRefs,
         temporaryNutrientCardRefs,
+        mediaRefs,
         geneRefs,
       },
     },
@@ -169,6 +177,51 @@ describe("Branch growth generator tools", () => {
         context,
       ),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("collects generated media files from authorized generator scripts", async () => {
+    const { storage, contentAccess } = await createFixture();
+    contentAccess.setGeneratorSkill("generators/generator_1", {
+      "SKILL.md": "# Skill",
+      "scripts/media.mjs": [
+        "import { writeFileSync } from 'node:fs';",
+        "export default () => {",
+        "  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64');",
+        "  writeFileSync('cover.png', png);",
+        "  return {",
+        "    payload: '# 带图 payload',",
+        "    mediaArtifacts: [{ mimeType: 'image/png', relativePath: 'cover.png', displayRole: 'primary', required: true }],",
+        "  };",
+        "};",
+      ].join("\n"),
+    });
+    const tool = new ExecuteGeneratorScriptTool({
+      generatorStorage: storage,
+      contentAccess,
+      timeoutMs: 1_000,
+    });
+
+    const output = await tool.execute(
+      {
+        generatorId: "generator_1",
+        scriptPath: "scripts/media.mjs",
+      },
+      context,
+    );
+
+    expect(output.content).toMatchObject({
+      payload: "# 带图 payload",
+    });
+    expect(output.candidateMediaArtifacts).toEqual([
+      expect.objectContaining({
+        mimeType: "image/png",
+        fileName: "cover.png",
+        displayRole: "primary",
+        required: true,
+        content: expect.any(Buffer),
+      }),
+    ]);
+    expect(JSON.stringify(output.content)).not.toContain(":\\");
   });
 
   it("wraps script timeout, abnormal exit and oversized output", async () => {
@@ -331,6 +384,50 @@ describe("Branch growth resource tool", () => {
     expect(JSON.stringify(output.content)).not.toContain("Other seed card markdown");
     expect(JSON.stringify(output.content)).not.toContain("Archived card markdown");
   });
+
+  it("reads authorized media resources as URL summaries without content locations", async () => {
+    const fixture = await createResourceFixture();
+    const tool = new ReadGrowthResourcesTool(fixture);
+
+    const output = await tool.execute(
+      {},
+      resourceContext(
+        [],
+        [],
+        [],
+        [
+          {
+            resourceType: "media",
+            resourceId: "media_1",
+            usage: "参考封面视觉风格",
+          },
+          {
+            resourceType: "media",
+            resourceId: "media_other_seed",
+            usage: "不应跨种子读取",
+          },
+        ],
+      ),
+    );
+
+    expect(output.content).toMatchObject({
+      mediaAssets: [
+        {
+          resourceType: "media",
+          resourceId: "media_1",
+          usage: "参考封面视觉风格",
+          mediaType: "image",
+          mimeType: "image/png",
+          fileName: "cover.png",
+          contentUrl: "/api/media-assets/media_1/content",
+        },
+      ],
+    });
+    expect(JSON.stringify(output.content)).not.toContain("contentLocation");
+    expect(
+      JSON.stringify((output.content as { mediaAssets: unknown[] }).mediaAssets),
+    ).not.toContain("media_other_seed");
+  });
 });
 
 async function createResourceFixture(): Promise<{
@@ -338,11 +435,13 @@ async function createResourceFixture(): Promise<{
   geneContentAccess: InMemoryGeneMarkdownContentAccessAdapter;
   nutrientStorage: InMemoryNutrientStorageAdapter;
   nutrientContentAccess: InMemoryNutrientMarkdownContentAccessAdapter;
+  mediaStorage: InMemoryMediaStorageAdapter;
 }> {
   const geneStorage = new InMemoryGeneStorageAdapter();
   const geneContentAccess = new InMemoryGeneMarkdownContentAccessAdapter();
   const nutrientStorage = new InMemoryNutrientStorageAdapter();
   const nutrientContentAccess = new InMemoryNutrientMarkdownContentAccessAdapter();
+  const mediaStorage = new InMemoryMediaStorageAdapter();
   const timestamp = "2026-01-01T00:00:00.000Z";
 
   await createNutrientLibrary(nutrientStorage, {
@@ -468,12 +567,39 @@ async function createResourceFixture(): Promise<{
     updatedAt: timestamp,
     archivedAt: null,
   });
+  await mediaStorage.createMediaAsset({
+    id: "media_1",
+    seedId: "seed_1",
+    mediaType: "image",
+    mimeType: "image/png",
+    fileName: "cover.png",
+    sizeBytes: 8,
+    contentLocation: "media/media_1/cover.png",
+    sourceType: "user_upload",
+    sourceId: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+  await mediaStorage.createMediaAsset({
+    id: "media_other_seed",
+    seedId: "seed_2",
+    mediaType: "image",
+    mimeType: "image/png",
+    fileName: "other.png",
+    sizeBytes: 8,
+    contentLocation: "media/media_other_seed/other.png",
+    sourceType: "user_upload",
+    sourceId: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
 
   return {
     geneStorage,
     geneContentAccess,
     nutrientStorage,
     nutrientContentAccess,
+    mediaStorage,
   };
 }
 

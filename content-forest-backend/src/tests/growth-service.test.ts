@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPort } from "../agent/ports/agent-port.js";
+import {
+  attachCandidateMediaArtifacts,
+  type CandidateMediaArtifactPayload,
+} from "../agent/runtime/candidate-media-artifact.js";
 import type { AgentTask, AgentTaskResult } from "../agent/runtime/agent-task.js";
 import { InMemoryFruitMarkdownContentAccessAdapter } from "../content-access/adapters/in-memory-fruit-markdown-content-access-adapter.js";
+import { InMemoryMediaContentAccessAdapter } from "../content-access/adapters/in-memory-media-content-access-adapter.js";
 import { FruitService } from "../modules/fruit/application/fruit-service.js";
 import {
   GENE_USAGE_OUTCOMES,
@@ -23,12 +28,14 @@ import {
   type GrowthAuthorizationScope,
   type GrowthMutationPlan,
 } from "../modules/growth/domain/growth-types.js";
+import { MediaService } from "../modules/media/application/media-service.js";
 import { SEED_ARCHIVE_STATES } from "../modules/seed/domain/seed-types.js";
 import { ApplicationError } from "../shared/errors/application-error.js";
 import type { IdGenerator } from "../shared/utils/id-generator.js";
 import { InMemoryFruitStorageAdapter } from "../storage/adapters/in-memory-fruit-storage-adapter.js";
 import { InMemoryGeneratorStorageAdapter } from "../storage/adapters/in-memory-generator-storage-adapter.js";
 import { InMemoryGrowthStorageAdapter } from "../storage/adapters/in-memory-growth-storage-adapter.js";
+import { InMemoryMediaStorageAdapter } from "../storage/adapters/in-memory-media-storage-adapter.js";
 import { InMemorySeedStorageAdapter } from "../storage/adapters/in-memory-seed-storage-adapter.js";
 
 function createIdGenerator(): IdGenerator {
@@ -255,6 +262,105 @@ function structuredCandidateAgent(): AgentPort {
   };
 }
 
+function mediaUsingAgent(capturedTasks: AgentTask[] = []): AgentPort {
+  return {
+    async runTask(task: AgentTask): Promise<AgentTaskResult> {
+      capturedTasks.push(task);
+      return {
+        ok: true,
+        taskId: task.taskId ?? "agent_media",
+        output: {
+          taskType: "growth",
+          content: {
+            type: "candidate_fruit",
+            payload: {
+              markdown: "# 媒体参考果实",
+              rawGeneratorOutput: "# 媒体参考果实",
+              attachments: [],
+            },
+            meta: {
+              summary: "媒体候选摘要",
+              geneTags: ["媒体参考"],
+              usedResourceRefs: [
+                { resourceType: "media", resourceId: "media_1" },
+              ],
+              mutationOperators: [],
+              warnings: [],
+              riskWarnings: [],
+            },
+          },
+        },
+        trace: [],
+      };
+    },
+  };
+}
+
+const tinyPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+  "base64",
+);
+
+function candidateMediaArtifact(
+  overrides: Partial<CandidateMediaArtifactPayload> = {},
+): CandidateMediaArtifactPayload {
+  return {
+    id: "candidate_cover",
+    sourceToolName: "make_cover",
+    mediaType: "image",
+    mimeType: "image/png",
+    fileName: "cover.png",
+    sizeBytes: tinyPng.byteLength,
+    displayRole: "primary",
+    required: false,
+    attachToFruit: true,
+    purpose: "cover",
+    temporaryResourceRef: null,
+    warnings: [],
+    content: tinyPng,
+    ...overrides,
+  };
+}
+
+function generatedMediaAgent(input: {
+  artifact?: CandidateMediaArtifactPayload;
+  attachments?: string[];
+  usedResourceRefs?: unknown[];
+} = {}): AgentPort {
+  return {
+    async runTask(task: AgentTask): Promise<AgentTaskResult> {
+      const output = attachCandidateMediaArtifacts(
+        {
+          taskType: "growth",
+          content: {
+            type: "candidate_fruit",
+            payload: {
+              markdown: "# 带图果实",
+              rawGeneratorOutput: "# 带图果实",
+              attachments: input.attachments ?? [],
+            },
+            meta: {
+              summary: "带图候选果实",
+              geneTags: ["封面"],
+              usedResourceRefs: input.usedResourceRefs ?? [],
+              mutationOperators: [],
+              warnings: [],
+              riskWarnings: [],
+            },
+          },
+        },
+        [input.artifact ?? candidateMediaArtifact()],
+      );
+      return {
+        ok: true,
+        taskId: task.taskId ?? "agent_generated_media",
+        output,
+        trace: [],
+      };
+    },
+  };
+}
+
 function concurrentSuccessAgent(input: {
   capturedTasks: AgentTask[];
   metrics: { active: number; maxActive: number };
@@ -298,12 +404,15 @@ async function createFixture(
   seedStorage: InMemorySeedStorageAdapter;
   fruitStorage: InMemoryFruitStorageAdapter;
   generatorStorage: InMemoryGeneratorStorageAdapter;
+  mediaStorage: InMemoryMediaStorageAdapter;
+  mediaService: MediaService;
   fruitService: FruitService;
   scheduler: ReturnType<typeof createManualGrowthScheduler>;
 }> {
   const seedStorage = new InMemorySeedStorageAdapter();
   const fruitStorage = new InMemoryFruitStorageAdapter();
   const generatorStorage = new InMemoryGeneratorStorageAdapter();
+  const mediaStorage = new InMemoryMediaStorageAdapter();
   const storage = new InMemoryGrowthStorageAdapter();
   const now = createNow();
   const scheduler = createManualGrowthScheduler();
@@ -352,6 +461,13 @@ async function createFixture(
   const fruitService = new FruitService({
     storage: fruitStorage,
     contentAccess: new InMemoryFruitMarkdownContentAccessAdapter(),
+    mediaStorage,
+    idGenerator: createIdGenerator(),
+    now,
+  });
+  const mediaService = new MediaService({
+    storage: mediaStorage,
+    contentAccess: new InMemoryMediaContentAccessAdapter(),
     idGenerator: createIdGenerator(),
     now,
   });
@@ -361,6 +477,7 @@ async function createFixture(
     fruitStorage,
     generatorStorage,
     fruitService,
+    mediaService,
     agentPort,
     geneUsageTracking: options.geneUsageTracking,
     nutrientUsageTracking: options.nutrientUsageTracking,
@@ -376,6 +493,8 @@ async function createFixture(
     seedStorage,
     fruitStorage,
     generatorStorage,
+    mediaStorage,
+    mediaService,
     fruitService,
     scheduler,
   };
@@ -675,6 +794,291 @@ describe("GrowthService", () => {
       plannedReferenceUsage: expect.any(Array),
     });
     expect(plans[0]?.plannedReferenceUsage).not.toEqual(plans[1]?.plannedReferenceUsage);
+  });
+
+  it("authorizes mediaRefs and rejects inaccessible media before scheduling", async () => {
+    const scopes: GrowthAuthorizationScope[] = [];
+    const referenceAuthorization: GrowthReferenceAuthorizationPort = {
+      async authorize(scope: GrowthAuthorizationScope): Promise<GrowthAuthorizationScope> {
+        scopes.push(scope);
+        if (scope.mediaRefs.some((ref) => ref.resourceId !== "media_1")) {
+          throw new ApplicationError("VALIDATION_ERROR", "媒体资源不可访问", 400);
+        }
+        return {
+          ...scope,
+          sourceNodeRef: { ...scope.sourceNodeRef },
+          nutrientRefs: scope.nutrientRefs.map((ref) => ({ ...ref })),
+          temporaryNutrientCardRefs: scope.temporaryNutrientCardRefs.map((ref) => ({
+            ...ref,
+          })),
+          mediaRefs: scope.mediaRefs.map((ref) => ({ ...ref })),
+          geneRefs: scope.geneRefs.map((ref) => ({ ...ref })),
+        };
+      },
+    };
+    const fixture = await createFixture(successAgent(), { referenceAuthorization });
+
+    const result = await fixture.service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      mediaRefs: [
+        { resourceType: "media", resourceId: "media_1", usage: "参考封面视觉" },
+      ],
+    });
+
+    expect(scopes[0]?.mediaRefs).toEqual([
+      { resourceType: "media", resourceId: "media_1", usage: "参考封面视觉" },
+    ]);
+    expect(result.task.authorizationScope.mediaRefs).toEqual([
+      { resourceType: "media", resourceId: "media_1", usage: "参考封面视觉" },
+    ]);
+
+    const rejectingFixture = await createFixture(successAgent(), {
+      referenceAuthorization,
+    });
+    await expect(
+      rejectingFixture.service.startGrowthTask({
+        seedId: "seed_1",
+        sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+        generatorId: "generator_1",
+        mediaRefs: [
+          { resourceType: "media", resourceId: "media_missing", usage: "不可访问" },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(ApplicationError);
+    expect(rejectingFixture.scheduler.pendingCount()).toBe(0);
+  });
+
+  it("routes media references into ReferenceAtom, planned usage, and actual usage", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const { service, scheduler } = await createFixture(mediaUsingAgent(capturedTasks));
+
+    const result = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      userInput: "基于图片做一版封面文案",
+      generatorId: "generator_1",
+      fruitCount: 1,
+      mediaRefs: [
+        { resourceType: "media", resourceId: "media_1", usage: "参考封面视觉风格" },
+      ],
+    });
+
+    await scheduler.runAll();
+    const completed = await service.getGrowthTask(result.task.id);
+    const attempt = completed.attempts[0];
+
+    expect(capturedTasks[0]?.input).toMatchObject({
+      authorizationScope: {
+        mediaRefs: [
+          {
+            resourceType: "media",
+            resourceId: "media_1",
+            usage: "参考封面视觉风格",
+          },
+        ],
+      },
+    });
+    expect(attempt?.referenceAtoms).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceType: "media",
+          resourceType: "media",
+          resourceId: "media_1",
+          atomType: "visual_audio_asset",
+        }),
+      ]),
+    );
+    expect(attempt?.plannedReferenceUsage).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceType: "media",
+          resourceType: "media",
+          resourceId: "media_1",
+          status: "planned",
+        }),
+      ]),
+    );
+    expect(attempt?.actualReferenceUsage).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceType: "media",
+          resourceType: "media",
+          resourceId: "media_1",
+          status: "actual",
+        }),
+      ]),
+    );
+  });
+
+  it("keeps pure text generator output working when no candidate media is returned", async () => {
+    const { service, fruitService, scheduler } = await createFixture(successAgent());
+
+    const result = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 1,
+    });
+
+    await scheduler.runAll();
+    const completed = await service.getGrowthTask(result.task.id);
+    const fruit = await fruitService.getFruit(completed.successfulFruitIds[0] ?? "");
+
+    expect(completed.status).toBe(GROWTH_TASK_STATUSES.completed);
+    expect(fruit.media).toEqual([]);
+  });
+
+  it("takes over generated media candidates and attaches successful Media Assets to fruits", async () => {
+    const { service, fruitService, scheduler } = await createFixture(generatedMediaAgent());
+
+    const result = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 1,
+    });
+
+    await scheduler.runAll();
+    const completed = await service.getGrowthTask(result.task.id);
+    const attempt = completed.attempts[0];
+    const fruit = await fruitService.getFruit(completed.successfulFruitIds[0] ?? "");
+
+    expect(completed.status).toBe(GROWTH_TASK_STATUSES.completed);
+    expect(fruit.media).toEqual([
+      expect.objectContaining({
+        id: "media-asset_1",
+        sourceType: "generated_output",
+        sourceId: attempt?.id,
+        displayRole: "primary",
+        contentUrl: "/api/media-assets/media-asset_1/content",
+      }),
+    ]);
+    expect(attempt?.agentOutput.metadata).toMatchObject({
+      candidateMediaArtifacts: [
+        expect.objectContaining({
+          id: "candidate_cover",
+          sourceToolName: "make_cover",
+          fileName: "cover.png",
+        }),
+      ],
+      mediaAttachments: [
+        expect.objectContaining({
+          mediaAssetId: "media-asset_1",
+          displayRole: "primary",
+        }),
+      ],
+    });
+    expect(JSON.stringify(attempt?.agentOutput)).not.toContain("iVBOR");
+    expect(attempt?.actualReferenceUsage ?? []).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ resourceType: "media" }),
+      ]),
+    );
+  });
+
+  it("warns for optional media takeover failures and fails attempts for required media", async () => {
+    const optionalFixture = await createFixture(generatedMediaAgent({
+      artifact: candidateMediaArtifact({
+        content: undefined,
+        sizeBytes: 0,
+        required: false,
+      }),
+    }));
+    const optional = await optionalFixture.service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 1,
+    });
+    await optionalFixture.scheduler.runAll();
+    const optionalCompleted = await optionalFixture.service.getGrowthTask(optional.task.id);
+    const optionalFruit = await optionalFixture.fruitService.getFruit(
+      optionalCompleted.successfulFruitIds[0] ?? "",
+    );
+
+    expect(optionalCompleted.status).toBe(GROWTH_TASK_STATUSES.completed);
+    expect(optionalFruit.media).toEqual([]);
+    expect(optionalCompleted.attempts[0]?.agentOutput.metadata).toMatchObject({
+      mediaTakeoverWarnings: [
+        expect.stringContaining("候选媒体 candidate_cover 接管失败"),
+      ],
+    });
+
+    const requiredFixture = await createFixture(generatedMediaAgent({
+      artifact: candidateMediaArtifact({
+        content: undefined,
+        sizeBytes: 0,
+        required: true,
+      }),
+    }));
+    const required = await requiredFixture.service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 1,
+    });
+    await requiredFixture.scheduler.runAll();
+    const requiredCompleted = await requiredFixture.service.getGrowthTask(required.task.id);
+
+    expect(requiredCompleted.status).toBe(GROWTH_TASK_STATUSES.failed);
+    expect(requiredCompleted.attempts[0]).toMatchObject({
+      status: GROWTH_ATTEMPT_STATUSES.failed,
+      failureReason: expect.stringContaining("候选媒体 candidate_cover 接管失败"),
+    });
+  });
+
+  it("does not turn payload attachment paths into formal media assets or leaked output", async () => {
+    const attachmentOnlyAgent: AgentPort = {
+      async runTask(task: AgentTask): Promise<AgentTaskResult> {
+        return {
+          ok: true,
+          taskId: task.taskId ?? "agent_attachment_only",
+          output: {
+            taskType: "growth",
+            content: {
+              type: "candidate_fruit",
+              payload: {
+                markdown: "# 附件兼容果实",
+                rawGeneratorOutput: "# 附件兼容果实",
+                attachments: ["D:\\secret\\generated-cover.png"],
+              },
+              meta: {
+                summary: "附件兼容果实",
+                geneTags: [],
+                usedResourceRefs: [],
+                mutationOperators: [],
+                warnings: [],
+                riskWarnings: [],
+              },
+            },
+          },
+          trace: [],
+        };
+      },
+    };
+    const { service, fruitService, scheduler } = await createFixture(attachmentOnlyAgent);
+
+    const result = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_1",
+      fruitCount: 1,
+    });
+
+    await scheduler.runAll();
+    const completed = await service.getGrowthTask(result.task.id);
+    const fruit = await fruitService.getFruit(completed.successfulFruitIds[0] ?? "");
+
+    expect(completed.status).toBe(GROWTH_TASK_STATUSES.completed);
+    expect(fruit.media).toEqual([]);
+    expect(JSON.stringify(completed.attempts[0]?.agentOutput)).not.toContain("D:\\secret");
+    expect(completed.attempts[0]?.agentOutput.content).toMatchObject({
+      payload: {
+        attachments: ["[local-path]"],
+      },
+    });
   });
 
   it("infers platform and content form by generator, user, system, then fallback priority", async () => {

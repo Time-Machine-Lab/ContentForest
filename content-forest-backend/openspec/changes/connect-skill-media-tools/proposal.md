@@ -7,6 +7,8 @@
 - Agent Runtime 支持在执行生成器 Skill 时调用 Skill 提供的工具。
 - Skill 工具产出的图片、视频或其他媒体产物由 Agent 收集为候选媒体产物。
 - 枝化生长结果封装阶段将候选媒体产物交给 Media Asset 能力保存，再挂载到果实。
+- 明确区分“用户上传并授权的媒体输入引用”和“Skill 工具生成的媒体输出产物”：前者进入 Reference Planner，后者进入候选媒体产物接管流程。
+- 候选果实 `payload.attachments` 只能作为兼容字段或生成器原始输出提示，不能直接等同于正式 Media Asset。
 - 生成器不需要声明统一媒体能力，也不需要输出内容森林专用果实结构。
 - 该提案依赖 `add-media-asset-backend` 提供媒体资源保存和果实挂载能力。
 
@@ -19,8 +21,8 @@
 ### Modified Capabilities
 
 - `agent-core-runtime`: Agent Runtime 执行 Skill 时需要允许受控工具调用并收集媒体产物。
-- `branch-growth-agent-connection`: 枝化生长 AgentPort 输出需要包含可接管媒体产物引用。
-- `branch-growth-agent-skill`: 枝化生长 Skill 需要把生成器产物中的媒体资源纳入果实候选封装。
+- `branch-growth-agent-connection`: 枝化生长 AgentPort 输出需要包含可接管媒体产物摘要，并保持该摘要不暴露前端可访问地址或本机绝对路径。
+- `branch-growth-agent-skill`: 枝化生长 Skill 需要把生成器产物中的媒体资源纳入果实候选封装，但不得把生成出来的新媒体写入 usedResourceRefs。
 
 ## Impact
 

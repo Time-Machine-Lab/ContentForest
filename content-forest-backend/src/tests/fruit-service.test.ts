@@ -6,6 +6,7 @@ import { FRUIT_SELECTION_STATES } from "../modules/fruit/domain/fruit-types.js";
 import { ApplicationError } from "../shared/errors/application-error.js";
 import type { IdGenerator } from "../shared/utils/id-generator.js";
 import { InMemoryFruitStorageAdapter } from "../storage/adapters/in-memory-fruit-storage-adapter.js";
+import { InMemoryMediaStorageAdapter } from "../storage/adapters/in-memory-media-storage-adapter.js";
 import type {
   FruitRecord,
   FruitStoragePort,
@@ -30,6 +31,16 @@ function createFruitService(): FruitService {
       return new Date(`2026-01-01T00:00:${String(timeCounter).padStart(2, "0")}.000Z`);
     },
   });
+}
+
+function createIdGeneratorForTest(): IdGenerator {
+  let idCounter = 0;
+  return {
+    nextId(prefix: string): string {
+      idCounter += 1;
+      return `${prefix}_${idCounter}`;
+    },
+  };
 }
 
 describe("FruitService", () => {
@@ -87,6 +98,53 @@ describe("FruitService", () => {
       geneTags: [],
       markdown: "# 初代果实",
     });
+  });
+
+  it("stores media attachments outside markdown and returns attachment summaries", async () => {
+    const mediaStorage = new InMemoryMediaStorageAdapter();
+    await mediaStorage.createMediaAsset({
+      id: "media_1",
+      seedId: "seed_1",
+      mediaType: "image",
+      mimeType: "image/png",
+      fileName: "cover.png",
+      sizeBytes: 8,
+      contentLocation: "media/media_1/cover.png",
+      sourceType: "user_upload",
+      sourceId: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const service = new FruitService({
+      storage: new InMemoryFruitStorageAdapter(),
+      contentAccess: new InMemoryFruitMarkdownContentAccessAdapter(),
+      mediaStorage,
+      idGenerator: createIdGeneratorForTest(),
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    const fruit = await service.createFruitFromCandidate({
+      markdown: "# 有媒体果实",
+      parentNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      mediaAttachments: [
+        { mediaAssetId: "media_1", displayRole: "primary", sortOrder: 0 },
+      ],
+    });
+    const detail = await service.getFruit(fruit.id);
+
+    expect(detail.markdown).toBe("# 有媒体果实");
+    expect(detail.media).toEqual([
+      expect.objectContaining({
+        id: "media_1",
+        mediaType: "image",
+        mimeType: "image/png",
+        fileName: "cover.png",
+        displayRole: "primary",
+        sortOrder: 0,
+        contentUrl: "/api/media-assets/media_1/content",
+      }),
+    ]);
+    expect(JSON.stringify(detail.media)).not.toContain("contentLocation");
   });
 
   it("edits markdown without changing identity, parent relationship, or selection state", async () => {

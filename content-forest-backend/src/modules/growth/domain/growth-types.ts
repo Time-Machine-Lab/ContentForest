@@ -22,6 +22,7 @@ export type GrowthSourceNodeRef = ParentNodeRef;
 
 export type GrowthResourceType = "nutrient" | "gene";
 export type GrowthTemporaryResourceType = "nutrient_card";
+export type GrowthMediaResourceType = "media";
 
 export const GROWTH_SEARCH_MODES = {
   broadExploration: "broad_exploration",
@@ -60,6 +61,12 @@ export interface GrowthResourceRef {
 export interface GrowthTemporaryNutrientCardRef {
   resourceType: GrowthTemporaryResourceType;
   resourceId: string;
+}
+
+export interface GrowthMediaRef {
+  resourceType: GrowthMediaResourceType;
+  resourceId: string;
+  usage: string;
 }
 
 export interface GrowthPipelineParams {
@@ -114,6 +121,7 @@ export type ReferencePlanSourceType =
   | "nutrient"
   | "formal_nutrient"
   | "temporary_nutrient_card"
+  | "media"
   | "gene"
   | "feedback"
   | "research_context"
@@ -206,7 +214,7 @@ export type ReferenceUsageStatus =
 
 export interface ReferenceSourceRef {
   sourceType: ReferencePlanSourceType;
-  resourceType: "nutrient" | "nutrient_card" | "gene" | null;
+  resourceType: "nutrient" | "nutrient_card" | "media" | "gene" | null;
   resourceId: string | null;
   title: string | null;
 }
@@ -314,6 +322,7 @@ export interface GrowthTaskInput {
   fruitCount: number;
   nutrientRefs: GrowthResourceRef[];
   temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[];
+  mediaRefs: GrowthMediaRef[];
   geneRefs: GrowthResourceRef[];
   detailParams: Record<string, unknown>;
   pipelineParams: GrowthPipelineParams;
@@ -325,6 +334,7 @@ export interface GrowthAuthorizationScope {
   generatorId: string;
   nutrientRefs: GrowthResourceRef[];
   temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[];
+  mediaRefs: GrowthMediaRef[];
   geneRefs: GrowthResourceRef[];
 }
 
@@ -416,4 +426,5 @@ export interface BranchGrowthAgentCandidate {
   summary?: string;
   geneTags?: string[];
   actualReferenceUsage?: ReferenceUsageSummary[];
+  candidate?: unknown;
 }

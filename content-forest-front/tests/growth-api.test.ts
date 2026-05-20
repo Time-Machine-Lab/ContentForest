@@ -17,6 +17,7 @@ test('growth api client uses documented growth endpoints', async () => {
     fruitCount: 3,
     nutrientRefs: [{ resourceType: 'nutrient' as const, resourceId: 'nutrient 1' }],
     temporaryNutrientCardRefs: [{ resourceType: 'nutrient_card' as const, resourceId: 'card 1' }],
+    mediaRefs: [{ resourceType: 'media' as const, resourceId: 'media 1', usage: '参考风格：封面构图' }],
     geneRefs: [{ resourceType: 'gene' as const, resourceId: 'gene 1' }],
     searchMode: 'broad_exploration' as const,
     mutationIntensity: 'balanced' as const,

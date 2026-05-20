@@ -7,8 +7,8 @@
 - 果实详情展示挂载媒体资源，包括图片预览、视频播放入口和附件信息。
 - 枝化生长输入框支持上传图片/视频并引用媒体资源。
 - 用户为媒体引用选择用途说明，例如理解内容、参考风格、参考结构、生成文案、平台样例。
-- 提交枝化生长时将 `mediaRefs` 映射到 `docs/api/growth.yaml`。
-- 工作区资源候选中展示可引用媒体资源。
+- 提交枝化生长时将 `mediaRefs` 映射到 `docs/api/growth.yaml`，并与现有 nutrientRefs、temporaryNutrientCardRefs、geneRefs 共存。
+- 工作区资源候选中展示可引用媒体资源，媒体引用走现有资源引用、移除和失败输入恢复体验。
 - 不生成纯 HTML preview，不实现图片编辑器、视频剪辑器或视频理解 UI。
 
 ## Capabilities
@@ -19,7 +19,7 @@
 
 ### Modified Capabilities
 
-- `content-forest-workbench`: 工作区果实详情、枝化输入框、资源引用和任务提交需要接入媒体资源。
+- `content-forest-workbench`: 工作区果实详情、枝化输入框、资源引用、失败输入恢复和任务提交需要接入媒体资源。
 
 ## Impact
 

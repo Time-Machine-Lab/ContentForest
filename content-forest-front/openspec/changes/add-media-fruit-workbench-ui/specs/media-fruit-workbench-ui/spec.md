@@ -44,11 +44,17 @@
 - **WHEN** 用户提交枝化生长
 - **THEN** 前端 MUST 在 `POST /api/growth-tasks` 请求中包含 mediaRefs
 - **AND** 每个 mediaRef MUST 包含媒体资源标识和用途说明
+- **AND** 前端 MUST 保持 nutrientRefs、temporaryNutrientCardRefs 和 geneRefs 的现有请求映射不变
 
 #### Scenario: 移除媒体引用
 - **WHEN** 用户移除已引用媒体资源
 - **THEN** 前端 MUST 从本地引用列表移除该资源
 - **AND** 下一次提交生长任务时 MUST 不包含被移除的 mediaRef
+
+#### Scenario: 恢复失败输入媒体引用
+- **WHEN** 用户从最近失败任务恢复枝化输入
+- **THEN** 前端 MUST 恢复仍可访问的 mediaRefs
+- **AND** 前端 MUST 恢复媒体用途说明
 
 ### Requirement: 展示媒体处理能力提示
 前端 SHALL 在用户引用媒体资源时展示必要能力提示。对于当前 Agent 未必支持理解的视频或其他媒体，前端 MUST 不把上传成功表达为理解能力可用。

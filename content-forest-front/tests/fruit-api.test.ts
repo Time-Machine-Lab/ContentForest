@@ -28,3 +28,32 @@ test('fruit api client uses documented fruit endpoints', async () => {
   assert.equal(calls[3]?.options?.method, 'POST')
   assert.equal(calls[4]?.options?.method, 'POST')
 })
+
+test('fruit detail type includes media attachments from documented contract', () => {
+  const detail = {
+    id: 'fruit-1',
+    selectionState: 'candidate',
+    parentNodeRef: { nodeId: 'seed-1', nodeType: 'seed' },
+    contentLocation: 'fruits/fruit-1.md',
+    generatorId: null,
+    summary: '媒体果实',
+    geneTags: [],
+    media: [
+      {
+        id: 'media-1',
+        mediaType: 'image',
+        mimeType: 'image/png',
+        fileName: 'cover.png',
+        sizeBytes: 2048,
+        contentUrl: '/api/media-assets/media-1/content',
+        displayRole: 'primary',
+        sortOrder: 1,
+      },
+    ],
+    createdAt: '2026-05-20T00:00:00.000Z',
+    updatedAt: '2026-05-20T00:00:00.000Z',
+    markdown: '# fruit',
+  } satisfies import('../src/modules/fruit').FruitDetail
+
+  assert.equal(detail.media[0]?.contentUrl, '/api/media-assets/media-1/content')
+})

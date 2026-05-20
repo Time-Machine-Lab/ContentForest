@@ -4,6 +4,8 @@
 
 生成器是否能生成图片或视频不由内容森林限制；本 change 只提供统一接管、保存、读取、挂载和引用媒体资源的后端能力。Agent 调用 Skill 工具并把产物转为媒体资源的能力由 `connect-skill-media-tools` 单独处理。
 
+当前枝化生长已经引入内容探索路线、Reference Planner、ReferenceAtom、planned/actual reference usage、临时营养卡片和生成路径图。媒体作为输入时必须进入这套引用规划体系，不能沿用旧的“直接塞给 AgentPort”的旁路设计。
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -11,7 +13,7 @@
 - 建立跨平台、可替换存储的 Media Asset 抽象。
 - 支持用户上传图片和视频，后端保存为媒体资源。
 - 支持果实挂载多个媒体资源。
-- 支持枝化生长提交媒体引用和用途说明。
+- 支持枝化生长提交媒体引用和用途说明，并将媒体引用纳入授权范围与引用规划。
 - 支持前端通过后端接口读取或预览媒体内容。
 
 **Non-Goals:**
@@ -42,6 +44,12 @@
 
 理由：同一张图可能用于“理解内容”或“模仿风格”，Agent 需要明确使用意图。
 
+### Decision 3.1: 媒体输入进入 Reference Planner
+
+用户上传并引用的媒体资源是本轮枝化生长的授权参考资源。系统必须将其作为媒体类 reference source / resource type 纳入 ReferenceAtom、ReferencePlan 和 planned/actual usage，而不是仅作为 AgentPort 的额外字段。
+
+理由：现在枝化生成已经通过引用规划控制上下文注意力。媒体也需要表达“用于约束、提供证据、参考风格、参考结构或生成素材”等使用角色，才能与营养、基因、临时营养卡片共用同一套上下文调度机制。
+
 ### Decision 4: 果实详情区分正文与媒体资源区
 
 果实 Markdown 继续表达正文主体，媒体挂载作为结构化资产区返回给前端展示。
@@ -53,6 +61,12 @@
 视频可以上传、存储、引用和展示。Agent 是否能理解视频取决于后续工具能力。
 
 理由：视频理解依赖抽帧、转写或多模态模型，不能与媒体资源底座混在同一原子提案里。
+
+### Decision 6: 媒体输入与媒体输出分流
+
+本 change 只定义媒体资源底座和“已存在媒体作为输入引用”的能力。Skill 工具生成的新媒体属于输出产物，必须先由 `connect-skill-media-tools` 作为候选媒体产物接管，再转成正式 Media Asset。
+
+理由：媒体输入用于引用规划，媒体输出用于果实挂载；两者生命周期不同，混在一起会污染 actual reference usage。
 
 ## Risks / Trade-offs
 
@@ -66,7 +80,7 @@
 1. 先更新 `docs/api/media.yaml`、`docs/sql/media.sql` 和相关顶层文档。
 2. 实现媒体上传、存储、读取和删除边界；第一版不提供硬删除业务入口。
 3. 增加果实媒体挂载关系和果实详情返回。
-4. 增加枝化生长 `mediaRefs` 参数校验和授权传递。
+4. 增加枝化生长 `mediaRefs` 参数校验、授权范围、ReferenceAtom、ReferencePlan 和 planned/actual usage 对接。
 5. 增加工作区媒体摘要聚合。
 
 回滚时可停止暴露媒体接口，已有果实 Markdown 和系统事实不受影响。

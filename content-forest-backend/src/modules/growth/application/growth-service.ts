@@ -1,8 +1,19 @@
 import type { AgentPort } from "../../../agent/ports/agent-port.js";
-import type { AgentTaskResult } from "../../../agent/runtime/agent-task.js";
+import {
+  candidateMediaArtifactSummary,
+  readCandidateMediaArtifacts,
+  type CandidateMediaArtifactPayload,
+  type CandidateMediaArtifactSummary,
+} from "../../../agent/runtime/candidate-media-artifact.js";
+import type {
+  AgentTaskOutput,
+  AgentTaskResult,
+} from "../../../agent/runtime/agent-task.js";
 import { candidateToGrowthFruitInput } from "../../../agent/skills/branch-growth-candidate.js";
 import type { FruitService } from "../../fruit/application/fruit-service.js";
 import type { ParentNodeRef } from "../../fruit/domain/fruit-types.js";
+import type { MediaService } from "../../media/application/media-service.js";
+import type { FruitMediaDisplayRole } from "../../media/domain/media-types.js";
 import { GENERATOR_ENABLE_STATES } from "../../generator/domain/generator-types.js";
 import {
   GENE_USAGE_OUTCOMES,
@@ -35,6 +46,7 @@ import {
   type ExplorationRoute,
   type GrowthAuthorizationScope,
   type GrowthFailedInput,
+  type GrowthMediaRef,
   type GrowthMutationIntensity,
   type GrowthMutationPlan,
   type GrowthPathStep,
@@ -58,7 +70,6 @@ import {
   type ReferencePlanSourceType,
   type ReferenceRiskLevel,
   type ReferenceRoute,
-  type ReferenceSourceBias,
   type ReferenceUsageSummary,
   type RouteTraceSummary,
 } from "../domain/growth-types.js";
@@ -74,6 +85,7 @@ export interface StartGrowthTaskInput {
   fruitCount?: number;
   nutrientRefs?: GrowthResourceRef[];
   temporaryNutrientCardRefs?: GrowthTemporaryNutrientCardRef[];
+  mediaRefs?: GrowthMediaRef[];
   geneRefs?: GrowthResourceRef[];
   detailParams?: Record<string, unknown>;
   searchMode?: GrowthSearchMode;
@@ -137,6 +149,7 @@ export interface GrowthServiceDependencies {
   fruitStorage: FruitStoragePort;
   generatorStorage: GeneratorStoragePort;
   fruitService: FruitService;
+  mediaService?: MediaService;
   agentPort?: AgentPort;
   referenceAuthorization?: GrowthReferenceAuthorizationPort;
   geneUsageTracking?: GeneUsageTrackingPort;
@@ -150,6 +163,16 @@ export interface GrowthServiceDependencies {
 
 const CONTENT_SEARCH_ALGORITHM_VERSION = "content-search-map-v1";
 
+interface CandidateMediaTakeoverResult {
+  summaries: CandidateMediaArtifactSummary[];
+  warnings: string[];
+  attachments: Array<{
+    mediaAssetId: string;
+    displayRole?: FruitMediaDisplayRole;
+    sortOrder?: number;
+  }>;
+}
+
 export class GrowthService {
   private static readonly defaultAttemptConcurrency = 2;
   private static readonly maxAttemptConcurrency = 3;
@@ -158,6 +181,7 @@ export class GrowthService {
   private readonly fruitStorage: FruitStoragePort;
   private readonly generatorStorage: GeneratorStoragePort;
   private readonly fruitService: FruitService;
+  private readonly mediaService: MediaService | undefined;
   private readonly agentPort: AgentPort | undefined;
   private readonly referenceAuthorization: GrowthReferenceAuthorizationPort;
   private readonly geneUsageTracking: GeneUsageTrackingPort | undefined;
@@ -179,6 +203,7 @@ export class GrowthService {
     this.fruitStorage = dependencies.fruitStorage;
     this.generatorStorage = dependencies.generatorStorage;
     this.fruitService = dependencies.fruitService;
+    this.mediaService = dependencies.mediaService;
     this.agentPort = dependencies.agentPort;
     this.referenceAuthorization =
       dependencies.referenceAuthorization ?? new PassThroughGrowthReferenceAuthorization();
@@ -213,6 +238,7 @@ export class GrowthService {
         generatorId: normalized.generatorId,
         nutrientRefs: normalized.nutrientRefs,
         temporaryNutrientCardRefs: normalized.temporaryNutrientCardRefs,
+        mediaRefs: normalized.mediaRefs,
         geneRefs: normalized.geneRefs,
       },
       agentInput: baseAgentInput,
@@ -265,6 +291,7 @@ export class GrowthService {
       fruitCount: failedInput.fruitCount,
       nutrientRefs: failedInput.nutrientRefs,
       temporaryNutrientCardRefs: failedInput.temporaryNutrientCardRefs,
+      mediaRefs: failedInput.mediaRefs,
       geneRefs: failedInput.geneRefs,
       detailParams: failedInput.detailParams,
       searchMode: failedInput.pipelineParams.searchMode,
@@ -452,17 +479,23 @@ export class GrowthService {
           actualReferenceUsage,
         },
       };
+      const mediaTakeover = await this.takeOverCandidateMediaArtifacts(
+        task,
+        attempt,
+        result.output,
+      );
       const fruit = await this.fruitService.createFruitFromCandidate({
         markdown: candidate.markdown,
         parentNodeRef: task.sourceNodeRef,
         generatorId: task.generatorId,
         summary: candidate.summary,
         geneTags: candidate.geneTags,
+        mediaAttachments: mediaTakeover.attachments,
       });
       await this.recordNutrientUsagesForAttempt(task, attemptWithReferenceUsage, fruit.id);
       return this.succeedAttempt(attemptWithReferenceUsage, result.taskId, fruit.id, {
-        content: result.output.content,
-        metadata: result.output.metadata ?? {},
+        content: candidate.candidate ?? result.output.content,
+        metadata: this.buildAttemptOutputMetadata(result.output.metadata ?? {}, mediaTakeover),
         trace: result.trace,
       });
     } catch (error) {
@@ -504,6 +537,96 @@ export class GrowthService {
     };
     await this.storage.saveAttempt(updated);
     return updated;
+  }
+
+  private async takeOverCandidateMediaArtifacts(
+    task: GrowthTaskRecord,
+    attempt: GrowthAttemptRecord,
+    output: AgentTaskOutput,
+  ): Promise<CandidateMediaTakeoverResult> {
+    const artifacts = readCandidateMediaArtifacts(output);
+    const result: CandidateMediaTakeoverResult = {
+      summaries: artifacts.map(candidateMediaArtifactSummary),
+      warnings: [],
+      attachments: [],
+    };
+    for (const artifact of artifacts) {
+      if (!artifact.attachToFruit) {
+        continue;
+      }
+      try {
+        const mediaAssetId = await this.createMediaAssetFromCandidateArtifact(
+          task,
+          attempt,
+          artifact,
+        );
+        result.attachments.push({
+          mediaAssetId,
+          displayRole: artifact.displayRole,
+          sortOrder: result.attachments.length,
+        });
+      } catch (error) {
+        const warning = this.candidateMediaWarning(artifact, error);
+        if (artifact.required) {
+          throw new ApplicationError("AGENT_TASK_FAILED", warning, 502);
+        }
+        result.warnings.push(warning);
+      }
+    }
+    return result;
+  }
+
+  private async createMediaAssetFromCandidateArtifact(
+    task: GrowthTaskRecord,
+    attempt: GrowthAttemptRecord,
+    artifact: CandidateMediaArtifactPayload,
+  ): Promise<string> {
+    if (this.mediaService === undefined) {
+      throw new ApplicationError("VALIDATION_ERROR", "媒体接管能力尚未装配", 500);
+    }
+    if (artifact.content === undefined) {
+      throw new ApplicationError(
+        "VALIDATION_ERROR",
+        "候选媒体缺少可接管内容",
+        500,
+      );
+    }
+    const media = await this.mediaService.createMediaAssetFromBuffer({
+      seedId: task.seedId,
+      fileName: artifact.fileName,
+      mimeType: artifact.mimeType,
+      content: artifact.content,
+      sourceType: "generated_output",
+      sourceId: attempt.id,
+    });
+    return media.id;
+  }
+
+  private candidateMediaWarning(
+    artifact: CandidateMediaArtifactPayload,
+    error: unknown,
+  ): string {
+    const message = error instanceof Error ? error.message : "媒体接管失败";
+    return `候选媒体 ${artifact.id} 接管失败：${message}`;
+  }
+
+  private buildAttemptOutputMetadata(
+    metadata: Record<string, unknown>,
+    mediaTakeover: CandidateMediaTakeoverResult,
+  ): Record<string, unknown> {
+    const output: Record<string, unknown> = {
+      ...metadata,
+      candidateMediaArtifacts: mediaTakeover.summaries,
+    };
+    if (mediaTakeover.attachments.length > 0) {
+      output.mediaAttachments = mediaTakeover.attachments.map((attachment) => ({
+        ...attachment,
+      }));
+    }
+    if (mediaTakeover.warnings.length > 0) {
+      output.mediaTakeoverWarnings = [...mediaTakeover.warnings];
+    }
+    return output;
   }
 
   private async failTaskFromUnexpectedError(
@@ -807,12 +930,14 @@ export class GrowthService {
     const temporaryNutrientCardRefs = this.normalizeTemporaryNutrientCardRefs(
       input.temporaryNutrientCardRefs,
     );
+    const mediaRefs = this.normalizeMediaRefs(input.mediaRefs);
     const geneRefs = this.normalizeResourceRefs(input.geneRefs, "gene");
     const detailParams = this.normalizeDetailParams(input.detailParams);
     const pipelineParams = this.resolvePipelineParams(input, {
       sourceNodeRef,
       nutrientRefs,
       temporaryNutrientCardRefs,
+      mediaRefs,
       geneRefs,
     });
     const authorizationScope = await this.referenceAuthorization.authorize({
@@ -821,6 +946,7 @@ export class GrowthService {
       generatorId,
       nutrientRefs,
       temporaryNutrientCardRefs,
+      mediaRefs,
       geneRefs,
     });
 
@@ -832,6 +958,7 @@ export class GrowthService {
       fruitCount,
       nutrientRefs: authorizationScope.nutrientRefs,
       temporaryNutrientCardRefs: authorizationScope.temporaryNutrientCardRefs,
+      mediaRefs: authorizationScope.mediaRefs,
       geneRefs: authorizationScope.geneRefs,
       detailParams,
       pipelineParams,
@@ -1019,6 +1146,35 @@ export class GrowthService {
     }).filter((ref): ref is GrowthTemporaryNutrientCardRef => ref !== null);
   }
 
+  private normalizeMediaRefs(
+    refs: GrowthMediaRef[] | undefined,
+  ): GrowthMediaRef[] {
+    if (refs === undefined) {
+      return [];
+    }
+    if (!Array.isArray(refs)) {
+      throw new ApplicationError("VALIDATION_ERROR", "媒体引用格式不正确", 400);
+    }
+
+    const seen = new Set<string>();
+    return refs.map((ref) => {
+      if (ref.resourceType !== "media") {
+        throw new ApplicationError("VALIDATION_ERROR", "媒体引用类型不正确", 400);
+      }
+      const resourceId = this.requireNonBlank(ref.resourceId, "媒体资源不能为空");
+      const usage = this.requireNonBlank(ref.usage, "媒体引用必须包含用途说明");
+      if (seen.has(resourceId)) {
+        return null;
+      }
+      seen.add(resourceId);
+      return {
+        resourceType: "media" as const,
+        resourceId,
+        usage,
+      };
+    }).filter((ref): ref is GrowthMediaRef => ref !== null);
+  }
+
   private normalizeDetailParams(
     value: Record<string, unknown> | undefined,
   ): Record<string, unknown> {
@@ -1031,6 +1187,7 @@ export class GrowthService {
       sourceNodeRef: GrowthSourceNodeRef;
       nutrientRefs: GrowthResourceRef[];
       temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[];
+      mediaRefs: GrowthMediaRef[];
       geneRefs: GrowthResourceRef[];
     },
   ): {
@@ -1066,6 +1223,7 @@ export class GrowthService {
       sourceNodeRef: GrowthSourceNodeRef;
       nutrientRefs: GrowthResourceRef[];
       temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[];
+      mediaRefs: GrowthMediaRef[];
       geneRefs: GrowthResourceRef[];
     },
   ): GrowthSearchMode {
@@ -1091,6 +1249,7 @@ export class GrowthService {
       sourceNodeRef: GrowthSourceNodeRef;
       nutrientRefs: GrowthResourceRef[];
       temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[];
+      mediaRefs: GrowthMediaRef[];
       geneRefs: GrowthResourceRef[];
     },
     searchMode: GrowthSearchMode,
@@ -1107,6 +1266,7 @@ export class GrowthService {
     if (
       normalized.nutrientRefs.length === 0 &&
       normalized.temporaryNutrientCardRefs.length === 0 &&
+      normalized.mediaRefs.length === 0 &&
       normalized.geneRefs.length === 0 &&
       input.userInput === undefined
     ) {
@@ -1121,6 +1281,7 @@ export class GrowthService {
       sourceNodeRef: GrowthSourceNodeRef;
       nutrientRefs: GrowthResourceRef[];
       temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[];
+      mediaRefs: GrowthMediaRef[];
       geneRefs: GrowthResourceRef[];
     },
     searchMode: GrowthSearchMode,
@@ -1130,6 +1291,7 @@ export class GrowthService {
       `来源节点：${normalized.sourceNodeRef.nodeType}`,
       `营养引用：${normalized.nutrientRefs.length}`,
       `未沉淀营养卡片引用：${normalized.temporaryNutrientCardRefs.length}`,
+      `媒体引用：${normalized.mediaRefs.length}`,
       `基因引用：${normalized.geneRefs.length}`,
       `用户输入：${input.userInput?.trim() ? "有" : "无"}`,
     ];
@@ -1210,6 +1372,7 @@ export class GrowthService {
         generatorId: input.generatorId,
         nutrientRefs: input.nutrientRefs,
         temporaryNutrientCardRefs: input.temporaryNutrientCardRefs,
+        mediaRefs: input.mediaRefs,
         geneRefs: input.geneRefs,
       },
       detailParams: input.detailParams,
@@ -1239,6 +1402,7 @@ export class GrowthService {
       references: {
         nutrientRefs: input.nutrientRefs,
         temporaryNutrientCardRefs: input.temporaryNutrientCardRefs,
+        mediaRefs: input.mediaRefs,
         geneRefs: input.geneRefs,
       },
       pipeline: input.pipelineParams,
@@ -1410,6 +1574,9 @@ export class GrowthService {
     if (input.nutrientRefs.length > 0 || input.temporaryNutrientCardRefs.length > 0) {
       objectives.push("利用授权资料验证平台案例或证据表达");
     }
+    if (input.mediaRefs.length > 0) {
+      objectives.push("利用授权媒体输入理解画面、参考风格或生成图文脚本");
+    }
     if (input.geneRefs.length > 0) {
       objectives.push("复用基因经验进行继承、组合、变异或规避");
     }
@@ -1486,6 +1653,9 @@ export class GrowthService {
     if (input.temporaryNutrientCardRefs.length > 0) {
       inventory.push(`临时营养卡片：${input.temporaryNutrientCardRefs.length} 条候选证据`);
     }
+    if (input.mediaRefs.length > 0) {
+      inventory.push(`媒体资源：${input.mediaRefs.length} 个视觉/视频输入`);
+    }
     if (input.geneRefs.length > 0) {
       inventory.push(`基因经验：${input.geneRefs.length} 条继承/变异/规避依据`);
     }
@@ -1500,6 +1670,9 @@ export class GrowthService {
     ];
     if (input.temporaryNutrientCardRefs.length > 0) {
       guards.push("临时营养卡片只能作为候选/低置信证据");
+    }
+    if (input.mediaRefs.length > 0) {
+      guards.push("媒体引用只作为本轮授权输入，不代表生成的新媒体输出");
     }
     if (input.pipelineParams.searchMode === GROWTH_SEARCH_MODES.negativeFeedbackAvoidance) {
       guards.push("主动规避广告感、空泛表达和已失败承诺");
@@ -1746,6 +1919,15 @@ export class GrowthService {
         confidence: "low",
       });
     }
+    for (const ref of input.mediaRefs) {
+      items.push({
+        sourceType: "media",
+        resourceId: ref.resourceId,
+        role: "evidence",
+        usage: `作为本轮授权媒体输入使用：${this.shortText(ref.usage, 48)}。`,
+        confidence: "medium",
+      });
+    }
     for (const ref of input.geneRefs) {
       items.push({
         sourceType: "gene",
@@ -1775,7 +1957,7 @@ export class GrowthService {
 
   private buildReferenceAtoms(
     input: GrowthTaskInput,
-    focus: string,
+    _focus: string,
   ): ReferenceAtom[] {
     const atoms: ReferenceAtom[] = [];
     const addAtom = (atom: Omit<ReferenceAtom, "id">): void => {
@@ -1859,6 +2041,33 @@ export class GrowthService {
       })) {
         addAtom(atom);
       }
+    }
+
+    for (const ref of input.mediaRefs) {
+      const styleUse = /风格|结构|封面|画面|视觉|样例|style|cover|visual/i.test(ref.usage);
+      addAtom({
+        sourceType: "media",
+        resourceType: "media",
+        resourceId: ref.resourceId,
+        title: ref.resourceId,
+        atomType: "visual_audio_asset",
+        summary: `媒体资源作为本轮授权输入，用途：${this.shortText(ref.usage, 80)}。`,
+        evidenceStrength: "confirmed",
+        sourceBias: "self_reported",
+        allowedActions: styleUse
+          ? ["style", "shape", "adapt", "constrain"]
+          : ["ground", "shape", "adapt", "constrain"],
+        targetSlots: styleUse
+          ? ["visual_audio", "script_or_shot", "body_structure", "wording_style"]
+          : ["visual_audio", "script_or_shot", "proof_evidence", "fact_check"],
+        usageBoundary:
+          "只能按用户说明作为本轮媒体输入使用；视频引用不代表当前 Agent 一定具备视频理解能力。",
+        forbiddenUses: [
+          "不得把生成过程中产生的新媒体当作本轮授权输入。",
+          "不得暴露媒体文件本机路径。",
+        ],
+        riskLevel: "medium",
+      });
     }
 
     for (const ref of input.geneRefs) {
@@ -2337,7 +2546,7 @@ export class GrowthService {
 
   private referenceSourceKey(source: {
     sourceType: ReferencePlanSourceType;
-    resourceType: "nutrient" | "nutrient_card" | "gene" | null;
+    resourceType: "nutrient" | "nutrient_card" | "media" | "gene" | null;
     resourceId: string | null;
   }): string {
     return `${source.sourceType}:${source.resourceType ?? "none"}:${source.resourceId ?? "inline"}`;
@@ -2350,6 +2559,7 @@ export class GrowthService {
       generatorId: input.generatorId,
       nutrientRefs: input.nutrientRefs,
       temporaryNutrientCardRefs: input.temporaryNutrientCardRefs,
+      mediaRefs: input.mediaRefs,
       geneRefs: input.geneRefs,
     };
   }
@@ -2663,6 +2873,7 @@ export class GrowthService {
       `operators=${route.mutationOperators.map((operator) => operator.label).join(",")}`,
       `正式营养=${task.nutrientRefs.length}`,
       `候选营养卡片=${task.temporaryNutrientCardRefs.length}`,
+      `媒体=${task.mediaRefs.length}`,
       `基因=${task.geneRefs.length}`,
     ].join("；");
   }
@@ -2697,6 +2908,11 @@ export class GrowthService {
     if (task.temporaryNutrientCardRefs.length > 0) {
       directions.push(
         `试用 ${task.temporaryNutrientCardRefs.length} 条未沉淀营养卡片，验证候选资料价值`,
+      );
+    }
+    if (task.mediaRefs.length > 0) {
+      directions.push(
+        `结合 ${task.mediaRefs.length} 个授权媒体输入，探索图文、视频脚本或视觉参考路线`,
       );
     }
     if (task.pipelineParams.searchMode === GROWTH_SEARCH_MODES.negativeFeedbackAvoidance) {
@@ -2779,6 +2995,7 @@ export class GrowthService {
       `突变激进程度=${task.pipelineParams.mutationIntensity}`,
       `营养引用=${task.nutrientRefs.length}`,
       `未沉淀营养卡片引用=${task.temporaryNutrientCardRefs.length}`,
+      `媒体引用=${task.mediaRefs.length}`,
       `基因引用=${task.geneRefs.length}`,
       `来源=${task.sourceNodeRef.nodeType}`,
     ].join("；");
@@ -2915,6 +3132,7 @@ export class GrowthService {
         authorizedResourceRefs: [
           ...task.authorizationScope.nutrientRefs,
           ...task.authorizationScope.temporaryNutrientCardRefs,
+          ...task.authorizationScope.mediaRefs,
           ...task.authorizationScope.geneRefs,
         ],
         plannedReferenceUsage: attempt.plannedReferenceUsage ??
@@ -2944,6 +3162,7 @@ export class GrowthService {
       fruitCount: task.fruitCount,
       nutrientRefs: task.nutrientRefs,
       temporaryNutrientCardRefs: task.temporaryNutrientCardRefs,
+      mediaRefs: task.mediaRefs,
       geneRefs: task.geneRefs,
       detailParams: task.detailParams,
       pipelineParams: task.pipelineParams,
@@ -3040,6 +3259,7 @@ class PassThroughGrowthReferenceAuthorization
       temporaryNutrientCardRefs: input.temporaryNutrientCardRefs.map((ref) => ({
         ...ref,
       })),
+      mediaRefs: input.mediaRefs.map((ref) => ({ ...ref })),
       geneRefs: input.geneRefs.map((ref) => ({ ...ref })),
     };
   }

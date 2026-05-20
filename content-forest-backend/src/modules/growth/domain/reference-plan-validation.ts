@@ -11,7 +11,7 @@ import type {
 } from "./growth-types.js";
 
 export interface AuthorizedReferenceResourceRef {
-  resourceType: "nutrient" | "nutrient_card" | "gene";
+  resourceType: "nutrient" | "nutrient_card" | "media" | "gene";
   resourceId: string;
 }
 
@@ -34,6 +34,7 @@ const REFERENCE_SOURCE_TYPES = new Set<ReferencePlanSourceType>([
   "nutrient",
   "formal_nutrient",
   "temporary_nutrient_card",
+  "media",
   "gene",
   "feedback",
   "research_context",
@@ -86,6 +87,10 @@ export function authorizedReferenceResourceRefs(
     })),
     ...scope.temporaryNutrientCardRefs.map((ref) => ({
       resourceType: "nutrient_card" as const,
+      resourceId: ref.resourceId,
+    })),
+    ...scope.mediaRefs.map((ref) => ({
+      resourceType: "media" as const,
       resourceId: ref.resourceId,
     })),
     ...scope.geneRefs.map((ref) => ({
@@ -289,6 +294,9 @@ function inferResourceType(
   }
   if (sourceType === "temporary_nutrient_card") {
     return "nutrient_card";
+  }
+  if (sourceType === "media") {
+    return "media";
   }
   if (sourceType === "gene") {
     return "gene";

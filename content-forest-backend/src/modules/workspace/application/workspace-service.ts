@@ -5,6 +5,7 @@ import type { GeneService } from "../../gene/application/gene-service.js";
 import type { GeneratorService } from "../../generator/application/generator-service.js";
 import type { GrowthService } from "../../growth/application/growth-service.js";
 import type { GrowthFailedInput, GrowthSourceNodeRef } from "../../growth/domain/growth-types.js";
+import type { MediaService } from "../../media/application/media-service.js";
 import type { NutrientService } from "../../nutrient/application/nutrient-service.js";
 import type { SeedService } from "../../seed/application/seed-service.js";
 import { SEED_ARCHIVE_STATES } from "../../seed/domain/seed-types.js";
@@ -32,6 +33,7 @@ export interface WorkspaceServiceDependencies {
   growthService: GrowthService;
   generatorService: GeneratorService;
   nutrientService: NutrientService;
+  mediaService?: MediaService;
   geneService: GeneService;
   maxTreeDepth?: number;
 }
@@ -42,6 +44,7 @@ export class WorkspaceService {
   private readonly growthService: GrowthService;
   private readonly generatorService: GeneratorService;
   private readonly nutrientService: NutrientService;
+  private readonly mediaService: MediaService | undefined;
   private readonly geneService: GeneService;
   private readonly maxTreeDepth: number;
 
@@ -51,6 +54,7 @@ export class WorkspaceService {
     this.growthService = dependencies.growthService;
     this.generatorService = dependencies.generatorService;
     this.nutrientService = dependencies.nutrientService;
+    this.mediaService = dependencies.mediaService;
     this.geneService = dependencies.geneService;
     this.maxTreeDepth = dependencies.maxTreeDepth ?? 100;
   }
@@ -150,6 +154,7 @@ export class WorkspaceService {
       generatorId: fruit.generatorId,
       summary: fruit.summary,
       geneTags: [...fruit.geneTags],
+      media: fruit.media.map((media) => ({ ...media })),
       createdAt: fruit.createdAt,
       updatedAt: fruit.updatedAt,
       growth: await this.growthService.getSourceStatus(sourceNodeRef),
@@ -160,15 +165,17 @@ export class WorkspaceService {
   }
 
   private async getResources(seedId: string): Promise<WorkspaceResources> {
-    const [generators, nutrients, geneInsights] = await Promise.all([
+    const [generators, nutrients, mediaAssets, geneInsights] = await Promise.all([
       this.generatorService.listSelectableGenerators(),
       this.nutrientService.listReferableContents(seedId),
+      this.mediaService?.listReferableMediaAssets(seedId) ?? Promise.resolve([]),
       this.geneService.listReferableInsights(seedId),
     ]);
 
     return {
       generators,
       nutrients,
+      mediaAssets,
       geneInsights,
     };
   }

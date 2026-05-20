@@ -171,8 +171,7 @@ export interface SubmitNutrientResearchMessageResult {
   depositableBlocks: NutrientDepositableBlock[]
 }
 
-export interface NutrientResearchSessionListQuery {
-}
+export type NutrientResearchSessionListQuery = Record<string, never>
 
 export type NutrientResearchStreamEvent =
   | {

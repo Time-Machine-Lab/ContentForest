@@ -15,6 +15,7 @@ export const STANDARD_CONTENT_DIRECTORIES = [
   "genes",
   "genes/seed-scoped",
   "generators",
+  "media",
   "attachments",
   "tmp",
 ] as const;

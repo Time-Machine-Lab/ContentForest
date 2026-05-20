@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BranchGrowthSkill } from "../agent/skills/branch-growth-skill.js";
+import { parseStructuredCandidate } from "../agent/skills/branch-growth-structured-output.js";
 import { AgentTrace } from "../agent/runtime/agent-trace.js";
 import type {
   LlmAdapter,
@@ -193,6 +194,23 @@ function candidateJson(
 }
 
 describe("BranchGrowthSkill", () => {
+  it("parses candidate JSON from analysis text with multiple fenced objects", () => {
+    const parsed = parseStructuredCandidate([
+      "analysis before json",
+      "```json",
+      JSON.stringify({ type: "debug", payload: { markdown: "# wrong" } }),
+      "```",
+      "```json",
+      candidateJson("# parsed candidate"),
+      "```",
+    ].join("\n"));
+
+    expect(parsed).toMatchObject({
+      type: "candidate_fruit",
+      payload: { markdown: "# parsed candidate" },
+    });
+  });
+
   it("wraps generator payload into a structured candidate fruit", async () => {
     const skill = new BranchGrowthSkill();
     const llm = new SequenceLlm(["# 生成器 payload", candidateJson()]);

@@ -13,7 +13,7 @@ import {
 } from "../../modules/growth/domain/reference-plan-validation.js";
 
 export interface BranchGrowthResourceRef {
-  resourceType: "nutrient" | "gene" | "nutrient_card";
+  resourceType: "nutrient" | "gene" | "nutrient_card" | "media";
   resourceId: string;
 }
 
@@ -159,15 +159,19 @@ export function normalizeBranchGrowthCandidateFruit(
     const payload = requireRecord(record.payload, "payload is required");
     const meta = requireRecord(record.meta, "meta is required");
     const usedResourceRefs = normalizeResourceRefs(meta.usedResourceRefs, options);
+    const referenceUsage = normalizeReferenceUsage(meta.referenceUsage, usedResourceRefs, options);
+    const factCheckSummary = normalizeNullableString(meta.factCheckSummary);
+    const riskHandlingSummary = normalizeNullableString(meta.riskHandlingSummary) ??
+      defaultRiskHandlingSummary(referenceUsage, factCheckSummary);
     return {
       type: "candidate_fruit",
       payload: {
-        markdown: requireString(payload.markdown, "payload.markdown is required"),
+        markdown: normalizePayloadMarkdown(payload),
         rawGeneratorOutput:
           typeof payload.rawGeneratorOutput === "string"
             ? payload.rawGeneratorOutput
             : undefined,
-        attachments: normalizeStringArray(payload.attachments),
+        attachments: normalizeAttachmentStrings(payload.attachments),
       },
       meta: {
         summary: requireString(meta.summary, "meta.summary is required"),
@@ -182,9 +186,9 @@ export function normalizeBranchGrowthCandidateFruit(
             ? meta.routeSummary.trim()
             : undefined,
         mutationOperators: normalizeStringArray(meta.mutationOperators),
-        referenceUsage: normalizeReferenceUsage(meta.referenceUsage, usedResourceRefs, options),
-        riskHandlingSummary: normalizeNullableString(meta.riskHandlingSummary),
-        factCheckSummary: normalizeNullableString(meta.factCheckSummary),
+        referenceUsage,
+        riskHandlingSummary,
+        factCheckSummary,
         riskWarnings: normalizeStringArray(meta.riskWarnings),
         warnings: normalizeStringArray(meta.warnings),
       },
@@ -196,6 +200,10 @@ export function normalizeBranchGrowthCandidateFruit(
     const markdown = [nested.markdown, nested.bodyMarkdown, nested.contentMarkdown]
       .find((item): item is string => typeof item === "string") ?? "";
     const usedResourceRefs = normalizeResourceRefs(nested.usedResourceRefs, options);
+    const referenceUsage = normalizeReferenceUsage(nested.referenceUsage, usedResourceRefs, options);
+    const factCheckSummary = normalizeNullableString(nested.factCheckSummary);
+    const riskHandlingSummary = normalizeNullableString(nested.riskHandlingSummary) ??
+      defaultRiskHandlingSummary(referenceUsage, factCheckSummary);
     return {
       type: "candidate_fruit",
       payload: {
@@ -219,9 +227,9 @@ export function normalizeBranchGrowthCandidateFruit(
             ? nested.routeSummary.trim()
             : undefined,
         mutationOperators: normalizeStringArray(nested.mutationOperators),
-        referenceUsage: normalizeReferenceUsage(nested.referenceUsage, usedResourceRefs, options),
-        riskHandlingSummary: normalizeNullableString(nested.riskHandlingSummary),
-        factCheckSummary: normalizeNullableString(nested.factCheckSummary),
+        referenceUsage,
+        riskHandlingSummary,
+        factCheckSummary,
         riskWarnings: normalizeStringArray(nested.riskWarnings),
         warnings: [],
       },
@@ -239,6 +247,7 @@ export function candidateToGrowthFruitInput(
   summary: string;
   geneTags: string[];
   actualReferenceUsage: ReferenceUsageSummary[];
+  candidate: BranchGrowthCandidateFruit;
 } {
   const candidate = validateBranchGrowthCandidateFruit(value, options);
   return {
@@ -246,6 +255,7 @@ export function candidateToGrowthFruitInput(
     summary: candidate.meta.summary,
     geneTags: candidate.meta.geneTags,
     actualReferenceUsage: candidate.meta.referenceUsage,
+    candidate,
   };
 }
 
@@ -273,6 +283,36 @@ function hasMarkdownField(record: Record<string, unknown>): boolean {
   );
 }
 
+function normalizePayloadMarkdown(payload: Record<string, unknown>): string {
+  if (typeof payload.markdown === "string") {
+    return payload.markdown;
+  }
+  const markdown = markdownFromTitleBodyTags(payload);
+  if (markdown !== null) {
+    return markdown;
+  }
+  return requireString(payload.markdown, "payload.markdown is required");
+}
+
+function markdownFromTitleBodyTags(record: Record<string, unknown>): string | null {
+  const title = typeof record.title === "string" ? record.title.trim() : "";
+  const body = typeof record.body === "string" ? record.body.trim() : "";
+  const tags = normalizeStringArray(record.tags)
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0)
+    .map((tag) => tag.startsWith("#") ? tag : `#${tag}`);
+  if (title.length === 0 && body.length === 0 && tags.length === 0) {
+    return null;
+  }
+  return [
+    title.length > 0 ? `# ${title}` : "",
+    body,
+    tags.length > 0 ? tags.join(" ") : "",
+  ]
+    .filter((part) => part.length > 0)
+    .join("\n\n");
+}
+
 function normalizeResourceRefs(
   value: unknown,
   options: BranchGrowthCandidateValidationOptions,
@@ -289,7 +329,8 @@ function normalizeResourceRefs(
     if (
       resourceType !== "nutrient" &&
       resourceType !== "gene" &&
-      resourceType !== "nutrient_card"
+      resourceType !== "nutrient_card" &&
+      resourceType !== "media"
     ) {
       throw new ApplicationError("VALIDATION_ERROR", "resource type is invalid", 502);
     }
@@ -371,7 +412,16 @@ function normalizeReferenceUsage(
   options: BranchGrowthCandidateValidationOptions,
 ): ReferenceUsageSummary[] {
   if (Array.isArray(value) && value.length > 0) {
-    return value.map((item) => normalizeReferenceUsageRecord(item));
+    const normalized = value.flatMap((item) => {
+      try {
+        return [normalizeReferenceUsageRecord(item)];
+      } catch {
+        return [];
+      }
+    });
+    if (normalized.length > 0) {
+      return normalized;
+    }
   }
   return usedResourceRefs.map((ref) =>
     referenceUsageFromUsedRef(ref, options.plannedReferenceUsage ?? []),
@@ -389,8 +439,8 @@ function normalizeReferenceUsageRecord(value: unknown): ReferenceUsageSummary {
     title: normalizeNullableString(record.title),
     status: normalizeUsageStatus(record.status),
     atomIds: normalizeStringArray(record.atomIds).map((item) => item.trim()),
-    actions: normalizeTypedStringArray(record.actions, REFERENCE_ACTIONS, "reference action"),
-    slots: normalizeTypedStringArray(record.slots, CONTENT_SLOTS, "content slot"),
+    actions: normalizeReferenceActions(record.actions, resourceType),
+    slots: normalizeContentSlots(record.slots, resourceType),
     usageSummary:
       typeof record.usageSummary === "string" && record.usageSummary.trim().length > 0
         ? record.usageSummary.trim()
@@ -398,6 +448,24 @@ function normalizeReferenceUsageRecord(value: unknown): ReferenceUsageSummary {
     evidenceStrength: normalizeEvidenceStrength(record.evidenceStrength),
     riskLevel: normalizeRiskLevel(record.riskLevel),
   };
+}
+
+function defaultRiskHandlingSummary(
+  referenceUsage: ReferenceUsageSummary[],
+  factCheckSummary: string | null,
+): string | null {
+  if (factCheckSummary !== null || !hasHighRiskReferenceUsage(referenceUsage)) {
+    return null;
+  }
+  return "高风险参考仅作为约束或待核验线索使用，发布前需要人工事实核验和风险复核。";
+}
+
+function hasHighRiskReferenceUsage(referenceUsage: ReferenceUsageSummary[]): boolean {
+  return referenceUsage.some((summary) =>
+    (summary.status === "actual" || summary.status === "unverified") &&
+    (summary.riskLevel === "high" || summary.actions.includes("constrain") ||
+      summary.slots.includes("fact_check") || summary.slots.includes("risk_review")),
+  );
 }
 
 function referenceUsageFromUsedRef(
@@ -419,24 +487,39 @@ function referenceUsageFromUsedRef(
       ? "formal_nutrient"
       : ref.resourceType === "nutrient_card"
         ? "temporary_nutrient_card"
-        : "gene",
+        : ref.resourceType === "media"
+          ? "media"
+          : "gene",
     resourceType: ref.resourceType,
     resourceId: ref.resourceId,
     title: ref.resourceId,
     status: "actual",
     atomIds: [],
-    actions: ref.resourceType === "gene" ? ["inherit"] : ["ground"],
-    slots: ref.resourceType === "gene" ? ["body_structure"] : ["proof_evidence"],
+    actions: ref.resourceType === "gene"
+      ? ["inherit"]
+      : ref.resourceType === "media"
+        ? ["style"]
+        : ["ground"],
+    slots: ref.resourceType === "gene"
+      ? ["body_structure"]
+      : ref.resourceType === "media"
+        ? ["visual_audio"]
+        : ["proof_evidence"],
     usageSummary: "候选果实声明实际参考该授权资源；未匹配到更细的计划原子。",
     evidenceStrength: ref.resourceType === "nutrient_card" ? "candidate" : "observed",
-    riskLevel: ref.resourceType === "nutrient_card" ? "medium" : "low",
+    riskLevel: ref.resourceType === "nutrient_card" || ref.resourceType === "media"
+      ? "medium"
+      : "low",
   };
 }
 
 function normalizeReferenceResourceType(
   value: unknown,
 ): ReferenceUsageSummary["resourceType"] {
-  return value === "nutrient" || value === "nutrient_card" || value === "gene"
+  return value === "nutrient" ||
+    value === "nutrient_card" ||
+    value === "media" ||
+    value === "gene"
     ? value
     : null;
 }
@@ -453,6 +536,7 @@ function normalizeSourceType(
     value === "nutrient" ||
     value === "formal_nutrient" ||
     value === "temporary_nutrient_card" ||
+    value === "media" ||
     value === "gene" ||
     value === "feedback" ||
     value === "research_context" ||
@@ -466,8 +550,14 @@ function normalizeSourceType(
   if (resourceType === "nutrient_card") {
     return "temporary_nutrient_card";
   }
+  if (resourceType === "media") {
+    return "media";
+  }
   if (resourceType === "gene") {
     return "gene";
+  }
+  if (resourceType === "media") {
+    return "media";
   }
   return "system_context";
 }
@@ -488,6 +578,12 @@ function normalizeEvidenceStrength(value: unknown): ReferenceEvidenceStrength {
     value === "candidate" ||
     value === "speculative"
     ? value
+    : value === "high"
+      ? "confirmed"
+      : value === "medium"
+        ? "observed"
+        : value === "low"
+          ? "speculative"
     : "candidate";
 }
 
@@ -497,23 +593,171 @@ function normalizeRiskLevel(value: unknown): ReferenceRiskLevel {
     : "medium";
 }
 
+function normalizeReferenceActions(
+  value: unknown,
+  resourceType: ReferenceUsageSummary["resourceType"],
+): ReferenceAction[] {
+  const normalized = normalizeTypedStringArray(value, REFERENCE_ACTIONS, normalizeReferenceActionAlias);
+  return normalized.length > 0 ? normalized : defaultReferenceActions(resourceType);
+}
+
+function normalizeContentSlots(
+  value: unknown,
+  resourceType: ReferenceUsageSummary["resourceType"],
+): ContentSlot[] {
+  const normalized = normalizeTypedStringArray(value, CONTENT_SLOTS, normalizeContentSlotAlias);
+  return normalized.length > 0 ? normalized : defaultContentSlots(resourceType);
+}
+
 function normalizeTypedStringArray<T extends string>(
   value: unknown,
   allowed: Set<T>,
-  label: string,
+  alias: (value: string) => T | null,
 ): T[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim())
-    .filter((item): item is T => {
-      if (allowed.has(item as T)) {
-        return true;
-      }
-      throw new ApplicationError("VALIDATION_ERROR", `${label} is invalid: ${item}`, 502);
-    });
+  const normalized: T[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") {
+      continue;
+    }
+    const trimmed = item.trim();
+    const next = allowed.has(trimmed as T) ? trimmed as T : alias(trimmed);
+    if (next !== null && !normalized.includes(next)) {
+      normalized.push(next);
+    }
+  }
+  return normalized;
+}
+
+function normalizeReferenceActionAlias(value: string): ReferenceAction | null {
+  const lower = value.toLowerCase();
+  if (
+    lower === "derive" ||
+    lower === "extract" ||
+    lower === "quote" ||
+    lower === "cite" ||
+    lower === "mention" ||
+    lower.includes("reference") ||
+    lower.includes("derive") ||
+    lower.includes("extract") ||
+    value.includes("引用") ||
+    value.includes("参考") ||
+    value.includes("提取") ||
+    value.includes("借鉴")
+  ) {
+    return "ground";
+  }
+  if (lower === "embed" || lower.includes("adapt") || value.includes("改写")) {
+    return "adapt";
+  }
+  if (lower.includes("constraint") || value.includes("约束")) {
+    return "constrain";
+  }
+  if (lower.includes("style") || value.includes("风格") || value.includes("语感")) {
+    return "style";
+  }
+  if (lower.includes("inherit") || value.includes("继承")) {
+    return "inherit";
+  }
+  if (lower.includes("combine") || value.includes("融合") || value.includes("组合")) {
+    return "combine";
+  }
+  if (lower.includes("mutate") || value.includes("变异")) {
+    return "mutate";
+  }
+  if (lower.includes("critic") || value.includes("批评") || value.includes("反例")) {
+    return "criticize";
+  }
+  if (lower.includes("avoid") || value.includes("避免") || value.includes("不适合")) {
+    return "avoid";
+  }
+  if (lower.includes("shape") || value.includes("塑形")) {
+    return "shape";
+  }
+  return null;
+}
+
+function normalizeContentSlotAlias(value: string): ContentSlot | null {
+  const lower = value.toLowerCase();
+  if (lower.includes("title") || lower.includes("hook") || value.includes("标题")) {
+    return "title_hook";
+  }
+  if (lower.includes("opening") || value.includes("开头") || value.includes("开场")) {
+    return "opening";
+  }
+  if (value.includes("受众") || value.includes("场景") || lower.includes("audience")) {
+    return "audience_scenario";
+  }
+  if (value.includes("结构") || value.includes("正文") || lower.includes("structure")) {
+    return "body_structure";
+  }
+  if (value.includes("脚本") || value.includes("分镜") || lower.includes("script")) {
+    return "script_or_shot";
+  }
+  if (value.includes("视觉") || value.includes("画面") || value.includes("音频")) {
+    return "visual_audio";
+  }
+  if (
+    value.includes("证据") ||
+    value.includes("案例") ||
+    value.includes("数据") ||
+    value.includes("正式营养") ||
+    value.includes("临时营养") ||
+    lower.includes("evidence")
+  ) {
+    return "proof_evidence";
+  }
+  if (
+    value.includes("话术") ||
+    value.includes("语感") ||
+    value.includes("文风") ||
+    value.includes("措辞") ||
+    lower.includes("wording")
+  ) {
+    return "wording_style";
+  }
+  if (
+    value.includes("互动") ||
+    value.includes("评论") ||
+    value.includes("转化") ||
+    lower.includes("cta") ||
+    lower.includes("conversion")
+  ) {
+    return "cta_conversion";
+  }
+  if (value.includes("风险") || lower.includes("risk")) {
+    return "risk_review";
+  }
+  if (value.includes("事实") || value.includes("核验") || lower.includes("fact")) {
+    return "fact_check";
+  }
+  return null;
+}
+
+function defaultReferenceActions(
+  resourceType: ReferenceUsageSummary["resourceType"],
+): ReferenceAction[] {
+  if (resourceType === "gene") {
+    return ["inherit"];
+  }
+  if (resourceType === "media") {
+    return ["style"];
+  }
+  return ["ground"];
+}
+
+function defaultContentSlots(
+  resourceType: ReferenceUsageSummary["resourceType"],
+): ContentSlot[] {
+  if (resourceType === "gene") {
+    return ["body_structure"];
+  }
+  if (resourceType === "media") {
+    return ["visual_audio"];
+  }
+  return ["proof_evidence"];
 }
 
 function normalizeNullableString(value: unknown): string | null {
@@ -544,6 +788,12 @@ function normalizeStringArray(value: unknown): string[] {
     return [];
   }
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function normalizeAttachmentStrings(value: unknown): string[] {
+  return normalizeStringArray(value).map((item) =>
+    containsRealPath(item) ? "[local-path]" : item,
+  );
 }
 
 function requireRecord(value: unknown, message: string): Record<string, unknown> {

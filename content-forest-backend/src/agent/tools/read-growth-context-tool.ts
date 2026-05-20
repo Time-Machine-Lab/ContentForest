@@ -9,6 +9,7 @@ import type { FruitStoragePort } from "../../storage/ports/fruit-storage-port.js
 import type { GeneStoragePort } from "../../storage/ports/gene-storage-port.js";
 import type { NutrientStoragePort } from "../../storage/ports/nutrient-storage-port.js";
 import type { SeedStoragePort } from "../../storage/ports/seed-storage-port.js";
+import type { MediaStoragePort } from "../../storage/ports/media-storage-port.js";
 import type { AgentTaskContext } from "../runtime/agent-task.js";
 import type { ToolContract, ToolInput, ToolOutput } from "../runtime/tool-contract.js";
 import {
@@ -87,6 +88,7 @@ export class ReadGrowthResourcesTool implements ToolContract {
       geneContentAccess?: GeneMarkdownContentAccessPort;
       nutrientStorage?: NutrientStoragePort;
       nutrientContentAccess?: NutrientMarkdownContentAccessPort;
+      mediaStorage?: MediaStoragePort;
     } = {},
   ) {}
 
@@ -202,11 +204,40 @@ export class ReadGrowthResourcesTool implements ToolContract {
         ),
       });
     }
+    const mediaAssets = [];
+    if (
+      this.dependencies.mediaStorage !== undefined &&
+      typeof context.input.seedId === "string"
+    ) {
+      for (const ref of refs.filter((item) => item.resourceType === "media")) {
+        const asset = await this.dependencies.mediaStorage.findMediaAssetById(
+          ref.resourceId,
+        );
+        if (asset === null || asset.seedId !== context.input.seedId) {
+          continue;
+        }
+        mediaAssets.push({
+          resourceType: "media",
+          resourceId: ref.resourceId,
+          usage: ref.usage ?? "",
+          mediaType: asset.mediaType,
+          mimeType: asset.mimeType,
+          fileName: asset.fileName,
+          sizeBytes: asset.sizeBytes,
+          contentUrl: `/api/media-assets/${encodeURIComponent(asset.id)}/content`,
+          note:
+            asset.mediaType === "video"
+              ? "视频可作为资源引用，但不代表当前 Agent 一定能理解视频内容。"
+              : "图片可作为本轮授权媒体引用。",
+        });
+      }
+    }
     return {
       content: {
         requestedRefs: refs,
         nutrients,
         temporaryNutrientCards,
+        mediaAssets,
         genes,
       },
     };

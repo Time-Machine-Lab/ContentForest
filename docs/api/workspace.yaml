@@ -133,6 +133,7 @@ components:
         - generatorId
         - summary
         - geneTags
+        - media
         - createdAt
         - updatedAt
         - growth
@@ -164,6 +165,11 @@ components:
           type: array
           items:
             type: string
+        media:
+          type: array
+          description: 果实挂载媒体资源摘要；工作区不返回媒体二进制内容。
+          items:
+            $ref: '#/components/schemas/WorkspaceFruitMediaSummary'
         createdAt:
           type: string
           format: date-time
@@ -220,7 +226,7 @@ components:
           nullable: true
     WorkspaceResources:
       type: object
-      required: [generators, nutrients, geneInsights]
+      required: [generators, nutrients, mediaAssets, geneInsights]
       properties:
         generators:
           type: array
@@ -234,6 +240,34 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ReferableGeneInsight'
+        mediaAssets:
+          type: array
+          description: 当前种子下可作为枝化生长输入引用的媒体资源摘要。
+          items:
+            $ref: '#/components/schemas/ReferableMediaAsset'
+    WorkspaceFruitMediaSummary:
+      type: object
+      required: [id, mediaType, mimeType, fileName, sizeBytes, contentUrl, displayRole, sortOrder]
+      properties:
+        id:
+          type: string
+        mediaType:
+          type: string
+          enum: [image, video]
+        mimeType:
+          type: string
+        fileName:
+          type: string
+        sizeBytes:
+          type: integer
+          minimum: 1
+        contentUrl:
+          type: string
+        displayRole:
+          type: string
+          enum: [primary, inline, reference, attachment]
+        sortOrder:
+          type: integer
     SelectableGenerator:
       type: object
       required: [id, name, description, contentLocation]
@@ -343,6 +377,32 @@ components:
           type: string
           format: date-time
           nullable: true
+    ReferableMediaAsset:
+      type: object
+      required: [id, seedId, mediaType, mimeType, fileName, sizeBytes, contentUrl, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        seedId:
+          type: string
+        mediaType:
+          type: string
+          enum: [image, video]
+        mimeType:
+          type: string
+        fileName:
+          type: string
+        sizeBytes:
+          type: integer
+          minimum: 1
+        contentUrl:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
     WorkspaceGeneExtractionHub:
       type: object
       required:

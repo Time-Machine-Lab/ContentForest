@@ -28,7 +28,11 @@ export function readAuthorizedGeneratorId(context: AgentTaskContext): string {
 
 export function readAuthorizedResourceRefs(
   context: AgentTaskContext,
-): Array<{ resourceType: "nutrient" | "gene" | "nutrient_card"; resourceId: string }> {
+): Array<{
+  resourceType: "nutrient" | "gene" | "nutrient_card" | "media";
+  resourceId: string;
+  usage?: string;
+}> {
   const scope = requireRecord(
     context.input.authorizationScope,
     "任务授权范围不能为空",
@@ -36,6 +40,7 @@ export function readAuthorizedResourceRefs(
   return [
     ...normalizeResourceRefs(scope.nutrientRefs, "nutrient"),
     ...normalizeResourceRefs(scope.temporaryNutrientCardRefs, "nutrient_card"),
+    ...normalizeResourceRefs(scope.mediaRefs, "media"),
     ...normalizeResourceRefs(scope.geneRefs, "gene"),
   ];
 }
@@ -73,8 +78,12 @@ export function normalizeRelativeSkillPath(value: unknown): string {
 
 function normalizeResourceRefs(
   value: unknown,
-  expectedType: "nutrient" | "gene" | "nutrient_card",
-): Array<{ resourceType: "nutrient" | "gene" | "nutrient_card"; resourceId: string }> {
+  expectedType: "nutrient" | "gene" | "nutrient_card" | "media",
+): Array<{
+  resourceType: "nutrient" | "gene" | "nutrient_card" | "media";
+  resourceId: string;
+  usage?: string;
+}> {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -86,6 +95,10 @@ function normalizeResourceRefs(
     return {
       resourceType: expectedType,
       resourceId: requireString(ref.resourceId, "授权资源不能为空"),
+      usage:
+        expectedType === "media" && typeof ref.usage === "string"
+          ? ref.usage
+          : undefined,
     };
   });
 }

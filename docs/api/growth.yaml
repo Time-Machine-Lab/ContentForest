@@ -147,6 +147,19 @@ components:
           enum: [nutrient_card]
         resourceId:
           type: string
+    MediaRef:
+      type: object
+      required: [resourceType, resourceId, usage]
+      description: 已上传媒体资源的本次生长输入引用，必须携带用途说明。
+      properties:
+        resourceType:
+          type: string
+          enum: [media]
+        resourceId:
+          type: string
+        usage:
+          type: string
+          minLength: 1
     StartGrowthTaskRequest:
       type: object
       required: [seedId, sourceNodeRef, generatorId]
@@ -173,6 +186,11 @@ components:
           description: 仅允许引用当前种子下未沉淀且未归档的营养卡片。
           items:
             $ref: '#/components/schemas/TemporaryNutrientCardRef'
+        mediaRefs:
+          type: array
+          description: 仅允许引用当前种子下可访问的媒体资源；视频引用不代表 Agent 一定能理解视频。
+          items:
+            $ref: '#/components/schemas/MediaRef'
         geneRefs:
           type: array
           items:
@@ -286,6 +304,7 @@ components:
             - seed_brief
             - nutrient
             - temporary_nutrient_card
+            - media
             - gene
             - feedback
             - system_context
@@ -319,6 +338,7 @@ components:
         - seed_brief
         - formal_nutrient
         - temporary_nutrient_card
+        - media
         - gene
         - feedback
         - research_context
@@ -348,7 +368,7 @@ components:
         resourceType:
           type: string
           nullable: true
-          enum: [nutrient, nutrient_card, gene, null]
+          enum: [nutrient, nutrient_card, media, gene, null]
         resourceId:
           type: string
           nullable: true
@@ -449,7 +469,7 @@ components:
         resourceType:
           type: string
           nullable: true
-          enum: [nutrient, nutrient_card, gene, null]
+          enum: [nutrient, nutrient_card, media, gene, null]
         resourceId:
           type: string
           nullable: true
@@ -715,6 +735,7 @@ components:
         - fruitCount
         - nutrientRefs
         - temporaryNutrientCardRefs
+        - mediaRefs
         - geneRefs
         - successfulFruitIds
         - pipelineParams
@@ -747,6 +768,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TemporaryNutrientCardRef'
+        mediaRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/MediaRef'
         geneRefs:
           type: array
           items:
@@ -811,6 +836,7 @@ components:
         - fruitCount
         - nutrientRefs
         - temporaryNutrientCardRefs
+        - mediaRefs
         - geneRefs
         - pipelineParams
         - failureReason
@@ -836,6 +862,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TemporaryNutrientCardRef'
+        mediaRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/MediaRef'
         geneRefs:
           type: array
           items:

@@ -1,5 +1,6 @@
 import { ApplicationError, isApplicationError } from "../../shared/errors/application-error.js";
 import type { SkillContract } from "../skills/skill-contract.js";
+import { attachCandidateMediaArtifacts } from "./candidate-media-artifact.js";
 import {
   splitLlmThink,
   type AgentExchangeLogRecorder,
@@ -89,7 +90,7 @@ export class SkillRuntime {
     });
 
     try {
-      return await skill.execute({
+      const output = await skill.execute({
         context,
         tools: this.toolRuntime,
         llm: new TracedLlmAdapter(
@@ -101,6 +102,10 @@ export class SkillRuntime {
         trace: this.trace,
         emit,
       });
+      return attachCandidateMediaArtifacts(
+        output,
+        this.toolRuntime.listCandidateMediaArtifacts(),
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Skill execution failed";
       this.trace.record("skill_failed", `Skill failed: ${skill.name}`, {

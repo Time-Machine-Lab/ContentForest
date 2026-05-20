@@ -28,6 +28,7 @@ test('workspace referenced resources can be removed before growth payload mappin
   assert.equal(workspacePage.includes('@click.stop="removeResource(resource)"'), true)
   assert.equal(workspacePage.includes(".filter((resource) => resource.kind === 'nutrient')"), true)
   assert.equal(workspacePage.includes(".filter((resource) => resource.kind === 'gene')"), true)
+  assert.equal(workspacePage.includes(".filter((resource) => resource.kind === 'media')"), true)
 })
 
 test('workspace submits nutrient card temporary refs and restores failed input refs', () => {
@@ -54,10 +55,80 @@ test('workspace applies default nutrients and accepts workbench references', () 
   assert.equal(workspacePage.includes('handleNutrientWorkbenchChanged'), true)
   assert.equal(workspacePage.includes('@reference="handleNutrientWorkbenchReference"'), true)
   assert.equal(workspacePage.includes('@changed="handleNutrientWorkbenchChanged"'), true)
-  assert.equal(workspacePage.includes("resource.kind === 'nutrient_card' ? '草稿营养'"), true)
+  assert.equal(workspacePage.includes('resourceKindLabel(resource.kind)'), true)
   assert.equal(workspacePage.includes('默认带入 · ${item.library.name}'), true)
   assert.equal(workspacePage.includes('.cf-mention.is-nutrient_card'), true)
   assert.equal(workspacePage.includes('.cf-ref-chip.is-nutrient_card'), true)
+})
+
+test('workspace renders fruit media attachments outside markdown content', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+  const fruitTypes = readProjectFile('src/modules/fruit/types.ts')
+  const workspaceTypes = readProjectFile('src/modules/workspace/types.ts')
+
+  assert.equal(fruitTypes.includes('FruitMediaAttachment'), true)
+  assert.equal(workspaceTypes.includes('WorkspaceFruitMediaSummary'), true)
+  assert.equal(workspacePage.includes('selectedNode.nodeType === \'fruit\' && selectedNode.media.length > 0'), true)
+  assert.equal(workspacePage.includes('class="cf-media-grid"'), true)
+  assert.equal(workspacePage.includes('media.mediaType === \'image\''), true)
+  assert.equal(workspacePage.includes('<video'), true)
+  assert.equal(workspacePage.includes('<MarkdownViewer v-else :markdown="selectedNode.markdown" />'), true)
+})
+
+test('workspace uploads media assets and adds media references', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+  const mediaApi = readProjectFile('src/modules/media/api.ts')
+
+  assert.equal(mediaApi.includes('/api/media-assets'), true)
+  assert.equal(mediaApi.includes('/content'), true)
+  assert.equal(workspacePage.includes('createMediaApi'), true)
+  assert.equal(workspacePage.includes('mediaApi.createMediaAsset(payload)'), true)
+  assert.equal(workspacePage.includes('contentBase64: await fileToBase64(file)'), true)
+  assert.equal(workspacePage.includes('upsertMediaAssetIntoSnapshot(asset)'), true)
+  assert.equal(workspacePage.includes('addResource(mediaAssetToResource(asset))'), true)
+  assert.equal(workspacePage.includes('mediaUploading'), true)
+  assert.equal(workspacePage.includes('mediaUploadError'), true)
+})
+
+test('workspace submits media refs with usage without changing existing mappings', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+  const growthTypes = readProjectFile('src/modules/growth/types.ts')
+
+  assert.equal(growthTypes.includes('GrowthMediaRef'), true)
+  assert.equal(growthTypes.includes('mediaRefs'), true)
+  assert.equal(workspacePage.includes('mediaUsageOptions'), true)
+  assert.equal(workspacePage.includes('updateMediaUsage(resource, eventValue($event))'), true)
+  assert.equal(workspacePage.includes('updateMediaUsageNote(resource, eventValue($event))'), true)
+  assert.equal(workspacePage.includes('usage: buildMediaUsage(resource)'), true)
+  assert.equal(workspacePage.includes('nutrientRefs,'), true)
+  assert.equal(workspacePage.includes('temporaryNutrientCardRefs,'), true)
+  assert.equal(workspacePage.includes('mediaRefs,'), true)
+  assert.equal(workspacePage.includes('geneRefs,'), true)
+})
+
+test('workspace media resources coexist in mention picker and failed input recovery', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+
+  assert.equal(workspacePage.includes('resources.mediaAssets'), true)
+  assert.equal(workspacePage.includes("kind: 'media' as const"), true)
+  assert.equal(workspacePage.includes("title: '媒体'"), true)
+  assert.equal(workspacePage.includes('.cf-resource-group.is-media .cf-resource-icon'), true)
+  assert.equal(workspacePage.includes('.cf-mention.is-media'), true)
+  assert.equal(workspacePage.includes('.cf-ref-chip.is-media'), true)
+  assert.equal(workspacePage.includes('const failedMediaRefs = failedInput.mediaRefs ?? []'), true)
+  assert.equal(workspacePage.includes('restoreMediaUsage(matchedResource, ref.usage)'), true)
+  assert.equal(workspacePage.includes('已跳过 ${skippedMediaRefs} 个不可访问媒体引用'), true)
+})
+
+test('workspace mention picker includes temporary nutrient cards', () => {
+  const workspacePage = readProjectFile('app/pages/seeds/[seedId]/workspace.vue')
+
+  assert.equal(workspacePage.includes('createNutrientApi'), true)
+  assert.equal(workspacePage.includes('temporaryNutrientCards'), true)
+  assert.equal(workspacePage.includes("nutrientApi.listCards(seedId.value, { status: 'unsettled' })"), true)
+  assert.equal(workspacePage.includes("kind: 'nutrient_card' as const"), true)
+  assert.equal(workspacePage.includes('title: \'临时营养\''), true)
+  assert.equal(workspacePage.includes('还未沉淀进营养库，可临时参与本次枝化生长'), true)
 })
 
 test('workspace has one backend-driven gene extraction dialog launched from a bubble', () => {

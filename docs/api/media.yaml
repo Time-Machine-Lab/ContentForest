@@ -1,0 +1,178 @@
+openapi: 3.1.0
+info:
+  title: 内容森林媒体资源 API
+  version: 0.1.0
+  description: >
+    Media Controller 对外暴露媒体资源上传、详情读取和内容读取能力。
+    媒体二进制内容通过内容访问层保存，接口只暴露 mediaAssetId 和受控内容读取入口，
+    不暴露本机绝对路径。
+tags:
+  - name: Media
+paths:
+  /api/media-assets:
+    post:
+      tags: [Media]
+      summary: 上传媒体资源
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMediaAssetRequest'
+      responses:
+        '201':
+          description: 媒体资源已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaAssetDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/media-assets/{mediaAssetId}:
+    get:
+      tags: [Media]
+      summary: 查看媒体资源详情
+      parameters:
+        - $ref: '#/components/parameters/MediaAssetId'
+      responses:
+        '200':
+          description: 媒体资源详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaAssetDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/media-assets/{mediaAssetId}/content:
+    get:
+      tags: [Media]
+      summary: 读取媒体资源内容
+      parameters:
+        - $ref: '#/components/parameters/MediaAssetId'
+      responses:
+        '200':
+          description: 媒体内容流
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+            video/webm:
+              schema:
+                type: string
+                format: binary
+            video/quicktime:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  parameters:
+    MediaAssetId:
+      name: mediaAssetId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    CreateMediaAssetRequest:
+      type: object
+      required: [seedId, fileName, mimeType, contentBase64]
+      properties:
+        seedId:
+          type: string
+        fileName:
+          type: string
+        mimeType:
+          type: string
+          enum: [image/png, image/jpeg, image/webp, image/gif, video/mp4, video/webm, video/quicktime]
+        contentBase64:
+          type: string
+          description: 媒体二进制内容的 Base64 编码。
+        sourceType:
+          type: string
+          enum: [user_upload, generated_output, imported]
+          default: user_upload
+        sourceId:
+          type: string
+          nullable: true
+    MediaAssetSummary:
+      type: object
+      required: [id, seedId, mediaType, mimeType, fileName, sizeBytes, sourceType, sourceId, contentUrl, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        seedId:
+          type: string
+        mediaType:
+          type: string
+          enum: [image, video]
+        mimeType:
+          type: string
+        fileName:
+          type: string
+        sizeBytes:
+          type: integer
+          minimum: 1
+        sourceType:
+          type: string
+          enum: [user_upload, generated_output, imported]
+        sourceId:
+          type: string
+          nullable: true
+        contentUrl:
+          type: string
+          description: 受控内容读取入口，不是本机文件路径。
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    MediaAssetDetail:
+      allOf:
+        - $ref: '#/components/schemas/MediaAssetSummary'
+        - type: object
+          required: [canReference]
+          properties:
+            canReference:
+              type: boolean
+              description: 第一版仅表达可作为枝化生长引用资源，不代表 Agent 一定能理解视频。
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+  responses:
+    BadRequest:
+      description: 请求参数、媒体类型、文件大小或基础内容校验失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: 媒体资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

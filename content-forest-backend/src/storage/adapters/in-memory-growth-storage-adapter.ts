@@ -118,6 +118,7 @@ export class InMemoryGrowthStorageAdapter implements GrowthStoragePort {
       temporaryNutrientCardRefs: cloneGrowthResourceRefs(
         record.temporaryNutrientCardRefs,
       ),
+      mediaRefs: record.mediaRefs.map((ref) => ({ ...ref })),
       geneRefs: cloneGrowthResourceRefs(record.geneRefs),
       detailParams: { ...record.detailParams },
       pipelineParams: { ...record.pipelineParams },
@@ -158,6 +159,7 @@ export class InMemoryGrowthStorageAdapter implements GrowthStoragePort {
       temporaryNutrientCardRefs: cloneGrowthResourceRefs(
         record.temporaryNutrientCardRefs,
       ),
+      mediaRefs: record.mediaRefs.map((ref) => ({ ...ref })),
       geneRefs: cloneGrowthResourceRefs(record.geneRefs),
       detailParams: { ...record.detailParams },
       pipelineParams: { ...record.pipelineParams },
@@ -174,6 +176,7 @@ export class InMemoryGrowthStorageAdapter implements GrowthStoragePort {
       temporaryNutrientCardRefs: cloneGrowthResourceRefs(
         scope.temporaryNutrientCardRefs,
       ),
+      mediaRefs: scope.mediaRefs.map((ref) => ({ ...ref })),
       geneRefs: cloneGrowthResourceRefs(scope.geneRefs),
     };
   }

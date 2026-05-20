@@ -1,5 +1,10 @@
 import { ApplicationError, isApplicationError } from "../../shared/errors/application-error.js";
 import type { AgentTaskContext, AgentTaskStreamEvent } from "./agent-task.js";
+import {
+  candidateMediaArtifactSummary,
+  normalizeToolCandidateMediaArtifacts,
+  type CandidateMediaArtifactPayload,
+} from "./candidate-media-artifact.js";
 import type { AgentExchangeLogRecorder } from "./agent-exchange-log.js";
 import type { AgentTrace } from "./agent-trace.js";
 import type { ToolInput, ToolOutput } from "./tool-contract.js";
@@ -11,6 +16,7 @@ export class ToolRuntime {
   private readonly trace: AgentTrace;
   private readonly exchangeLog?: AgentExchangeLogRecorder;
   private readonly emit?: (event: AgentTaskStreamEvent) => void | Promise<void>;
+  private readonly candidateMediaArtifacts: CandidateMediaArtifactPayload[] = [];
 
   public constructor(
     registry: ToolRegistry,
@@ -46,21 +52,22 @@ export class ToolRuntime {
         signal: this.context.abortSignal,
       });
       assertNotAborted(this.context.abortSignal);
+      const safeOutput = this.registerCandidateMediaArtifacts(name, output);
       this.trace.record("tool_completed", `Tool completed: ${name}`, {
         toolName: name,
-        metadata: output.metadata ?? {},
+        metadata: safeOutput.metadata ?? {},
       });
       this.exchangeLog?.record("tool_result", {
         name,
-        content: output,
+        content: safeOutput,
       });
       await this.emit?.({
         type: "tool_call_completed",
         toolName: name,
         message: `工具调用完成：${name}`,
-        metadata: sanitizeMetadata(output.metadata ?? {}),
+        metadata: sanitizeMetadata(safeOutput.metadata ?? {}),
       });
-      return output;
+      return safeOutput;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Tool execution failed";
       this.trace.record("tool_failed", `Tool failed: ${name}`, {
@@ -88,6 +95,41 @@ export class ToolRuntime {
         500,
       );
     }
+  }
+
+  public listCandidateMediaArtifacts(): CandidateMediaArtifactPayload[] {
+    return this.candidateMediaArtifacts.map((artifact) => ({
+      ...artifact,
+      content: artifact.content === undefined
+        ? undefined
+        : Buffer.from(artifact.content),
+    }));
+  }
+
+  private registerCandidateMediaArtifacts(
+    toolName: string,
+    output: ToolOutput,
+  ): ToolOutput {
+    const artifacts = normalizeToolCandidateMediaArtifacts({
+      taskId: this.context.taskId,
+      toolName,
+      artifacts: output.candidateMediaArtifacts,
+      startIndex: this.candidateMediaArtifacts.length,
+    });
+    if (artifacts.length === 0) {
+      return {
+        content: output.content,
+        metadata: output.metadata,
+      };
+    }
+    this.candidateMediaArtifacts.push(...artifacts);
+    return {
+      content: output.content,
+      metadata: {
+        ...(output.metadata ?? {}),
+        candidateMediaArtifacts: artifacts.map(candidateMediaArtifactSummary),
+      },
+    };
   }
 }
 

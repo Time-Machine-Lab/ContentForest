@@ -1,4 +1,5 @@
 import type { AgentTaskContext } from "./agent-task.js";
+import type { ToolCandidateMediaArtifactInput } from "./candidate-media-artifact.js";
 
 export interface ToolInput {
   [key: string]: unknown;
@@ -7,6 +8,7 @@ export interface ToolInput {
 export interface ToolOutput {
   content: unknown;
   metadata?: Record<string, unknown>;
+  candidateMediaArtifacts?: ToolCandidateMediaArtifactInput[];
 }
 
 export interface ToolExecutionOptions {

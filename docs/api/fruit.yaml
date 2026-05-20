@@ -117,9 +117,39 @@ components:
         nodeType:
           type: string
           enum: [seed, fruit]
+    MediaAssetSummary:
+      type: object
+      required: [id, mediaType, mimeType, fileName, sizeBytes, contentUrl]
+      properties:
+        id:
+          type: string
+        mediaType:
+          type: string
+          enum: [image, video]
+        mimeType:
+          type: string
+        fileName:
+          type: string
+        sizeBytes:
+          type: integer
+          minimum: 1
+        contentUrl:
+          type: string
+          description: 受控内容读取入口，不是本机文件路径。
+    FruitMediaAttachment:
+      allOf:
+        - $ref: '#/components/schemas/MediaAssetSummary'
+        - type: object
+          required: [displayRole, sortOrder]
+          properties:
+            displayRole:
+              type: string
+              enum: [primary, inline, reference, attachment]
+            sortOrder:
+              type: integer
     FruitSummary:
       type: object
-      required: [id, selectionState, parentNodeRef, contentLocation, generatorId, summary, geneTags, createdAt, updatedAt]
+      required: [id, selectionState, parentNodeRef, contentLocation, generatorId, summary, geneTags, media, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -142,6 +172,11 @@ components:
           type: array
           items:
             type: string
+        media:
+          type: array
+          description: 果实挂载媒体资源摘要；历史果实无媒体时为空数组。
+          items:
+            $ref: '#/components/schemas/FruitMediaAttachment'
         createdAt:
           type: string
           format: date-time

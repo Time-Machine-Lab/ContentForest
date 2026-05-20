@@ -63,6 +63,53 @@ describe("BranchGrowthCandidate schema", () => {
     ]);
   });
 
+  it("normalizes model-style reference aliases and title/body payloads", () => {
+    const candidate = validateBranchGrowthCandidateFruit(
+      {
+        type: "candidate_fruit",
+        payload: {
+          title: "画布创作",
+          body: "正文内容",
+          tags: ["AI工具"],
+        },
+        meta: {
+          summary: "OpenPlane画布表达",
+          geneTags: ["对比框架"],
+          usedResourceRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
+          referenceUsage: [{
+            sourceType: "seed",
+            resourceType: "nutrient",
+            resourceId: "nutrient_1",
+            status: "unverified",
+            atomIds: [],
+            actions: ["derive", "引用"],
+            slots: ["正式营养", "平台语感约束：小红书标题+emoji+标签+互动钩子"],
+            usageSummary: "作为内容基础参考",
+            evidenceStrength: "medium",
+            riskLevel: "low",
+          }],
+          warnings: [],
+        },
+      },
+      {
+        authorizedResourceRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
+      },
+    );
+
+    expect(candidate.payload.markdown).toContain("# 画布创作");
+    expect(candidate.payload.markdown).toContain("#AI工具");
+    expect(candidate.meta.referenceUsage).toEqual([
+      expect.objectContaining({
+        sourceType: "formal_nutrient",
+        resourceType: "nutrient",
+        resourceId: "nutrient_1",
+        actions: ["ground"],
+        slots: expect.arrayContaining(["proof_evidence"]),
+        evidenceStrength: "observed",
+      }),
+    ]);
+  });
+
   it("rejects empty markdown and summary", () => {
     expect(() =>
       validateBranchGrowthCandidateFruit({
@@ -189,22 +236,21 @@ describe("BranchGrowthCandidate schema", () => {
       riskLevel: "high",
     };
 
-    expect(() =>
-      validateBranchGrowthCandidateFruit(
-        {
-          ...validCandidate,
-          meta: {
-            ...validCandidate.meta,
-            usedResourceRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
-            referenceUsage: [highRiskUsage],
-          },
+    const autoHandled = validateBranchGrowthCandidateFruit(
+      {
+        ...validCandidate,
+        meta: {
+          ...validCandidate.meta,
+          usedResourceRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
+          referenceUsage: [highRiskUsage],
         },
-        {
-          authorizedResourceRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
-          plannedReferenceUsage: [highRiskUsage],
-        },
-      ),
-    ).toThrow(/riskHandlingSummary|factCheckSummary/);
+      },
+      {
+        authorizedResourceRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
+        plannedReferenceUsage: [highRiskUsage],
+      },
+    );
+    expect(autoHandled.meta.riskHandlingSummary).not.toBeNull();
 
     const accepted = validateBranchGrowthCandidateFruit(
       {

@@ -12,3 +12,13 @@
 - **WHEN** 生成器 Skill 产出的媒体只是中间参考或临时素材
 - **THEN** 枝化生长 Skill MAY 不建议挂载到果实
 - **AND** 系统 MUST 不把未挂载中间素材展示为果实正式媒体
+
+#### Scenario: 兼容 payload attachments
+- **WHEN** 生成器原始输出或候选 payload 中包含 attachments 字符串列表
+- **THEN** 枝化生长 Skill MAY 将其作为生成器输出提示或 warning 来源
+- **AND** 系统 MUST 不把该字符串列表直接当作正式媒体挂载关系
+
+#### Scenario: 生成媒体不污染 usedResourceRefs
+- **WHEN** 枝化生长 Skill 封装生成器产生的新图片或视频
+- **THEN** Skill MUST 不把该新媒体写入 usedResourceRefs
+- **AND** usedResourceRefs MUST 只表达本轮授权输入资源的使用情况

@@ -1,3 +1,5 @@
+import type { FruitMediaAttachmentSummary } from "../../media/domain/media-types.js";
+
 export const FRUIT_SELECTION_STATES = {
   candidate: "candidate",
   selected: "selected",
@@ -22,6 +24,7 @@ export interface FruitSummary {
   generatorId: string | null;
   summary: string;
   geneTags: string[];
+  media: FruitMediaAttachmentSummary[];
   createdAt: string;
   updatedAt: string;
 }

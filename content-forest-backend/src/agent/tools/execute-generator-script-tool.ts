@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,6 +9,9 @@ import { GENERATOR_ENABLE_STATES } from "../../modules/generator/domain/generato
 import { ApplicationError } from "../../shared/errors/application-error.js";
 import type { GeneratorStoragePort } from "../../storage/ports/generator-storage-port.js";
 import type { AgentTaskContext } from "../runtime/agent-task.js";
+import type {
+  ToolCandidateMediaArtifactInput,
+} from "../runtime/candidate-media-artifact.js";
 import type { ToolContract, ToolInput, ToolOutput } from "../runtime/tool-contract.js";
 import {
   normalizeRelativeSkillPath,
@@ -121,11 +124,17 @@ export class ExecuteGeneratorScriptTool implements ToolContract {
       if (output.length === 0) {
         throw new ApplicationError("AGENT_TOOL_ERROR", "生成器脚本没有输出", 500);
       }
+      const parsedOutput = parseScriptOutput(output);
+      const candidateMediaArtifacts = await this.readCandidateMediaArtifacts(
+        parsedOutput,
+        tempDir,
+      );
       return {
         content: {
-          payload: output,
+          payload: scriptPayload(parsedOutput, output),
           stderr: stderr.trim().slice(0, 1000),
         },
+        candidateMediaArtifacts,
       };
     } catch (error) {
       if (error instanceof ApplicationError) {
@@ -140,6 +149,73 @@ export class ExecuteGeneratorScriptTool implements ToolContract {
       await rm(tempDir, { recursive: true, force: true });
     }
   }
+
+  private async readCandidateMediaArtifacts(
+    output: unknown,
+    tempDir: string,
+  ): Promise<ToolCandidateMediaArtifactInput[]> {
+    if (
+      typeof output !== "object" ||
+      output === null ||
+      Array.isArray(output)
+    ) {
+      return [];
+    }
+    const record = output as Record<string, unknown>;
+    const artifacts = record.candidateMediaArtifacts ?? record.mediaArtifacts;
+    if (!Array.isArray(artifacts)) {
+      return [];
+    }
+    return Promise.all(
+      artifacts.map(async (artifact) => {
+        if (
+          typeof artifact !== "object" ||
+          artifact === null ||
+          Array.isArray(artifact)
+        ) {
+          throw new ApplicationError(
+            "VALIDATION_ERROR",
+            "生成器媒体产物格式不正确",
+            500,
+          );
+        }
+        const normalized = { ...(artifact as Record<string, unknown>) };
+        const relativePath = normalized.relativePath ?? normalized.path;
+        if (typeof relativePath === "string" && relativePath.trim().length > 0) {
+          const safePath = normalizeRelativeSkillPath(relativePath);
+          normalized.fileName = normalized.fileName ?? safePath;
+          normalized.content = await readFile(join(tempDir, safePath));
+          delete normalized.relativePath;
+          delete normalized.path;
+        }
+        return normalized as ToolCandidateMediaArtifactInput;
+      }),
+    );
+  }
+}
+
+function parseScriptOutput(output: string): unknown {
+  try {
+    return JSON.parse(output) as unknown;
+  } catch {
+    return output;
+  }
+}
+
+function scriptPayload(parsedOutput: unknown, fallback: string): unknown {
+  if (
+    typeof parsedOutput !== "object" ||
+    parsedOutput === null ||
+    Array.isArray(parsedOutput)
+  ) {
+    return fallback;
+  }
+  const record = parsedOutput as Record<string, unknown>;
+  return record.payload ??
+    record.markdown ??
+    record.content ??
+    record.output ??
+    fallback;
 }
 
 function buildRunner(entryPath: string): string {

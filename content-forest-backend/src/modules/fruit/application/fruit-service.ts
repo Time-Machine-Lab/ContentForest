@@ -1,4 +1,9 @@
 import type { FruitMarkdownContentAccessPort } from "../../../content-access/ports/fruit-markdown-content-access-port.js";
+import type {
+  FruitMediaDisplayRole,
+  FruitMediaAttachmentSummary,
+} from "../../media/domain/media-types.js";
+import type { MediaStoragePort } from "../../../storage/ports/media-storage-port.js";
 import { ApplicationError } from "../../../shared/errors/application-error.js";
 import type { IdGenerator } from "../../../shared/utils/id-generator.js";
 import { RandomIdGenerator } from "../../../shared/utils/id-generator.js";
@@ -22,6 +27,13 @@ export interface FruitCandidateInput {
   generatorId?: string | null;
   summary?: string;
   geneTags?: string[];
+  mediaAttachments?: FruitCandidateMediaAttachmentInput[];
+}
+
+export interface FruitCandidateMediaAttachmentInput {
+  mediaAssetId: string;
+  displayRole?: FruitMediaDisplayRole;
+  sortOrder?: number;
 }
 
 export interface UpdateFruitContentInput {
@@ -31,6 +43,7 @@ export interface UpdateFruitContentInput {
 export interface FruitServiceDependencies {
   storage: FruitStoragePort;
   contentAccess: FruitMarkdownContentAccessPort;
+  mediaStorage?: MediaStoragePort;
   onFruitSelectionChanged?: (input: {
     seedId: string;
     fruitId: string;
@@ -43,6 +56,7 @@ export interface FruitServiceDependencies {
 export class FruitService {
   private readonly storage: FruitStoragePort;
   private readonly contentAccess: FruitMarkdownContentAccessPort;
+  private readonly mediaStorage: MediaStoragePort | undefined;
   private readonly onFruitSelectionChanged:
     | ((input: {
         seedId: string;
@@ -56,6 +70,7 @@ export class FruitService {
   public constructor(dependencies: FruitServiceDependencies) {
     this.storage = dependencies.storage;
     this.contentAccess = dependencies.contentAccess;
+    this.mediaStorage = dependencies.mediaStorage;
     this.onFruitSelectionChanged = dependencies.onFruitSelectionChanged;
     this.idGenerator = dependencies.idGenerator ?? new RandomIdGenerator();
     this.now = dependencies.now ?? (() => new Date());
@@ -76,6 +91,11 @@ export class FruitService {
       markdown,
     });
 
+    const mediaAttachments = await this.normalizeMediaAttachments(
+      fruitId,
+      input.mediaAttachments,
+      timestamp,
+    );
     const record: FruitRecord = {
       id: fruitId,
       selectionState: FRUIT_SELECTION_STATES.candidate,
@@ -90,6 +110,12 @@ export class FruitService {
 
     try {
       await this.storage.createFruit(record);
+      if (mediaAttachments.length > 0 && this.mediaStorage !== undefined) {
+        await this.mediaStorage.replaceFruitMediaAttachments(
+          fruitId,
+          mediaAttachments,
+        );
+      }
     } catch (error) {
       await this.contentAccess.removeFruitMarkdown(contentLocation);
       throw error;
@@ -141,7 +167,7 @@ export class FruitService {
     const records = await this.storage.listChildFruits(
       this.requireParentNodeRef(parentNodeRef),
     );
-    return records.map((record) => this.toSummary(record));
+    return Promise.all(records.map((record) => this.toSummary(record)));
   }
 
   public async getPublishEligibility(
@@ -299,7 +325,103 @@ export class FruitService {
     return this.now().toISOString();
   }
 
-  private toSummary(record: FruitRecord): FruitSummary {
+  private async normalizeMediaAttachments(
+    fruitId: string,
+    input: FruitCandidateMediaAttachmentInput[] | undefined,
+    timestamp: string,
+  ): Promise<Array<{
+    id: string;
+    fruitId: string;
+    mediaAssetId: string;
+    displayRole: FruitMediaDisplayRole;
+    sortOrder: number;
+    createdAt: string;
+  }>> {
+    if (input === undefined || input.length === 0) {
+      return [];
+    }
+    if (this.mediaStorage === undefined) {
+      throw new ApplicationError("VALIDATION_ERROR", "媒体挂载能力尚未装配", 400);
+    }
+    const seen = new Set<string>();
+    const records: Array<{
+      id: string;
+      fruitId: string;
+      mediaAssetId: string;
+      displayRole: FruitMediaDisplayRole;
+      sortOrder: number;
+      createdAt: string;
+    }> = [];
+    for (const [index, attachment] of input.entries()) {
+      const mediaAssetId = this.requireNonBlank(
+        attachment.mediaAssetId,
+        "媒体资源不能为空",
+      );
+      if (seen.has(mediaAssetId)) {
+        continue;
+      }
+      seen.add(mediaAssetId);
+      const mediaAsset = await this.mediaStorage.findMediaAssetById(mediaAssetId);
+      if (mediaAsset === null) {
+        throw new ApplicationError("NOT_FOUND", "媒体资源不存在", 404);
+      }
+      records.push({
+        id: this.idGenerator.nextId("fruit-media"),
+        fruitId,
+        mediaAssetId,
+        displayRole: this.normalizeMediaDisplayRole(attachment.displayRole),
+        sortOrder:
+          attachment.sortOrder !== undefined &&
+          Number.isInteger(attachment.sortOrder) &&
+          attachment.sortOrder >= 0
+            ? attachment.sortOrder
+            : index,
+        createdAt: timestamp,
+      });
+    }
+    return records;
+  }
+
+  private normalizeMediaDisplayRole(
+    value: FruitMediaDisplayRole | undefined,
+  ): FruitMediaDisplayRole {
+    if (
+      value === "primary" ||
+      value === "inline" ||
+      value === "reference" ||
+      value === "attachment"
+    ) {
+      return value;
+    }
+    return "attachment";
+  }
+
+  private async loadMediaAttachments(
+    fruitId: string,
+  ): Promise<FruitMediaAttachmentSummary[]> {
+    if (this.mediaStorage === undefined) {
+      return [];
+    }
+    const rows = await this.mediaStorage.listFruitMediaAttachments(fruitId);
+    return rows.map((row) => ({
+      id: row.mediaAsset.id,
+      seedId: row.mediaAsset.seedId,
+      mediaType: row.mediaAsset.mediaType,
+      mimeType: row.mediaAsset.mimeType,
+      fileName: row.mediaAsset.fileName,
+      sizeBytes: row.mediaAsset.sizeBytes,
+      sourceType: row.mediaAsset.sourceType,
+      sourceId: row.mediaAsset.sourceId,
+      contentUrl: `/api/media-assets/${encodeURIComponent(row.mediaAsset.id)}/content`,
+      createdAt: row.mediaAsset.createdAt,
+      updatedAt: row.mediaAsset.updatedAt,
+      displayRole: row.displayRole,
+      sortOrder: row.sortOrder,
+      attachedAt: row.createdAt,
+    }));
+  }
+
+  private async toSummary(record: FruitRecord): Promise<FruitSummary> {
     return {
       id: record.id,
       selectionState: record.selectionState,
@@ -308,14 +430,15 @@ export class FruitService {
       generatorId: record.generatorId,
       summary: record.summary,
       geneTags: [...record.geneTags],
+      media: await this.loadMediaAttachments(record.id),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };
   }
 
-  private toDetail(record: FruitRecord, markdown: string): FruitDetail {
+  private async toDetail(record: FruitRecord, markdown: string): Promise<FruitDetail> {
     return {
-      ...this.toSummary(record),
+      ...(await this.toSummary(record)),
       markdown,
     };
   }

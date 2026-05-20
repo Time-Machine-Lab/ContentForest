@@ -7,6 +7,7 @@ import {
   type AgentExchangeLogSink,
 } from "../agent/runtime/agent-exchange-log.js";
 import { AgentRuntime } from "../agent/runtime/agent-runtime.js";
+import { readCandidateMediaArtifacts } from "../agent/runtime/candidate-media-artifact.js";
 import { FakeLlmAdapter } from "../agent/runtime/fake-llm-adapter.js";
 import { SkillRegistry } from "../agent/runtime/skill-runtime.js";
 import { ToolRegistry } from "../agent/runtime/tool-registry.js";
@@ -401,6 +402,80 @@ describe("AgentRuntime", () => {
         }),
       }),
     ]);
+  });
+
+  it("returns candidate media artifact summaries while keeping content internal", async () => {
+    const skillRegistry = new SkillRegistry();
+    const toolRegistry = new ToolRegistry();
+    skillRegistry.register({
+      name: "growth-skill",
+      description: "fake growth",
+      supportedTaskTypes: ["growth"],
+      async execute({ tools }) {
+        await tools.callTool("make_cover", {});
+        return {
+          taskType: "growth",
+          content: {
+            type: "candidate_fruit",
+            payload: {
+              markdown: "# 带图果实",
+              rawGeneratorOutput: "# 带图果实",
+              attachments: [],
+            },
+            meta: {
+              summary: "带图候选果实",
+              geneTags: [],
+              usedResourceRefs: [],
+              warnings: [],
+            },
+          },
+        };
+      },
+    });
+    toolRegistry.register({
+      name: "make_cover",
+      description: "fake media",
+      readOnly: true,
+      async execute() {
+        return {
+          content: { ok: true },
+          candidateMediaArtifacts: [
+            {
+              mimeType: "image/png",
+              fileName: "cover.png",
+              contentBase64:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+            },
+          ],
+        };
+      },
+    });
+    const runtime = new AgentRuntime({
+      skillRegistry,
+      toolRegistry,
+      llm: new FakeLlmAdapter("unused"),
+      nextTaskId: () => "agent-task_1",
+    });
+
+    const result = await runtime.runTask({
+      type: "growth",
+      input: {},
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.output.metadata).toMatchObject({
+      candidateMediaArtifacts: [
+        expect.objectContaining({
+          sourceToolName: "make_cover",
+          mimeType: "image/png",
+          fileName: "cover.png",
+        }),
+      ],
+    });
+    expect(JSON.stringify(result.output)).not.toContain("iVBOR");
+    expect(readCandidateMediaArtifacts(result.output)[0]?.content?.byteLength)
+      .toBeGreaterThan(0);
   });
 });
 

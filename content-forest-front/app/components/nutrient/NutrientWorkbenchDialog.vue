@@ -78,10 +78,13 @@ const suggestionPopoverOpen = ref(false)
 const cardSearch = ref('')
 const cardStatusFilter = ref<NutrientCardStatusFilter>('all')
 const mergeTargetBlock = ref<NutrientDepositableBlock | null>(null)
+const mergeTargetSurface = ref<'block' | 'dock'>('block')
 const mergeTargetSearch = ref('')
 const mergeTargetStatusFilter = ref<NutrientCardStatusFilter>('all')
+const mergeTargetSearchEl = ref<HTMLInputElement | null>(null)
 const confirmingSessionDeleteId = ref('')
 const confirmingCardDelete = ref(false)
+const activeDepositableBlockId = ref('')
 let localMessageSequence = 0
 
 const researchTemplates: NutrientResearchTemplate[] = [
@@ -119,6 +122,13 @@ const researchTemplates: NutrientResearchTemplate[] = [
 
 const pendingNutrientSuggestions = computed(() => nutrientSuggestions.value.filter((suggestion) => suggestion.status === 'pending'))
 const visibleDepositableBlocks = computed(() => depositableBlocks.value.filter((block) => !ignoredBlockIds.value.includes(block.id)))
+const depositDockBlock = computed(() => visibleDepositableBlocks.value.find((block) => block.id === activeDepositableBlockId.value) ?? visibleDepositableBlocks.value[0] ?? null)
+const depositDockIndex = computed(() => {
+  const block = depositDockBlock.value
+  if (!block) return 0
+  const index = visibleDepositableBlocks.value.findIndex((item) => item.id === block.id)
+  return index >= 0 ? index + 1 : 0
+})
 const hasActiveConversation = computed(() => researchMessages.value.length > 0 || visibleDepositableBlocks.value.length > 0)
 const isResearchRunning = computed(() => submitLoading.value && currentStreamAbortController.value !== null)
 const researchTimelineItems = computed<ResearchTimelineItem[]>(() => [
@@ -167,6 +177,15 @@ watch(
   },
   { immediate: true },
 )
+
+watch(visibleDepositableBlocks, (blocks) => {
+  if (!blocks.some((block) => block.id === activeDepositableBlockId.value)) {
+    activeDepositableBlockId.value = blocks[0]?.id || ''
+  }
+  if (mergeTargetBlock.value && !blocks.some((block) => block.id === mergeTargetBlock.value?.id)) {
+    closeMergeTargetSelector()
+  }
+})
 
 async function initializeWorkbench() {
   resetResearchState()
@@ -723,6 +742,7 @@ function mergeDepositableBlocks(
 }
 
 async function createCardFromBlock(block: NutrientDepositableBlock) {
+  activeDepositableBlockId.value = block.id
   operationLoading.value = `create-block:${block.id}`
   researchError.value = ''
   try {
@@ -730,6 +750,7 @@ async function createCardFromBlock(block: NutrientDepositableBlock) {
       title: block.title,
       markdown: block.markdown,
     })
+    ignoredBlockIds.value = [...new Set([...ignoredBlockIds.value, block.id])]
     await loadCards()
     await selectCard(card.id)
     emit('changed')
@@ -746,10 +767,37 @@ async function keepSuggestionAsNewCard(block: NutrientDepositableBlock) {
   await createCardFromBlock(block)
 }
 
-function openMergeTargetSelector(block: NutrientDepositableBlock) {
+async function createAllVisibleBlocks() {
+  const blocks = [...visibleDepositableBlocks.value]
+  if (blocks.length === 0) return
+  operationLoading.value = 'create-blocks'
+  researchError.value = ''
+  try {
+    for (const block of blocks) {
+      await nutrientApi.createCard(props.seedId, {
+        title: block.title,
+        markdown: block.markdown,
+      })
+    }
+    ignoredBlockIds.value = [...new Set([...ignoredBlockIds.value, ...blocks.map((block) => block.id)])]
+    await loadCards()
+    emit('changed')
+  }
+  catch (error) {
+    researchError.value = errorMessage(error)
+  }
+  finally {
+    operationLoading.value = ''
+  }
+}
+
+function openMergeTargetSelector(block: NutrientDepositableBlock, surface: 'block' | 'dock' = 'block') {
+  activeDepositableBlockId.value = block.id
   mergeTargetBlock.value = block
+  mergeTargetSurface.value = surface
   mergeTargetSearch.value = ''
   mergeTargetStatusFilter.value = 'all'
+  void nextTick(() => mergeTargetSearchEl.value?.focus())
 }
 
 function closeMergeTargetSelector() {
@@ -785,12 +833,69 @@ async function mergeBlockIntoTargetCard(targetCardId: string) {
 }
 
 async function mergeSuggestionIntoCard(block: NutrientDepositableBlock) {
-  openMergeTargetSelector(block)
+  openMergeTargetSelector(block, 'block')
 }
 
 function ignoreDepositableBlock(blockId: string) {
   if (ignoredBlockIds.value.includes(blockId)) return
+  const nextBlock = visibleDepositableBlocks.value.find((block) => block.id !== blockId)
   ignoredBlockIds.value = [...ignoredBlockIds.value, blockId]
+  if (activeDepositableBlockId.value === blockId) {
+    activeDepositableBlockId.value = nextBlock?.id || ''
+  }
+  if (mergeTargetBlock.value?.id === blockId) {
+    closeMergeTargetSelector()
+  }
+}
+
+function selectDepositableBlock(blockId: string, options: { scroll?: boolean } = {}) {
+  activeDepositableBlockId.value = blockId
+  if (options.scroll) {
+    scrollToDepositableBlock(blockId)
+  }
+}
+
+function saveActiveDepositableBlock() {
+  const block = depositDockBlock.value
+  if (!block) return
+  void createCardFromBlock(block)
+}
+
+function mergeActiveDepositableBlock() {
+  const block = depositDockBlock.value
+  if (!block) return
+  openMergeTargetSelector(block, 'dock')
+}
+
+function ignoreActiveDepositableBlock() {
+  const block = depositDockBlock.value
+  if (!block) return
+  ignoreDepositableBlock(block.id)
+}
+
+function locateActiveDepositableBlock() {
+  const block = depositDockBlock.value
+  if (!block) return
+  scrollToDepositableBlock(block.id)
+}
+
+function depositableBlockDomId(blockId: string) {
+  return `cf-nutrient-block-${blockId.replace(/[^a-zA-Z0-9_-]/g, '-')}`
+}
+
+function depositableBlockNumber(blockId: string) {
+  const index = visibleDepositableBlocks.value.findIndex((block) => block.id === blockId)
+  return index >= 0 ? index + 1 : 0
+}
+
+function scrollToDepositableBlock(blockId: string) {
+  if (typeof document === 'undefined') return
+  void nextTick(() => {
+    document.getElementById(depositableBlockDomId(blockId))?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+    })
+  })
 }
 
 async function acceptNutrientSuggestion(suggestion: NutrientGapSuggestion) {
@@ -1147,14 +1252,25 @@ function errorMessage(error: unknown) {
                   title="删除会话"
                   @click.stop="requestDeleteResearchSession(session.id)"
                 >
-                  ×
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h16" />
+                    <path d="M9 7V5h6v2" />
+                    <path d="m10 11 .3 6" />
+                    <path d="m14 11-.3 6" />
+                    <path d="M6 7l1 14h10l1-14" />
+                  </svg>
                 </button>
-                <div v-if="confirmingSessionDeleteId === session.id" class="cf-nutrient-inline-confirm">
-                  <span>只删除会话记录，已沉淀营养会保留。</span>
-                  <button class="cf-nutrient-btn cf-nutrient-btn-danger" type="button" :disabled="operationLoading === `delete-session:${session.id}`" @click="deleteResearchSession(session.id)">
-                    {{ operationLoading === `delete-session:${session.id}` ? '删除中' : '确认删除' }}
-                  </button>
-                  <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" :disabled="Boolean(operationLoading)" @click="confirmingSessionDeleteId = ''">取消</button>
+                <div v-if="confirmingSessionDeleteId === session.id" class="cf-nutrient-inline-confirm cf-nutrient-delete-confirm">
+                  <div class="cf-nutrient-delete-copy">
+                    <strong>删除这段研究会话？</strong>
+                    <span>只移除会话记录，已沉淀营养会保留。</span>
+                  </div>
+                  <div class="cf-nutrient-delete-actions">
+                    <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" :disabled="Boolean(operationLoading)" @click="confirmingSessionDeleteId = ''">取消</button>
+                    <button class="cf-nutrient-btn cf-nutrient-btn-danger" type="button" :disabled="operationLoading === `delete-session:${session.id}`" @click="deleteResearchSession(session.id)">
+                      {{ operationLoading === `delete-session:${session.id}` ? '删除中' : '删除会话' }}
+                    </button>
+                  </div>
                 </div>
               </article>
             </div>
@@ -1247,20 +1363,32 @@ function errorMessage(error: unknown) {
                     <button v-else class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" disabled title="依赖后端更新">回档</button>
                     <button
                       v-if="selectedCard.status === 'unsettled'"
-                      class="cf-nutrient-btn cf-nutrient-btn-danger"
+                      class="cf-nutrient-btn cf-nutrient-btn-ghost cf-nutrient-btn-delete"
                       type="button"
                       :disabled="Boolean(operationLoading)"
                       @click="requestDeleteSelectedCard"
                     >
-                      删除
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 7h16" />
+                        <path d="M9 7V5h6v2" />
+                        <path d="m10 11 .3 6" />
+                        <path d="m14 11-.3 6" />
+                        <path d="M6 7l1 14h10l1-14" />
+                      </svg>
+                      移除草稿
                     </button>
                   </div>
-                  <div v-if="confirmingCardDelete" class="cf-nutrient-inline-confirm cf-nutrient-card-confirm">
-                    <span>删除草稿营养内容，不影响研究会话。</span>
-                    <button class="cf-nutrient-btn cf-nutrient-btn-danger" type="button" :disabled="operationLoading === 'delete-card'" @click="deleteSelectedCard">
-                      {{ operationLoading === 'delete-card' ? '删除中' : '确认删除' }}
-                    </button>
-                    <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" :disabled="Boolean(operationLoading)" @click="confirmingCardDelete = false">取消</button>
+                  <div v-if="confirmingCardDelete" class="cf-nutrient-inline-confirm cf-nutrient-card-confirm cf-nutrient-delete-confirm">
+                    <div class="cf-nutrient-delete-copy">
+                      <strong>移除这张草稿？</strong>
+                      <span>{{ selectedCard.title }}</span>
+                    </div>
+                    <div class="cf-nutrient-delete-actions">
+                      <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" :disabled="Boolean(operationLoading)" @click="confirmingCardDelete = false">取消</button>
+                      <button class="cf-nutrient-btn cf-nutrient-btn-danger" type="button" :disabled="operationLoading === 'delete-card'" @click="deleteSelectedCard">
+                        {{ operationLoading === 'delete-card' ? '移除中' : '移除草稿' }}
+                      </button>
+                    </div>
                   </div>
                   <p v-if="selectedCard.status === 'archived'" class="cf-nutrient-dependency-note">回档营养内容依赖后端更新</p>
                   <div class="cf-nutrient-feedback-grid" aria-label="营养反馈信息">
@@ -1285,13 +1413,85 @@ function errorMessage(error: unknown) {
                   <span>{{ activeWorkbenchMode === 'new-session' ? '发送第一条消息后创建会话。' : '用模板快速启动，或直接描述要研究的平台和方向。' }}</span>
                 </div>
 
-                <div v-else-if="activeWorkbenchMode !== 'card-detail'" class="cf-nutrient-message-list" aria-live="polite">
+                <section v-if="activeWorkbenchMode !== 'card-detail' && !sessionLoading && depositDockBlock" class="cf-nutrient-deposit-dock" aria-label="可沉淀营养托盘">
+                  <header>
+                    <div>
+                      <span>沉淀托盘 · {{ depositDockIndex }}/{{ visibleDepositableBlocks.length }}</span>
+                      <strong>{{ depositDockBlock.title }}</strong>
+                    </div>
+                    <div class="cf-nutrient-deposit-actions">
+                      <button class="cf-nutrient-btn cf-nutrient-btn-primary" type="button" :disabled="Boolean(operationLoading)" @click="saveActiveDepositableBlock">
+                        {{ operationLoading === `create-block:${depositDockBlock.id}` ? '保存中' : '保存选中' }}
+                      </button>
+                      <button v-if="visibleDepositableBlocks.length > 1" class="cf-nutrient-btn cf-nutrient-btn-secondary" type="button" :disabled="Boolean(operationLoading)" @click="createAllVisibleBlocks">
+                        {{ operationLoading === 'create-blocks' ? '保存中' : '保存全部' }}
+                      </button>
+                      <button class="cf-nutrient-btn cf-nutrient-btn-secondary" type="button" :disabled="Boolean(operationLoading)" @click="mergeActiveDepositableBlock">
+                        合并选中
+                      </button>
+                      <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="locateActiveDepositableBlock">定位</button>
+                      <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="ignoreActiveDepositableBlock">忽略</button>
+                    </div>
+                  </header>
+                  <div class="cf-nutrient-deposit-strip" aria-label="可沉淀营养列表">
+                    <button
+                      v-for="block in visibleDepositableBlocks"
+                      :key="block.id"
+                      type="button"
+                      :class="{ 'is-active': depositDockBlock.id === block.id }"
+                      @click="selectDepositableBlock(block.id)"
+                    >
+                      <span>{{ depositableBlockNumber(block.id) }}</span>
+                      <strong>{{ block.title }}</strong>
+                    </button>
+                  </div>
+                  <div v-if="mergeTargetBlock && mergeTargetSurface === 'dock'" class="cf-nutrient-merge-panel is-dock" role="dialog" aria-label="选择合并目标">
+                    <header>
+                      <div>
+                        <span>选择合并目标</span>
+                        <strong>{{ mergeTargetBlock.title }}</strong>
+                      </div>
+                      <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="closeMergeTargetSelector">关闭</button>
+                    </header>
+                    <div class="cf-nutrient-filter-row">
+                      <input ref="mergeTargetSearchEl" v-model="mergeTargetSearch" type="search" placeholder="搜索目标营养内容">
+                      <div class="cf-nutrient-segmented-filter" role="group" aria-label="合并目标状态筛选">
+                        <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'all' }" @click="mergeTargetStatusFilter = 'all'">全部</button>
+                        <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'unsettled' }" @click="mergeTargetStatusFilter = 'unsettled'">草稿</button>
+                        <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'settled' }" @click="mergeTargetStatusFilter = 'settled'">正常</button>
+                      </div>
+                    </div>
+                    <div class="cf-nutrient-merge-target-list">
+                      <button
+                        v-for="card in mergeTargetCards"
+                        :key="card.id"
+                        class="cf-nutrient-card-item"
+                        type="button"
+                        :disabled="Boolean(operationLoading)"
+                        @click="mergeBlockIntoTargetCard(card.id)"
+                      >
+                        <span class="cf-nutrient-card-item-top">
+                          <span class="cf-nutrient-card-status" :class="`is-${card.status}`">{{ statusLabel(card.status) }}</span>
+                          <span>{{ formatDate(card.updatedAt) }}</span>
+                        </span>
+                        <strong>{{ card.title }}</strong>
+                      </button>
+                      <div v-if="mergeTargetCards.length === 0" class="cf-nutrient-workbench-empty cf-nutrient-chat-empty">
+                        <strong>没有可合并目标</strong>
+                        <span>请调整筛选，或先保存为新草稿。</span>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <div v-if="activeWorkbenchMode !== 'card-detail' && !sessionLoading && hasActiveConversation" class="cf-nutrient-message-list" aria-live="polite">
                   <article
                     v-for="item in researchTimelineItems"
+                    :id="item.kind === 'block' ? depositableBlockDomId(item.block.id) : undefined"
                     :key="item.id"
                     :class="item.kind === 'message'
                       ? ['cf-nutrient-message', `is-${item.message.role}`, item.message.localStatus ? `is-${item.message.localStatus}` : '', item.message.localKind ? `is-${item.message.localKind}` : '']
-                      : ['cf-nutrient-depositable-block']"
+                      : ['cf-nutrient-depositable-block', { 'is-dock-active': depositDockBlock?.id === item.block.id }]"
                   >
                     <template v-if="item.kind === 'message'">
                       <header class="cf-nutrient-message-head">
@@ -1331,7 +1531,7 @@ function errorMessage(error: unknown) {
                     <template v-else>
                       <header>
                         <div>
-                          <span>可沉淀营养</span>
+                          <span>可沉淀营养 · {{ depositableBlockNumber(item.block.id) }}/{{ visibleDepositableBlocks.length }}</span>
                           <strong>{{ item.block.title }}</strong>
                         </div>
                       </header>
@@ -1355,6 +1555,43 @@ function errorMessage(error: unknown) {
                         </button>
                         <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="ignoreDepositableBlock(item.block.id)">忽略</button>
                       </div>
+                      <div v-if="mergeTargetBlock?.id === item.block.id && mergeTargetSurface === 'block'" class="cf-nutrient-merge-panel is-inline" role="dialog" aria-label="选择合并目标">
+                        <header>
+                          <div>
+                            <span>选择合并目标</span>
+                            <strong>{{ mergeTargetBlock.title }}</strong>
+                          </div>
+                          <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="closeMergeTargetSelector">关闭</button>
+                        </header>
+                        <div class="cf-nutrient-filter-row">
+                          <input ref="mergeTargetSearchEl" v-model="mergeTargetSearch" type="search" placeholder="搜索目标营养内容">
+                          <div class="cf-nutrient-segmented-filter" role="group" aria-label="合并目标状态筛选">
+                            <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'all' }" @click="mergeTargetStatusFilter = 'all'">全部</button>
+                            <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'unsettled' }" @click="mergeTargetStatusFilter = 'unsettled'">草稿</button>
+                            <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'settled' }" @click="mergeTargetStatusFilter = 'settled'">正常</button>
+                          </div>
+                        </div>
+                        <div class="cf-nutrient-merge-target-list">
+                          <button
+                            v-for="card in mergeTargetCards"
+                            :key="card.id"
+                            class="cf-nutrient-card-item"
+                            type="button"
+                            :disabled="Boolean(operationLoading)"
+                            @click="mergeBlockIntoTargetCard(card.id)"
+                          >
+                            <span class="cf-nutrient-card-item-top">
+                              <span class="cf-nutrient-card-status" :class="`is-${card.status}`">{{ statusLabel(card.status) }}</span>
+                              <span>{{ formatDate(card.updatedAt) }}</span>
+                            </span>
+                            <strong>{{ card.title }}</strong>
+                          </button>
+                          <div v-if="mergeTargetCards.length === 0" class="cf-nutrient-workbench-empty cf-nutrient-chat-empty">
+                            <strong>没有可合并目标</strong>
+                            <span>请调整筛选，或先保存为新草稿。</span>
+                          </div>
+                        </div>
+                      </div>
                     </template>
                   </article>
                 </div>
@@ -1367,43 +1604,6 @@ function errorMessage(error: unknown) {
                   {{ researchError }}
                   <button v-if="lastSubmittedMessage" type="button" @click="retryLastResearchMessage">重试</button>
                 </p>
-                <div v-if="mergeTargetBlock" class="cf-nutrient-merge-panel" role="dialog" aria-label="选择合并目标">
-                  <header>
-                    <div>
-                      <span>选择合并目标</span>
-                      <strong>{{ mergeTargetBlock.title }}</strong>
-                    </div>
-                    <button class="cf-nutrient-btn cf-nutrient-btn-ghost" type="button" @click="closeMergeTargetSelector">关闭</button>
-                  </header>
-                  <div class="cf-nutrient-filter-row">
-                    <input v-model="mergeTargetSearch" type="search" placeholder="搜索目标营养内容">
-                    <div class="cf-nutrient-segmented-filter" role="group" aria-label="合并目标状态筛选">
-                      <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'all' }" @click="mergeTargetStatusFilter = 'all'">全部</button>
-                      <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'unsettled' }" @click="mergeTargetStatusFilter = 'unsettled'">草稿</button>
-                      <button type="button" :class="{ 'is-active': mergeTargetStatusFilter === 'settled' }" @click="mergeTargetStatusFilter = 'settled'">正常</button>
-                    </div>
-                  </div>
-                  <div class="cf-nutrient-merge-target-list">
-                    <button
-                      v-for="card in mergeTargetCards"
-                      :key="card.id"
-                      class="cf-nutrient-card-item"
-                      type="button"
-                      :disabled="Boolean(operationLoading)"
-                      @click="mergeBlockIntoTargetCard(card.id)"
-                    >
-                      <span class="cf-nutrient-card-item-top">
-                        <span class="cf-nutrient-card-status" :class="`is-${card.status}`">{{ statusLabel(card.status) }}</span>
-                        <span>{{ formatDate(card.updatedAt) }}</span>
-                      </span>
-                      <strong>{{ card.title }}</strong>
-                    </button>
-                    <div v-if="mergeTargetCards.length === 0" class="cf-nutrient-workbench-empty cf-nutrient-chat-empty">
-                      <strong>没有可合并目标</strong>
-                      <span>请调整筛选，或先保存为新草稿。</span>
-                    </div>
-                  </div>
-                </div>
               </template>
             </section>
 
@@ -1589,6 +1789,10 @@ function errorMessage(error: unknown) {
 }
 
 .cf-nutrient-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 32px;
   padding: 0 11px;
   border: 1px solid rgba(255, 255, 255, .11);
@@ -1599,7 +1803,19 @@ function errorMessage(error: unknown) {
   font-size: 12px;
   font-weight: 650;
   line-height: 1;
+  white-space: nowrap;
   transition: border-color .14s ease, background .14s ease, color .14s ease, transform .14s ease, box-shadow .14s ease;
+}
+
+.cf-nutrient-btn svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
 }
 
 .cf-nutrient-btn:hover:not(:disabled) {
@@ -1662,6 +1878,18 @@ function errorMessage(error: unknown) {
 .cf-nutrient-btn-ghost {
   background: rgba(255, 255, 255, .035);
   color: rgba(238, 242, 255, .82);
+}
+
+.cf-nutrient-btn-delete {
+  margin-left: auto;
+  border-color: rgba(255, 130, 130, .16);
+  color: rgba(255, 206, 206, .78);
+}
+
+.cf-nutrient-btn-delete:hover:not(:disabled) {
+  border-color: rgba(255, 145, 145, .34);
+  background: rgba(150, 54, 54, .14);
+  color: #ffd7d7;
 }
 
 .cf-nutrient-workbench-close {
@@ -1900,6 +2128,40 @@ function errorMessage(error: unknown) {
   line-height: 18px;
 }
 
+.cf-nutrient-delete-confirm {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  padding: 10px;
+  border-color: rgba(255, 130, 130, .24);
+  background: linear-gradient(180deg, rgba(92, 30, 42, .34), rgba(58, 24, 34, .24));
+}
+
+.cf-nutrient-delete-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.cf-nutrient-delete-copy strong {
+  color: #ffe9e9;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.cf-nutrient-delete-copy span {
+  display: block;
+  overflow: hidden;
+  color: rgba(255, 218, 218, .66);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-nutrient-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .cf-nutrient-new-session-btn {
   display: inline-flex;
   align-items: center;
@@ -2090,6 +2352,16 @@ function errorMessage(error: unknown) {
   margin-bottom: 10px;
 }
 
+.cf-nutrient-card-preview header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.cf-nutrient-card-preview header > button {
+  flex: 0 0 auto;
+}
+
 .cf-nutrient-card-context {
   margin-bottom: 12px;
   border-color: rgba(130, 154, 255, .2);
@@ -2115,6 +2387,7 @@ function errorMessage(error: unknown) {
 .cf-nutrient-card-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin: 0 0 10px;
 }
@@ -2158,6 +2431,7 @@ function errorMessage(error: unknown) {
 }
 
 .cf-nutrient-card-actions button {
+  flex: 0 0 auto;
   min-height: 30px;
 }
 
@@ -2179,8 +2453,118 @@ function errorMessage(error: unknown) {
 }
 
 .cf-nutrient-card-preview h3 {
+  display: -webkit-box;
+  overflow: hidden;
   margin: 3px 0 0;
   font-size: 18px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.cf-nutrient-deposit-dock {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px;
+  border: 1px solid rgba(127, 247, 221, .22);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(12, 22, 28, .96), rgba(12, 17, 26, .92));
+  box-shadow: 0 14px 38px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .05);
+  backdrop-filter: blur(14px);
+}
+
+.cf-nutrient-deposit-dock header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cf-nutrient-deposit-dock header > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.cf-nutrient-deposit-dock header span {
+  color: rgba(175, 241, 230, .72);
+  font-size: 11px;
+  font-weight: 720;
+  letter-spacing: 0;
+}
+
+.cf-nutrient-deposit-dock header strong {
+  overflow: hidden;
+  color: #f6fffd;
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-nutrient-deposit-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.cf-nutrient-deposit-strip {
+  display: grid;
+  grid-auto-columns: minmax(148px, 220px);
+  grid-auto-flow: column;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-color: rgba(127, 247, 221, .36) rgba(255, 255, 255, .04);
+}
+
+.cf-nutrient-deposit-strip button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .035);
+  color: rgba(235, 244, 246, .78);
+  cursor: pointer;
+  text-align: left;
+}
+
+.cf-nutrient-deposit-strip button:hover,
+.cf-nutrient-deposit-strip button.is-active {
+  border-color: rgba(127, 247, 221, .34);
+  background: rgba(94, 215, 197, .12);
+  color: #e8fffb;
+}
+
+.cf-nutrient-deposit-strip button span {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  background: rgba(127, 247, 221, .12);
+  color: #bffbf0;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.cf-nutrient-deposit-strip button strong {
+  overflow: hidden;
+  color: currentColor;
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cf-nutrient-message-list {
@@ -2352,6 +2736,11 @@ function errorMessage(error: unknown) {
   background: rgba(31, 84, 77, .22);
 }
 
+.cf-nutrient-depositable-block.is-dock-active {
+  border-color: rgba(127, 247, 221, .52);
+  box-shadow: inset 3px 0 0 rgba(127, 247, 221, .64), inset 0 1px 0 rgba(255, 255, 255, .035);
+}
+
 .cf-nutrient-block-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2442,6 +2831,13 @@ function errorMessage(error: unknown) {
   background: rgba(8, 14, 20, .9);
 }
 
+.cf-nutrient-merge-panel.is-dock,
+.cf-nutrient-merge-panel.is-inline {
+  margin-top: 0;
+  border-color: rgba(127, 247, 221, .28);
+  background: rgba(7, 13, 18, .94);
+}
+
 .cf-nutrient-merge-panel > header {
   display: flex;
   align-items: center;
@@ -2455,11 +2851,21 @@ function errorMessage(error: unknown) {
   gap: 3px;
 }
 
+.cf-nutrient-merge-panel > header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cf-nutrient-merge-target-list {
   display: grid;
   max-height: 260px;
   overflow: auto;
   gap: 8px;
+}
+
+.cf-nutrient-deposit-dock .cf-nutrient-merge-target-list {
+  max-height: 210px;
 }
 
 .cf-nutrient-research-loading {

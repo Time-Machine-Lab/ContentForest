@@ -50,6 +50,56 @@ describe("ToolRegistry and ToolRuntime", () => {
     ]);
   });
 
+  it("registers candidate media artifacts without returning binary content to the skill", async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "make_cover",
+      description: "make cover",
+      readOnly: true,
+      async execute() {
+        return {
+          content: { ok: true },
+          candidateMediaArtifacts: [
+            {
+              id: "cover_1",
+              mimeType: "image/png",
+              fileName: "D:\\secret\\cover.png",
+              contentBase64:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+              displayRole: "primary",
+              required: true,
+            },
+          ],
+        };
+      },
+    });
+    const trace = new AgentTrace(() => new Date("2026-01-01T00:00:00.000Z"));
+    const runtime = new ToolRuntime(registry, context, trace);
+
+    const output = await runtime.callTool("make_cover", {});
+
+    expect(output).toMatchObject({
+      content: { ok: true },
+      metadata: {
+        candidateMediaArtifacts: [
+          expect.objectContaining({
+            id: "cover_1",
+            sourceToolName: "make_cover",
+            mediaType: "image",
+            mimeType: "image/png",
+            fileName: "cover.png",
+            displayRole: "primary",
+            required: true,
+          }),
+        ],
+      },
+    });
+    expect(JSON.stringify(output)).not.toContain("iVBOR");
+    const artifacts = runtime.listCandidateMediaArtifacts();
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]?.content?.byteLength).toBeGreaterThan(0);
+  });
+
   it("wraps tool execution failures and records trace", async () => {
     const registry = new ToolRegistry();
     registry.register({

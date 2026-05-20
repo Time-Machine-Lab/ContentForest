@@ -1,6 +1,7 @@
 export type GrowthNodeType = 'seed' | 'fruit'
 export type GrowthResourceType = 'nutrient' | 'gene'
 export type GrowthTemporaryResourceType = 'nutrient_card'
+export type GrowthMediaResourceType = 'media'
 export type GrowthTaskStatus = 'running' | 'completed' | 'failed'
 export type GrowthAttemptStatus = 'running' | 'succeeded' | 'failed'
 export type GrowthSearchMode = 'broad_exploration' | 'directional_strengthening' | 'local_variation' | 'negative_feedback_avoidance'
@@ -22,6 +23,12 @@ export interface GrowthTemporaryNutrientCardRef {
   resourceId: string
 }
 
+export interface GrowthMediaRef {
+  resourceType: GrowthMediaResourceType
+  resourceId: string
+  usage: string
+}
+
 export interface StartGrowthTaskRequest {
   seedId: string
   sourceNodeRef: GrowthSourceNodeRef
@@ -30,6 +37,7 @@ export interface StartGrowthTaskRequest {
   fruitCount?: number
   nutrientRefs?: GrowthResourceRef[]
   temporaryNutrientCardRefs?: GrowthTemporaryNutrientCardRef[]
+  mediaRefs?: GrowthMediaRef[]
   geneRefs?: GrowthResourceRef[]
   detailParams?: Record<string, unknown>
   searchMode?: GrowthSearchMode
@@ -85,6 +93,7 @@ export interface GrowthTaskDetail {
   fruitCount: number
   nutrientRefs: GrowthResourceRef[]
   temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[]
+  mediaRefs: GrowthMediaRef[]
   geneRefs: GrowthResourceRef[]
   successfulFruitIds: string[]
   pipelineParams: GrowthPipelineParams
@@ -115,6 +124,7 @@ export interface GrowthFailedInput {
   fruitCount: number
   nutrientRefs: GrowthResourceRef[]
   temporaryNutrientCardRefs: GrowthTemporaryNutrientCardRef[]
+  mediaRefs: GrowthMediaRef[]
   geneRefs: GrowthResourceRef[]
   detailParams?: Record<string, unknown>
   pipelineParams: GrowthPipelineParams

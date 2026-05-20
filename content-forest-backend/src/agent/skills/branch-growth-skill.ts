@@ -444,13 +444,14 @@ function readAuthorizedRefs(
   return [
     ...normalizeRefs(record.nutrientRefs, "nutrient"),
     ...normalizeRefs(record.temporaryNutrientCardRefs, "nutrient_card"),
+    ...normalizeRefs(record.mediaRefs, "media"),
     ...normalizeRefs(record.geneRefs, "gene"),
   ];
 }
 
 function normalizeRefs(
   value: unknown,
-  resourceType: "nutrient" | "gene" | "nutrient_card",
+  resourceType: "nutrient" | "gene" | "nutrient_card" | "media",
 ): BranchGrowthResourceRef[] {
   if (!Array.isArray(value)) {
     return [];

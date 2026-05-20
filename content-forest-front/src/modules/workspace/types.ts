@@ -5,6 +5,8 @@ export type WorkspaceNutrientScope = 'public' | 'seed_scoped'
 export type WorkspaceGeneStatus = 'active' | 'archived'
 export type WorkspaceEvidenceSourceType = 'fruit_selected' | 'fruit_eliminated' | 'publication' | 'feedback'
 export type WorkspaceEvidenceStrength = 'weak' | 'medium' | 'strong'
+export type WorkspaceMediaType = 'image' | 'video'
+export type WorkspaceFruitMediaDisplayRole = 'primary' | 'inline' | 'reference' | 'attachment'
 
 export interface WorkspaceNodeRef {
   nodeType: WorkspaceNodeType
@@ -52,6 +54,17 @@ export interface WorkspaceSeedNode {
   failedInput: WorkspaceFailedInputHint
 }
 
+export interface WorkspaceFruitMediaSummary {
+  id: string
+  mediaType: WorkspaceMediaType
+  mimeType: string
+  fileName: string
+  sizeBytes: number
+  contentUrl: string
+  displayRole: WorkspaceFruitMediaDisplayRole
+  sortOrder: number
+}
+
 export interface WorkspaceFruitNode {
   nodeType: 'fruit'
   nodeId: string
@@ -62,6 +75,7 @@ export interface WorkspaceFruitNode {
   generatorId: string | null
   summary: string
   geneTags: string[]
+  media: WorkspaceFruitMediaSummary[]
   createdAt: string
   updatedAt: string
   growth: WorkspaceNodeGrowth
@@ -122,9 +136,22 @@ export interface ReferableWorkspaceGeneInsight {
   archivedAt: string | null
 }
 
+export interface ReferableWorkspaceMediaAsset {
+  id: string
+  seedId: string
+  mediaType: WorkspaceMediaType
+  mimeType: string
+  fileName: string
+  sizeBytes: number
+  contentUrl: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface WorkspaceResources {
   generators: SelectableWorkspaceGenerator[]
   nutrients: ReferableWorkspaceNutrient[]
+  mediaAssets: ReferableWorkspaceMediaAsset[]
   geneInsights: ReferableWorkspaceGeneInsight[]
 }
 

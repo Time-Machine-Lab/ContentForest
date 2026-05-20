@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentPort } from "../agent/ports/agent-port.js";
 import type { AgentTask, AgentTaskResult } from "../agent/runtime/agent-task.js";
 import { InMemoryFruitMarkdownContentAccessAdapter } from "../content-access/adapters/in-memory-fruit-markdown-content-access-adapter.js";
+import { InMemoryMediaContentAccessAdapter } from "../content-access/adapters/in-memory-media-content-access-adapter.js";
 import { InMemorySeedMarkdownContentAccessAdapter } from "../content-access/adapters/in-memory-seed-markdown-content-access-adapter.js";
 import { FruitService } from "../modules/fruit/application/fruit-service.js";
 import { GeneService } from "../modules/gene/application/gene-service.js";
@@ -12,6 +13,7 @@ import {
   GROWTH_SEARCH_MODES,
 } from "../modules/growth/domain/growth-types.js";
 import { NutrientService } from "../modules/nutrient/application/nutrient-service.js";
+import { MediaService } from "../modules/media/application/media-service.js";
 import {
   NUTRIENT_GAP_SUGGESTION_SOURCE_TYPES,
   NUTRIENT_GAP_SUGGESTION_STATUSES,
@@ -26,6 +28,7 @@ import { InMemoryFruitStorageAdapter } from "../storage/adapters/in-memory-fruit
 import { InMemoryGeneStorageAdapter } from "../storage/adapters/in-memory-gene-storage-adapter.js";
 import { InMemoryGeneratorStorageAdapter } from "../storage/adapters/in-memory-generator-storage-adapter.js";
 import { InMemoryGrowthStorageAdapter } from "../storage/adapters/in-memory-growth-storage-adapter.js";
+import { InMemoryMediaStorageAdapter } from "../storage/adapters/in-memory-media-storage-adapter.js";
 import { InMemoryNutrientStorageAdapter } from "../storage/adapters/in-memory-nutrient-storage-adapter.js";
 import { InMemorySeedStorageAdapter } from "../storage/adapters/in-memory-seed-storage-adapter.js";
 
@@ -48,6 +51,17 @@ function nowFactory(): () => Date {
   };
 }
 
+const pngBytes = Buffer.from([
+  0x89,
+  0x50,
+  0x4e,
+  0x47,
+  0x0d,
+  0x0a,
+  0x1a,
+  0x0a,
+]);
+
 function seedBriefAgent(markdown: string): AgentPort {
   return {
     async runTask(task: AgentTask): Promise<AgentTaskResult> {
@@ -69,6 +83,7 @@ async function createFixture(): Promise<{
   seedService: SeedService;
   fruitService: FruitService;
   geneService: GeneService;
+  mediaService: MediaService;
   nutrientService: NutrientService;
   growthStorage: InMemoryGrowthStorageAdapter;
   geneStorage: InMemoryGeneStorageAdapter;
@@ -80,6 +95,7 @@ async function createFixture(): Promise<{
   const generatorStorage = new InMemoryGeneratorStorageAdapter();
   const nutrientStorage = new InMemoryNutrientStorageAdapter();
   const geneStorage = new InMemoryGeneStorageAdapter();
+  const mediaStorage = new InMemoryMediaStorageAdapter();
   const now = nowFactory();
 
   const seedService = new SeedService({
@@ -92,6 +108,7 @@ async function createFixture(): Promise<{
   const fruitService = new FruitService({
     storage: fruitStorage,
     contentAccess: new InMemoryFruitMarkdownContentAccessAdapter(),
+    mediaStorage,
     idGenerator: idGenerator(),
     now,
   });
@@ -113,6 +130,12 @@ async function createFixture(): Promise<{
     contentAccess: new InMemoryGeneMarkdownContentAccessAdapter(),
     seedStorage,
     fruitStorage,
+    idGenerator: idGenerator(),
+    now,
+  });
+  const mediaService = new MediaService({
+    storage: mediaStorage,
+    contentAccess: new InMemoryMediaContentAccessAdapter(),
     idGenerator: idGenerator(),
     now,
   });
@@ -181,10 +204,12 @@ async function createFixture(): Promise<{
       generatorService,
       nutrientService,
       geneService,
+      mediaService,
     }),
     seedService,
     fruitService,
     geneService,
+    mediaService,
     nutrientService,
     growthStorage,
     geneStorage,
@@ -284,6 +309,53 @@ describe("WorkspaceService", () => {
     expect(JSON.stringify(snapshot)).not.toContain("# 父果实");
   });
 
+  it("aggregates fruit media and referable media summaries without binary content", async () => {
+    const { workspaceService, fruitService, mediaService } = await createFixture();
+    const media = await mediaService.createMediaAssetFromBuffer({
+      seedId: "seed_1",
+      fileName: "cover.png",
+      mimeType: "image/png",
+      content: pngBytes,
+    });
+    const fruit = await fruitService.createFruitFromCandidate({
+      markdown: "# 媒体果实正文",
+      parentNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      summary: "媒体果实",
+      mediaAttachments: [
+        { mediaAssetId: media.id, displayRole: "primary", sortOrder: 0 },
+      ],
+    });
+
+    const snapshot = await workspaceService.getWorkspaceSnapshot("seed_1");
+    const fruitNode = snapshot.nodes.find((node) => node.nodeId === fruit.id);
+
+    expect(fruitNode).toMatchObject({
+      nodeType: "fruit",
+      media: [
+        expect.objectContaining({
+          id: media.id,
+          mediaType: "image",
+          mimeType: "image/png",
+          fileName: "cover.png",
+          displayRole: "primary",
+          contentUrl: `/api/media-assets/${media.id}/content`,
+        }),
+      ],
+    });
+    expect(snapshot.resources.mediaAssets).toEqual([
+      expect.objectContaining({
+        id: media.id,
+        contentUrl: `/api/media-assets/${media.id}/content`,
+      }),
+    ]);
+    expect(JSON.stringify((fruitNode as { media?: unknown[] }).media)).not.toContain(
+      "contentLocation",
+    );
+    expect(JSON.stringify(snapshot.resources.mediaAssets)).not.toContain(
+      "contentLocation",
+    );
+  });
+
   it("aggregates node growth status and latest failed input hints", async () => {
     const { workspaceService, growthStorage } = await createFixture();
     await growthStorage.acquireLock({
@@ -300,6 +372,7 @@ describe("WorkspaceService", () => {
       fruitCount: 3,
       nutrientRefs: [],
       temporaryNutrientCardRefs: [],
+      mediaRefs: [],
       geneRefs: [],
       detailParams: {},
       pipelineParams: {

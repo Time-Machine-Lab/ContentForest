@@ -13,6 +13,12 @@
 - **THEN** Agent Runtime MUST 收集该视频候选产物
 - **AND** 系统 MUST 在正式接管前执行媒体校验
 
+#### Scenario: 记录候选媒体产物摘要
+- **WHEN** Agent Runtime 收集 Skill 工具媒体产物
+- **THEN** 系统 MUST 记录足以接管该产物的候选摘要
+- **AND** 摘要 SHOULD 表达来源工具、媒体类型、MIME、必要性和展示角色等信息
+- **AND** 摘要 MUST 不直接成为前端可访问资源
+
 ### Requirement: 接管媒体产物为 Media Asset
 系统 SHALL 在枝化生长结果封装阶段将候选媒体产物交给 Media Asset 能力保存。只有成功保存的媒体资源 MAY 挂载到果实。
 
@@ -25,6 +31,11 @@
 - **WHEN** 候选媒体产物无法通过校验或保存失败
 - **THEN** 系统 MUST 记录可排查 warning 或失败原因
 - **AND** 系统 MUST 不创建指向无效内容位置的媒体资源
+
+#### Scenario: 正式媒体资产来源于接管结果
+- **WHEN** 候选媒体产物被成功接管
+- **THEN** 系统 MUST 使用接管后的 Media Asset 作为果实挂载依据
+- **AND** 系统 MUST 不使用候选产物临时位置或 payload attachments 作为正式挂载依据
 
 ### Requirement: 不限制生成器媒体能力
 系统 SHALL 不要求生成器声明是否支持图片或视频生成。生成器媒体能力由 Skill 本身和其可用工具决定。

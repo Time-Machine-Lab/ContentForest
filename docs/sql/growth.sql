@@ -21,6 +21,8 @@
 --   mutation_intensity 和 mutation_plan_json 降级解释。
 -- - provided/planned/actual 三层参考使用摘要只表达关联与使用状态，不表达精确权重
 --   或营养导致果实成功/失败的因果结论。
+-- - media_refs_json 保存本轮授权媒体输入及用途说明；媒体输入可以进入 ReferenceAtom、
+--   planned usage 和 actual usage，但生成过程中产生的新媒体输出不得写入 media_refs_json。
 
 CREATE TABLE IF NOT EXISTS growth_tasks (
   id TEXT PRIMARY KEY,
@@ -33,6 +35,7 @@ CREATE TABLE IF NOT EXISTS growth_tasks (
   fruit_count INTEGER NOT NULL CHECK (fruit_count >= 1 AND fruit_count <= 6),
   nutrient_refs_json TEXT NOT NULL DEFAULT '[]',
   temporary_nutrient_card_refs_json TEXT NOT NULL DEFAULT '[]',
+  media_refs_json TEXT NOT NULL DEFAULT '[]',
   gene_refs_json TEXT NOT NULL DEFAULT '[]',
   detail_params_json TEXT NOT NULL DEFAULT '{}',
   search_mode TEXT NOT NULL DEFAULT 'broad_exploration' CHECK (search_mode IN ('broad_exploration', 'directional_strengthening', 'local_variation', 'negative_feedback_avoidance')),
@@ -98,6 +101,7 @@ CREATE TABLE IF NOT EXISTS growth_failed_inputs (
   fruit_count INTEGER NOT NULL CHECK (fruit_count >= 1 AND fruit_count <= 6),
   nutrient_refs_json TEXT NOT NULL DEFAULT '[]',
   temporary_nutrient_card_refs_json TEXT NOT NULL DEFAULT '[]',
+  media_refs_json TEXT NOT NULL DEFAULT '[]',
   gene_refs_json TEXT NOT NULL DEFAULT '[]',
   detail_params_json TEXT NOT NULL DEFAULT '{}',
   search_mode TEXT NOT NULL DEFAULT 'broad_exploration' CHECK (search_mode IN ('broad_exploration', 'directional_strengthening', 'local_variation', 'negative_feedback_avoidance')),

@@ -7,6 +7,7 @@ import {
   isApplicationError,
 } from "../shared/errors/application-error.js";
 import type {
+  GrowthMediaRef,
   GrowthMutationIntensity,
   GrowthResourceRef,
   GrowthSearchMode,
@@ -28,6 +29,11 @@ import {
   NUTRIENT_GAP_SUGGESTION_STATUSES,
 } from "../modules/nutrient/domain/nutrient-types.js";
 import type { NutrientResearchStreamEvent } from "../modules/nutrient/application/nutrient-service.js";
+import type { CreateMediaAssetUploadInput } from "../modules/media/application/media-service.js";
+import {
+  MEDIA_ASSET_SOURCE_TYPES,
+  type MediaAssetSourceType,
+} from "../modules/media/domain/media-types.js";
 
 await loadLocalEnvFile();
 const app = await bootstrapApp();
@@ -494,6 +500,34 @@ async function handleApiRequest(
 
   if (pathname === "/api/seeds" && method === "GET") {
     const result = await app.seedController.listActiveSeeds();
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  if (pathname === "/api/media-assets" && method === "POST") {
+    const result = await app.mediaController.createMediaAsset(
+      toCreateMediaAssetInput(await readJsonBody(request)),
+    );
+    sendJson(response, result.status, result.body);
+    return true;
+  }
+
+  const mediaAssetContentMatch = pathname.match(
+    /^\/api\/media-assets\/([^/]+)\/content$/,
+  );
+  if (mediaAssetContentMatch && method === "GET") {
+    const result = await app.mediaController.readMediaContent(
+      decodeURIComponent(mediaAssetContentMatch[1] ?? ""),
+    );
+    sendBinary(response, 200, result.asset.mimeType, result.content);
+    return true;
+  }
+
+  const mediaAssetMatch = pathname.match(/^\/api\/media-assets\/([^/]+)$/);
+  if (mediaAssetMatch && method === "GET") {
+    const result = await app.mediaController.getMediaAsset(
+      decodeURIComponent(mediaAssetMatch[1] ?? ""),
+    );
     sendJson(response, result.status, result.body);
     return true;
   }
@@ -1574,6 +1608,7 @@ function toStartGrowthTaskInput(body: Record<string, unknown>): {
   fruitCount?: number;
   nutrientRefs?: GrowthResourceRef[];
   temporaryNutrientCardRefs?: GrowthTemporaryNutrientCardRef[];
+  mediaRefs?: GrowthMediaRef[];
   geneRefs?: GrowthResourceRef[];
   detailParams?: Record<string, unknown>;
   searchMode?: GrowthSearchMode;
@@ -1601,11 +1636,67 @@ function toStartGrowthTaskInput(body: Record<string, unknown>): {
     temporaryNutrientCardRefs: toTemporaryNutrientCardRefs(
       body.temporaryNutrientCardRefs,
     ),
+    mediaRefs: toGrowthMediaRefs(body.mediaRefs),
     geneRefs: toGrowthResourceRefs(body.geneRefs, "gene"),
     detailParams: toOptionalRecord(body.detailParams),
     searchMode: toGrowthSearchMode(body.searchMode),
     mutationIntensity: toGrowthMutationIntensity(body.mutationIntensity),
   };
+}
+
+function toCreateMediaAssetInput(
+  body: Record<string, unknown>,
+): CreateMediaAssetUploadInput {
+  rejectUnexpectedFields(body, [
+    "seedId",
+    "fileName",
+    "mimeType",
+    "contentBase64",
+    "sourceType",
+    "sourceId",
+  ]);
+  if (
+    typeof body.seedId !== "string" ||
+    typeof body.fileName !== "string" ||
+    typeof body.mimeType !== "string" ||
+    typeof body.contentBase64 !== "string"
+  ) {
+    throw new ApplicationError(
+      "VALIDATION_ERROR",
+      "上传媒体需要提供 seedId、fileName、mimeType 和 contentBase64",
+      400,
+    );
+  }
+  if (
+    body.sourceId !== undefined &&
+    body.sourceId !== null &&
+    typeof body.sourceId !== "string"
+  ) {
+    throw new ApplicationError("VALIDATION_ERROR", "媒体来源标识必须是字符串", 400);
+  }
+  return {
+    seedId: body.seedId,
+    fileName: body.fileName,
+    mimeType: body.mimeType,
+    contentBase64: body.contentBase64,
+    sourceType: toMediaAssetSourceType(body.sourceType),
+    sourceId: body.sourceId === null ? null : body.sourceId,
+  };
+}
+
+function toMediaAssetSourceType(
+  value: unknown,
+): MediaAssetSourceType | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (
+    typeof value === "string" &&
+    Object.values(MEDIA_ASSET_SOURCE_TYPES).includes(value as MediaAssetSourceType)
+  ) {
+    return value as MediaAssetSourceType;
+  }
+  throw new ApplicationError("VALIDATION_ERROR", "媒体来源类型不正确", 400);
 }
 
 function toGrowthSearchMode(value: unknown): GrowthSearchMode | undefined {
@@ -1722,6 +1813,31 @@ function toTemporaryNutrientCardRefs(
     return {
       resourceType: "nutrient_card",
       resourceId: (item as GrowthTemporaryNutrientCardRef).resourceId,
+    };
+  });
+}
+
+function toGrowthMediaRefs(value: unknown): GrowthMediaRef[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new ApplicationError("VALIDATION_ERROR", "媒体引用格式不正确", 400);
+  }
+  return value.map((item) => {
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      (item as GrowthMediaRef).resourceType !== "media" ||
+      typeof (item as GrowthMediaRef).resourceId !== "string" ||
+      typeof (item as GrowthMediaRef).usage !== "string"
+    ) {
+      throw new ApplicationError("VALIDATION_ERROR", "媒体引用格式不正确", 400);
+    }
+    return {
+      resourceType: "media",
+      resourceId: (item as GrowthMediaRef).resourceId,
+      usage: (item as GrowthMediaRef).usage,
     };
   });
 }
@@ -2047,6 +2163,20 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
     "content-type": "application/json",
   });
   response.end(body === null ? "" : JSON.stringify(body));
+}
+
+function sendBinary(
+  response: ServerResponse,
+  status: number,
+  mimeType: string,
+  body: Buffer,
+): void {
+  response.writeHead(status, {
+    ...corsHeaders,
+    "content-type": mimeType,
+    "content-length": String(body.byteLength),
+  });
+  response.end(body);
 }
 
 server.listen(app.config.port, () => {

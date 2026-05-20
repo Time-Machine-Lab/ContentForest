@@ -12,3 +12,8 @@
 - **WHEN** 当前种子存在可用于枝化生长引用的媒体资源
 - **THEN** 系统 MUST 在工作区资源中返回媒体资源摘要
 - **AND** 系统 MUST 不返回本机绝对路径或媒体二进制内容
+
+#### Scenario: 媒体资源与现有引用资源共存
+- **WHEN** 工作区快照返回营养、基因、临时营养卡片和媒体资源
+- **THEN** 系统 MUST 保持各类资源的类型边界
+- **AND** 媒体资源 MUST 不影响现有 nutrientRefs、temporaryNutrientCardRefs 和 geneRefs 聚合

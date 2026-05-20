@@ -6,7 +6,7 @@ export function validateBranchGrowthAgentOutput(
   context: AgentTaskContext,
 ): AgentTaskOutput {
   if (context.taskType === "growth" && isCandidateFruitContent(output.content)) {
-    validateBranchGrowthCandidateFruit(output.content);
+    output.content = validateBranchGrowthCandidateFruit(output.content);
   }
   return output;
 }
