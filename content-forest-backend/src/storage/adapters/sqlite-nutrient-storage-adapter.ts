@@ -5,6 +5,7 @@ import type {
   NutrientGapSuggestionSourceType,
   NutrientGapSuggestionStatus,
   NutrientLibraryScope,
+  NutrientReferenceUsageStatus,
   NutrientUsageResourceType,
 } from "../../modules/nutrient/domain/nutrient-types.js";
 import { NUTRIENT_ARCHIVE_STATES } from "../../modules/nutrient/domain/nutrient-types.js";
@@ -73,6 +74,8 @@ interface NutrientUsageRow {
   growth_task_id: string;
   growth_attempt_id: string;
   fruit_id: string;
+  usage_status: NutrientReferenceUsageStatus;
+  reference_summary_json: string | null;
   used_at: string;
   created_at: string;
 }
@@ -772,9 +775,11 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
           growth_task_id,
           growth_attempt_id,
           fruit_id,
+          usage_status,
+          reference_summary_json,
           used_at,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
@@ -784,6 +789,8 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
         record.growthTaskId,
         record.growthAttemptId,
         record.fruitId,
+        record.usageStatus,
+        record.referenceSummary === null ? null : JSON.stringify(record.referenceSummary),
         record.usedAt,
         record.createdAt,
       );
@@ -980,6 +987,8 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
         growth_task_id TEXT NOT NULL,
         growth_attempt_id TEXT NOT NULL,
         fruit_id TEXT NOT NULL,
+        usage_status TEXT NOT NULL DEFAULT 'actual' CHECK (usage_status IN ('provided', 'planned', 'actual', 'planned_not_used', 'unverified')),
+        reference_summary_json TEXT,
         used_at TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
@@ -1010,6 +1019,8 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
     `);
     this.ensureColumn("nutrient_cards", "last_researched_at", "TEXT");
     this.ensureColumn("nutrient_cards", "last_referenced_at", "TEXT");
+    this.ensureColumn("nutrient_usage_records", "usage_status", "TEXT NOT NULL DEFAULT 'actual'");
+    this.ensureColumn("nutrient_usage_records", "reference_summary_json", "TEXT");
   }
 
   private ensureColumn(
@@ -1080,6 +1091,10 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
       growthTaskId: row.growth_task_id,
       growthAttemptId: row.growth_attempt_id,
       fruitId: row.fruit_id,
+      usageStatus: row.usage_status ?? "actual",
+      referenceSummary: row.reference_summary_json === null
+        ? null
+        : this.parseRecord(row.reference_summary_json),
       usedAt: row.used_at,
       createdAt: row.created_at,
     };
@@ -1158,6 +1173,17 @@ export class SqliteNutrientStorageAdapter implements NutrientStoragePort {
       updatedAt: row.updated_at,
       resolvedAt: row.resolved_at,
     };
+  }
+
+  private parseRecord(value: string): Record<string, unknown> {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : {};
+    } catch {
+      return {};
+    }
   }
 
   private parseTrace(value: string): Record<string, unknown>[] {

@@ -122,20 +122,24 @@ export class InMemoryGrowthStorageAdapter implements GrowthStoragePort {
       detailParams: { ...record.detailParams },
       pipelineParams: { ...record.pipelineParams },
       authorizationScope: this.cloneAuthorizationScope(record.authorizationScope),
-      agentInput: { ...record.agentInput },
+      agentInput: this.cloneRecord(record.agentInput),
       successfulFruitIds: [...record.successfulFruitIds],
     };
   }
 
   private cloneAttempt(record: GrowthAttemptRecord): GrowthAttemptRecord {
+    const mutationPlan = this.cloneRecord(record.mutationPlan) as GrowthAttemptRecord["mutationPlan"];
     return {
       ...record,
-      agentOutput: { ...record.agentOutput },
-      mutationPlan: {
-        ...record.mutationPlan,
-        inherit: [...record.mutationPlan.inherit],
-        avoid: [...record.mutationPlan.avoid],
-      },
+      agentOutput: this.cloneRecord(record.agentOutput),
+      mutationPlan,
+      selectedRoute: mutationPlan.selectedRoute,
+      referencePlan: mutationPlan.referencePlan,
+      referenceAtoms: mutationPlan.referenceAtoms,
+      plannedReferenceUsage: mutationPlan.plannedReferenceUsage,
+      actualReferenceUsage: mutationPlan.actualReferenceUsage,
+      mutationOperators: mutationPlan.mutationOperators,
+      platformInference: mutationPlan.platformInference,
     };
   }
 
@@ -172,5 +176,9 @@ export class InMemoryGrowthStorageAdapter implements GrowthStoragePort {
       ),
       geneRefs: cloneGrowthResourceRefs(scope.geneRefs),
     };
+  }
+
+  private cloneRecord<T>(record: T): T {
+    return JSON.parse(JSON.stringify(record)) as T;
   }
 }

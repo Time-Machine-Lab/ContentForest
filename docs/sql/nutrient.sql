@@ -88,6 +88,11 @@ CREATE TABLE IF NOT EXISTS nutrient_usage_records (
   growth_task_id TEXT NOT NULL,
   growth_attempt_id TEXT NOT NULL,
   fruit_id TEXT NOT NULL,
+  usage_status TEXT NOT NULL DEFAULT 'actual' CHECK (usage_status IN ('provided', 'planned', 'actual', 'planned_not_used', 'unverified')),
+  -- Reference usage summary is descriptive telemetry only:
+  -- atom ids, slot/action routing, evidence strength and risk boundary.
+  -- It MUST NOT be interpreted as causal proof that a nutrient caused success/failure.
+  reference_summary_json TEXT,
   used_at TEXT NOT NULL,
   created_at TEXT NOT NULL
 );

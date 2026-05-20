@@ -1,13 +1,15 @@
-export const CONTENT_EVOLUTION_ALGORITHM_VERSION = "content-evolution-v1";
+export const CONTENT_EVOLUTION_ALGORITHM_VERSION = "content-evolution-v2";
 
 export interface ContentEvolutionEvidenceCard {
-  sourceType: "source" | "nutrient" | "gene";
-  resourceType?: "nutrient" | "gene";
+  sourceType: "source" | "nutrient" | "temporary_nutrient_card" | "gene" | "feedback";
+  resourceType?: "nutrient" | "nutrient_card" | "gene";
   resourceId?: string;
   title: string;
   relevance: string;
   suggestedUse: string;
   excerpt: string;
+  confidence: "high" | "medium" | "low";
+  candidate?: boolean;
 }
 
 export interface ContentEvolutionExplorationSlot {
@@ -23,6 +25,16 @@ export interface ContentEvolutionStrategy {
   attemptIndex: number;
   totalAttempts: number;
   explorationSlot: ContentEvolutionExplorationSlot;
+  selectedRoute: Record<string, unknown> | null;
+  referencePlan: Record<string, unknown> | null;
+  referenceAtoms: Record<string, unknown>[];
+  referenceRoutes: Record<string, unknown>[];
+  plannedReferenceUsage: Record<string, unknown>[];
+  mutationOperators: unknown[];
+  platformInference: Record<string, unknown> | null;
+  contentSearchMapSummary: Record<string, unknown> | null;
+  fallbackUsed: boolean;
+  fallbackReason: string | null;
   targetHypothesis: string;
   evidenceCards: ContentEvolutionEvidenceCard[];
   inheritedGeneUses: string[];
@@ -84,10 +96,36 @@ export function buildContentEvolutionStrategy(input: {
     readRecord(input.taskInput.target).totalFruitCount,
     readPositiveInteger(readRecord(input.taskInput.target).fruitCount, 1),
   );
+  const selectedRoute = readRoute(input.taskInput.selectedRoute);
+  const mutationPlan = readRecord(input.taskInput.mutationPlan);
+  const referencePlan =
+    readRecordOrNull(input.taskInput.referencePlan) ??
+    readRecordOrNull(mutationPlan.referencePlan) ??
+    readRecordOrNull(selectedRoute?.referencePlan);
+  const referenceAtoms = readArray(input.taskInput.referenceAtoms).length > 0
+    ? readArray(input.taskInput.referenceAtoms).map((item) => readRecord(item))
+    : readArray(referencePlan?.atoms).map((item) => readRecord(item));
+  const referenceRoutes = readArray(referencePlan?.routes).map((item) => readRecord(item));
+  const plannedReferenceUsage = readArray(input.taskInput.plannedReferenceUsage).length > 0
+    ? readArray(input.taskInput.plannedReferenceUsage).map((item) => readRecord(item))
+    : readArray(referencePlan?.plannedUsage).map((item) => readRecord(item));
+  const mutationOperators = readArray(input.taskInput.mutationOperators).length > 0
+    ? readArray(input.taskInput.mutationOperators)
+    : readArray(mutationPlan.mutationOperators);
+  const contentSearchMapSummary = summarizeSearchMap(input.taskInput.contentSearchMap);
+  const platformInference =
+    readRecordOrNull(input.taskInput.platformInference) ??
+    readRecordOrNull(mutationPlan.platformInference) ??
+    readRecordOrNull(contentSearchMapSummary?.platformInference);
+  const routeSlot = selectedRoute === null
+    ? null
+    : buildExplorationSlotFromRoute(selectedRoute, attemptIndex);
   const slot =
+    routeSlot ??
     buildExplorationSlotFromMutationPlan(input.taskInput.mutationPlan, attemptIndex) ??
     EXPLORATION_SLOTS[(attemptIndex - 1) % EXPLORATION_SLOTS.length] ??
     EXPLORATION_SLOTS[0];
+  const fallbackUsed = routeSlot === null;
   const evidenceCards = buildEvidenceCards(input.source, input.resources);
   const geneCards = evidenceCards.filter((card) => card.sourceType === "gene");
   const sourceGeneTags = readArray(input.source.geneTags)
@@ -98,21 +136,77 @@ export function buildContentEvolutionStrategy(input: {
     attemptIndex,
     totalAttempts,
     explorationSlot: slot,
-    targetHypothesis: [
-      `本次尝试采用「${slot.name}」探索槽位。`,
-      slot.hypothesis,
-      `差异化方向：${slot.mutationDirection}`,
-    ].join(" "),
+    selectedRoute,
+    referencePlan,
+    referenceAtoms,
+    referenceRoutes,
+    plannedReferenceUsage,
+    mutationOperators,
+    platformInference,
+    contentSearchMapSummary,
+    fallbackUsed,
+    fallbackReason: fallbackUsed
+      ? "缺少有效选中探索路线，使用 mutationPlan 或固定探索槽位兜底。"
+      : null,
+    targetHypothesis: buildTargetHypothesis(slot, selectedRoute, mutationOperators),
     evidenceCards,
     inheritedGeneUses: [
       ...sourceGeneTags.map((tag) => `继承来源果实基因标签：${tag}`),
       ...geneCards.map((card) =>
         `继承或变异基因 ${card.resourceId ?? card.title}：${card.suggestedUse}`,
       ),
+      ...referencePlanItems(referencePlan, ["inherit", "strengthen", "combine", "mutate"])
+        .map((item) => `${readString(item.role)}：${readString(item.usage)}`),
     ],
-    avoidedGeneUses: geneCards
-      .filter((card) => /避免|规避|negative|失败|反向/i.test(card.excerpt))
-      .map((card) => `规避基因 ${card.resourceId ?? card.title}：${card.excerpt}`),
+    avoidedGeneUses: [
+      ...geneCards
+        .filter((card) => /避免|规避|negative|失败|反向/i.test(card.excerpt))
+        .map((card) => `规避基因 ${card.resourceId ?? card.title}：${card.excerpt}`),
+      ...referencePlanItems(referencePlan, ["avoid"])
+        .map((item) => `规避参考：${readString(item.usage)}`),
+    ],
+  };
+}
+
+function buildTargetHypothesis(
+  slot: ContentEvolutionExplorationSlot,
+  selectedRoute: Record<string, unknown> | null,
+  mutationOperators: unknown[],
+): string {
+  if (selectedRoute !== null) {
+    return [
+      `本次尝试采用探索路线「${readString(selectedRoute.id) || slot.name}」。`,
+      `目标：${readString(selectedRoute.objective) || slot.hypothesis}`,
+      `形态：${readString(selectedRoute.contentForm) || "未指定"}；受众：${readString(selectedRoute.audience) || "未指定"}。`,
+      `突变算子：${mutationOperators.map((operator) => readString(readRecord(operator).label)).filter(Boolean).join("、") || "沿用路线默认变化"}`,
+    ].join(" ");
+  }
+  return [
+    `本次尝试采用「${slot.name}」探索槽位兜底。`,
+    slot.hypothesis,
+    `差异化方向：${slot.mutationDirection}`,
+  ].join(" ");
+}
+
+function buildExplorationSlotFromRoute(
+  route: Record<string, unknown>,
+  attemptIndex: number,
+): ContentEvolutionExplorationSlot {
+  const routeId = readString(route.id) || `route-${attemptIndex}`;
+  const objective = readString(route.objective) || "动态探索路线";
+  const narrativeMechanism = readString(route.narrativeMechanism);
+  const successSignals = readArray(route.successSignals)
+    .map((item) => readString(item))
+    .filter(Boolean);
+  return {
+    key: routeId,
+    name: objective,
+    hypothesis: `验证路线「${objective}」是否能形成更有效表达。`,
+    mutationDirection: narrativeMechanism || objective,
+    successCriteria:
+      successSignals.length > 0
+        ? successSignals.join("；")
+        : "内容必须保留种子核心，并与同批次其他 attempt 形成可比较差异。",
   };
 }
 
@@ -157,6 +251,7 @@ function buildEvidenceCards(
       relevance: "本次枝化生长的直接来源，决定内容必须延续的核心语义。",
       suggestedUse: buildSourceSuggestedUse(source),
       excerpt: truncate(readString(source.markdown), 800),
+      confidence: "high",
     },
   ];
 
@@ -167,22 +262,44 @@ function buildEvidenceCards(
       resourceType: "nutrient",
       resourceId: readString(record.resourceId),
       title: readString(record.title) || "营养资料",
-      relevance: "用户授权的外部资料，可为平台规则、案例或背景提供依据。",
-      suggestedUse: "提取与本次探索槽位最相关的规则、案例或表达约束。",
+      relevance: "用户授权的正式营养资料，可为平台规则、案例或背景提供依据。",
+      suggestedUse: "提取与本次探索路线最相关的规则、案例或表达约束。",
       excerpt: truncate(readString(record.markdown), 800),
+      confidence: "high",
+    });
+  }
+
+  for (const card of readArray(resources.temporaryNutrientCards)) {
+    const record = readRecord(card);
+    cards.push({
+      sourceType: "temporary_nutrient_card",
+      resourceType: "nutrient_card",
+      resourceId: readString(record.resourceId),
+      title: readString(record.title) || "临时营养卡片",
+      relevance: "用户授权的未沉淀候选资料，只能作为低置信参考。",
+      suggestedUse: "作为候选证据试用，不得描述为已沉淀营养库内容。",
+      excerpt: truncate(readString(record.markdown), 800),
+      confidence: "low",
+      candidate: true,
     });
   }
 
   for (const gene of readArray(resources.genes)) {
     const record = readRecord(gene);
+    const performance = readRecord(record.performance);
+    const negativeCount = readPositiveInteger(performance.negativeCount, 0);
     cards.push({
       sourceType: "gene",
       resourceType: "gene",
       resourceId: readString(record.resourceId),
       title: readString(record.title) || "基因经验",
       relevance: "该种子已沉淀的内容表达经验，应影响下一代果实。",
-      suggestedUse: "判断应继承、强化、变异、组合还是规避该表达特征。",
+      suggestedUse:
+        negativeCount > 0
+          ? "结合适用边界判断需要继承、变异还是规避该表达特征。"
+          : "判断应继承、强化、变异、组合还是规避该表达特征。",
       excerpt: truncate(readString(record.markdown), 800),
+      confidence: "medium",
     });
   }
 
@@ -194,9 +311,50 @@ function buildSourceSuggestedUse(source: Record<string, unknown>): string {
     .filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
     .map((tag) => tag.trim());
   if (geneTags.length === 0) {
-    return "保留核心主题，并围绕当前探索槽位改变表达方式。";
+    return "保留核心主题，并围绕当前探索路线改变表达方式。";
   }
   return `保留核心主题，并优先参考来源果实基因标签：${geneTags.join("、")}。`;
+}
+
+function summarizeSearchMap(value: unknown): Record<string, unknown> | null {
+  const map = readRecordOrNull(value);
+  if (map === null) {
+    return null;
+  }
+  return {
+    algorithmVersion: map.algorithmVersion,
+    platformInference: map.platformInference,
+    objectives: map.objectives,
+    audiences: map.audiences,
+    contentForms: map.contentForms,
+    narrativeMechanisms: map.narrativeMechanisms,
+    emotionalDrivers: map.emotionalDrivers,
+    evidenceInventory: map.evidenceInventory,
+    riskGuards: map.riskGuards,
+    routeCandidateCount: readArray(map.routeCandidates).length,
+    fallbackUsed: map.fallbackUsed,
+    fallbackReason: map.fallbackReason,
+  };
+}
+
+function referencePlanItems(
+  referencePlan: Record<string, unknown> | null,
+  roles: string[],
+): Record<string, unknown>[] {
+  if (referencePlan === null) {
+    return [];
+  }
+  return readArray(referencePlan.items)
+    .map((item) => readRecord(item))
+    .filter((item) => roles.includes(readString(item.role)));
+}
+
+function readRoute(value: unknown): Record<string, unknown> | null {
+  const route = readRecordOrNull(value);
+  if (route === null || readString(route.id).length === 0) {
+    return null;
+  }
+  return route;
 }
 
 function findPublishableStart(value: string): number {
@@ -217,6 +375,12 @@ function readRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function readRecordOrNull(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 function readArray(value: unknown): unknown[] {

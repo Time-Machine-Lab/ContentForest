@@ -54,6 +54,7 @@ import {
   type NutrientResearchMessage,
   type NutrientResearchSessionDetail,
   type NutrientResearchSessionSummary,
+  type NutrientReferenceUsageStatus,
   type NutrientUsageResourceType,
   type NutrientUsageSummary,
   type SimilarNutrientCard,
@@ -265,6 +266,8 @@ export interface RecordNutrientUsageInput {
   refs: Array<{
     resourceType: NutrientUsageResourceType;
     resourceId: string;
+    usageStatus?: NutrientReferenceUsageStatus;
+    referenceSummary?: Record<string, unknown> | null;
   }>;
 }
 
@@ -1321,7 +1324,8 @@ export class NutrientService {
       if (ref.resourceType !== "nutrient" && ref.resourceType !== "nutrient_card") {
         throw new ApplicationError("VALIDATION_ERROR", "营养引用类型不正确", 400);
       }
-      const key = `${ref.resourceType}:${resourceId}`;
+      const usageStatus = this.normalizeNutrientUsageStatus(ref.usageStatus);
+      const key = `${ref.resourceType}:${resourceId}:${usageStatus}`;
       if (seen.has(key)) {
         continue;
       }
@@ -1337,10 +1341,14 @@ export class NutrientService {
           "生长尝试不能为空",
         ),
         fruitId: this.requireNonBlank(input.fruitId, "果实不能为空"),
+        usageStatus,
+        referenceSummary: this.normalizeReferenceSummary(ref.referenceSummary),
         usedAt: timestamp,
         createdAt: timestamp,
       });
-      await this.touchReferencedCard(ref.resourceType, resourceId, timestamp);
+      if (usageStatus !== "provided") {
+        await this.touchReferencedCard(ref.resourceType, resourceId, timestamp);
+      }
     }
   }
 
@@ -1636,6 +1644,26 @@ export class NutrientService {
     }
   }
 
+  private normalizeNutrientUsageStatus(
+    value: NutrientReferenceUsageStatus | undefined,
+  ): NutrientReferenceUsageStatus {
+    return value === "provided" ||
+      value === "planned" ||
+      value === "actual" ||
+      value === "planned_not_used" ||
+      value === "unverified"
+      ? value
+      : "actual";
+  }
+
+  private normalizeReferenceSummary(
+    value: Record<string, unknown> | null | undefined,
+  ): Record<string, unknown> | null {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+      ? JSON.parse(JSON.stringify(value)) as Record<string, unknown>
+      : null;
+  }
+
   private async buildUsageSummary(
     resourceType: NutrientUsageResourceType,
     resourceId: string,
@@ -1658,6 +1686,7 @@ export class NutrientService {
     let eliminatedFruitCount = 0;
     let publicationRecordCount = 0;
     let feedbackSnapshotCount = 0;
+    const statusCounts = this.emptyUsageStatusCounts();
     for (const fruitId of fruitIds) {
       const fruit = await this.fruitStorage?.findFruitById(fruitId);
       const usage = records.find((record) => record.fruitId === fruitId);
@@ -1689,6 +1718,9 @@ export class NutrientService {
         usedAt: usage?.usedAt ?? "",
       });
     }
+    for (const record of records) {
+      statusCounts[record.usageStatus] += 1;
+    }
     return {
       resourceType,
       resourceId,
@@ -1699,8 +1731,51 @@ export class NutrientService {
       publicationRecordCount,
       feedbackSnapshotCount,
       latestUsedAt: records[0]?.usedAt ?? null,
+      statusCounts,
+      referenceUsages: records.map((record) =>
+        this.toReferenceUsageBreakdown(record),
+      ),
       fruits,
     };
+  }
+
+  private emptyUsageStatusCounts(): NutrientUsageSummary["statusCounts"] {
+    return {
+      provided: 0,
+      planned: 0,
+      actual: 0,
+      planned_not_used: 0,
+      unverified: 0,
+    };
+  }
+
+  private toReferenceUsageBreakdown(
+    record: NutrientUsageRecord,
+  ): NutrientUsageSummary["referenceUsages"][number] {
+    const summary = record.referenceSummary ?? {};
+    return {
+      fruitId: record.fruitId,
+      growthTaskId: record.growthTaskId,
+      growthAttemptId: record.growthAttemptId,
+      status: record.usageStatus,
+      atomIds: this.readStringArray(summary.atomIds),
+      actions: this.readStringArray(summary.actions),
+      slots: this.readStringArray(summary.slots),
+      usageSummary: typeof summary.usageSummary === "string"
+        ? summary.usageSummary
+        : "仅记录参考状态，不声明营养导致果实表现。",
+      evidenceStrength: typeof summary.evidenceStrength === "string"
+        ? summary.evidenceStrength
+        : "",
+      riskLevel: typeof summary.riskLevel === "string" ? summary.riskLevel : "",
+      usedAt: record.usedAt,
+    };
+  }
+
+  private readStringArray(value: unknown): string[] {
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string")
+      : [];
   }
 
   private isOlderThan(value: string, now: number, durationMs: number): boolean {

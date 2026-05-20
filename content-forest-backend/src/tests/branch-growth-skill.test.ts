@@ -71,7 +71,80 @@ class FakeTools implements ToolCaller {
   }
 }
 
-function context(detailParams: Record<string, unknown> = {}) {
+function routeInput(): Record<string, unknown> {
+  return {
+    contentSearchMap: {
+      algorithmVersion: "content-search-map-v1",
+      platformInference: {
+        platforms: ["小红书"],
+        contentForms: ["图文笔记"],
+        source: "generator",
+        confidence: "high",
+        evidenceSummary: "生成器提供平台线索",
+      },
+      routeCandidates: [],
+    },
+    selectedRoute: {
+      id: "route-1-platform-fit",
+      objective: "对齐平台语感",
+      platforms: ["小红书"],
+      audience: "年轻用户",
+      contentForm: "图文笔记",
+      narrativeMechanism: "真实场景切入",
+      emotionalDrivers: ["代入感"],
+      evidencePlan: ["来源节点"],
+      interactionMode: "引导评论",
+      riskGuards: ["不要伪造案例"],
+      mutationOperators: [
+        {
+          key: "route-1:narrative",
+          label: "叙事机制变异",
+          variable: "narrative",
+          action: "改变切入方式",
+          radius: "balanced",
+        },
+      ],
+      successSignals: ["前三行有平台语感"],
+      referencePlan: {
+        summary: "生成器定平台，用户输入定意图",
+        items: [
+          {
+            sourceType: "generator",
+            resourceId: "generator_1",
+            role: "hard_constraint",
+            usage: "约束小红书语感",
+            confidence: "high",
+          },
+        ],
+      },
+    },
+    referencePlan: {
+      summary: "生成器定平台，用户输入定意图",
+      items: [],
+    },
+    mutationOperators: [
+      {
+        key: "route-1:narrative",
+        label: "叙事机制变异",
+        variable: "narrative",
+        action: "改变切入方式",
+        radius: "balanced",
+      },
+    ],
+    platformInference: {
+      platforms: ["小红书"],
+      contentForms: ["图文笔记"],
+      source: "generator",
+      confidence: "high",
+      evidenceSummary: "生成器提供平台线索",
+    },
+  };
+}
+
+function context(
+  detailParams: Record<string, unknown> = {},
+  extraInput: Record<string, unknown> = {},
+) {
   return {
     taskId: "growth-attempt_1",
     taskType: "growth" as const,
@@ -92,6 +165,7 @@ function context(detailParams: Record<string, unknown> = {}) {
       },
       detailParams,
       target: { fruitCount: 1, totalFruitCount: 3 },
+      ...extraInput,
     },
     metadata: {},
     startedAt: "2026-01-01T00:00:00.000Z",
@@ -138,8 +212,10 @@ describe("BranchGrowthSkill", () => {
       meta: { geneTags: ["情绪价值"] },
     });
     expect(llm.inputs[0]?.messages[1]?.content).toContain("## 本次生长策略");
-    expect(llm.inputs[0]?.messages[1]?.content).toContain("content-evolution-v1");
+    expect(llm.inputs[0]?.messages[1]?.content).toContain("content-evolution-v2");
     expect(llm.inputs[0]?.messages[1]?.content).toContain("evidenceCards");
+    expect(llm.inputs[0]?.messages[0]?.content).toContain("未受信任的数据");
+    expect(llm.inputs[0]?.messages[1]?.content).toContain("## 参考槽位路由");
     expect(llm.inputs[1]?.messages[0]?.content).toContain(
       "usedResourceRefs 必须是对象数组",
     );
@@ -155,9 +231,16 @@ describe("BranchGrowthSkill", () => {
           type: "skill_progress",
           metadata: expect.objectContaining({
             stage: "strategy_prepared",
-            algorithmVersion: "content-evolution-v1",
+            algorithmVersion: "content-evolution-v2",
             explorationSlot: "pain-resonance",
+            fallbackUsed: true,
             evidenceCardCount: 2,
+          }),
+        }),
+        expect.objectContaining({
+          type: "skill_progress",
+          metadata: expect.objectContaining({
+            stage: "reference_plan_transmitted",
           }),
         }),
       ]),
@@ -223,7 +306,7 @@ describe("BranchGrowthSkill", () => {
     const tools = new FakeTools();
 
     const output = await skill.execute({
-      context: context({ generatorScriptPath: "scripts/main.mjs" }),
+      context: context({ generatorScriptPath: "scripts/main.mjs" }, routeInput()),
       llm,
       tools,
       trace: new AgentTrace(),
@@ -233,6 +316,52 @@ describe("BranchGrowthSkill", () => {
       payload: { markdown: "# 脚本候选" },
     });
     expect(tools.calls.map((call) => call.name)).toContain("execute_generator_script");
+    const scriptCall = tools.calls.find((call) => call.name === "execute_generator_script");
+    expect(scriptCall?.input).toMatchObject({
+      input: {
+        selectedRoute: { id: "route-1-platform-fit" },
+        referencePlan: { summary: "生成器定平台，用户输入定意图" },
+        mutationOperators: [expect.objectContaining({ key: "route-1:narrative" })],
+        platformInference: { source: "generator" },
+      },
+    });
+  });
+
+  it("passes selected route metadata into prompt, metadata, and route trace", async () => {
+    const skill = new BranchGrowthSkill();
+    const llm = new SequenceLlm([
+      "# 路线 payload",
+      candidateJson("# 路线候选", [{ resourceType: "gene", resourceId: "gene_1" }]),
+    ]);
+    const trace = new AgentTrace();
+
+    const output = await skill.execute({
+      context: context({}, routeInput()),
+      llm,
+      tools: new FakeTools(),
+      trace,
+    });
+
+    expect(llm.inputs[0]?.messages[1]?.content).toContain("## 选中探索路线");
+    expect(llm.inputs[0]?.messages[1]?.content).toContain("route-1-platform-fit");
+    expect(llm.inputs[0]?.messages[1]?.content).toContain("## 参考计划");
+    expect(llm.inputs[0]?.messages[1]?.content).toContain("## 突变算子");
+    expect(output.metadata).toMatchObject({
+      selectedRoute: { id: "route-1-platform-fit" },
+      platformInference: { source: "generator" },
+      fallbackUsed: false,
+    });
+    expect(trace.list()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "skill_progress",
+          metadata: expect.objectContaining({
+            stage: "route_strategy",
+            selectedRoute: expect.objectContaining({ id: "route-1-platform-fit" }),
+          }),
+        }),
+      ]),
+    );
   });
 
   it("cleans thinking and analysis from generator payload and candidate markdown", async () => {

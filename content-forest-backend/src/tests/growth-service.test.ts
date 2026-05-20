@@ -450,28 +450,38 @@ describe("GrowthService", () => {
     await scheduler.runAll();
 
     expect(usageCalls).toHaveLength(2);
-    expect(usageCalls).toEqual([
-      expect.objectContaining({
+    for (const [index, call] of usageCalls.entries()) {
+      expect(call).toMatchObject({
         seedId: "seed_1",
         growthTaskId: result.task.id,
-        growthAttemptId: "growth-attempt_2",
-        fruitId: "fruit_1",
-        refs: [
-          { resourceType: "nutrient", resourceId: "nutrient_1" },
-          { resourceType: "nutrient_card", resourceId: "card_1" },
-        ],
-      }),
-      expect.objectContaining({
-        seedId: "seed_1",
-        growthTaskId: result.task.id,
-        growthAttemptId: "growth-attempt_3",
-        fruitId: "fruit_2",
-        refs: [
-          { resourceType: "nutrient", resourceId: "nutrient_1" },
-          { resourceType: "nutrient_card", resourceId: "card_1" },
-        ],
-      }),
-    ]);
+        growthAttemptId: `growth-attempt_${index + 2}`,
+        fruitId: `fruit_${index + 1}`,
+      });
+      expect(call.refs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            resourceType: "nutrient",
+            resourceId: "nutrient_1",
+            usageStatus: "provided",
+          }),
+          expect.objectContaining({
+            resourceType: "nutrient_card",
+            resourceId: "card_1",
+            usageStatus: "provided",
+          }),
+          expect.objectContaining({
+            resourceType: "nutrient",
+            resourceId: "nutrient_1",
+            usageStatus: "planned",
+          }),
+          expect.objectContaining({
+            resourceType: "nutrient_card",
+            resourceId: "card_1",
+            usageStatus: "planned_not_used",
+          }),
+        ]),
+      );
+    }
   });
 
   it("assembles round growth briefs and degrades when the seed master brief is missing", async () => {
@@ -577,11 +587,215 @@ describe("GrowthService", () => {
     const plans = completed.attempts.map((attempt) => attempt.mutationPlan);
 
     expect(new Set(plans.map((plan) => plan.direction)).size).toBe(3);
+    expect(new Set(plans.map((plan) => plan.selectedRouteId)).size).toBe(3);
+    expect(plans.every((plan) => plan.selectedRoute !== undefined)).toBe(true);
+    expect(plans.every((plan) => plan.referencePlan !== undefined)).toBe(true);
+    expect(plans.every((plan) => (plan.mutationOperators?.length ?? 0) > 0)).toBe(true);
     expect(plans[0]?.direction).toContain("真实经验分享");
     expect(plans.every((plan) => plan.intensity === GROWTH_MUTATION_INTENSITIES.balanced)).toBe(true);
     expect(capturedTasks[0]?.input).toMatchObject({
-      mutationPlan: plans[0],
+      mutationPlan: expect.objectContaining({
+        selectedRouteId: plans[0]?.selectedRouteId,
+        referencePlan: plans[0]?.referencePlan,
+        plannedReferenceUsage: plans[0]?.plannedReferenceUsage,
+      }),
+      selectedRoute: plans[0]?.selectedRoute,
+      referencePlan: plans[0]?.referencePlan,
+      referenceAtoms: plans[0]?.referenceAtoms,
+      plannedReferenceUsage: plans[0]?.plannedReferenceUsage,
+      mutationOperators: plans[0]?.mutationOperators,
       searchMode: GROWTH_SEARCH_MODES.broadExploration,
+    });
+  });
+
+  it("atomizes heterogeneous references and routes constraints before attention", async () => {
+    const capturedTasks: AgentTask[] = [];
+    const { service, scheduler } = await createFixture(successAgent(capturedTasks));
+
+    const result = await service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      userInput: "美妆广告内容，注意功效表达边界",
+      generatorId: "generator_1",
+      fruitCount: 2,
+      nutrientRefs: [
+        { resourceType: "nutrient", resourceId: "brand_brief_nutrient" },
+        { resourceType: "nutrient", resourceId: "paper_study_nutrient" },
+        { resourceType: "nutrient", resourceId: "viral_case_nutrient" },
+        { resourceType: "nutrient", resourceId: "comment_signal_nutrient" },
+      ],
+      temporaryNutrientCardRefs: [
+        { resourceType: "nutrient_card", resourceId: "temporary_ad_brief_card" },
+      ],
+      geneRefs: [
+        { resourceType: "gene", resourceId: "gene_positive" },
+        { resourceType: "gene", resourceId: "gene_negative_fail" },
+      ],
+      searchMode: GROWTH_SEARCH_MODES.broadExploration,
+    });
+
+    await scheduler.runAll();
+    const completed = await service.getGrowthTask(result.task.id);
+    const plans = completed.attempts.map((attempt) => attempt.mutationPlan);
+    const firstPlan = plans[0]?.referencePlan;
+    const atoms = firstPlan?.atoms ?? [];
+    const routes = firstPlan?.routes ?? [];
+
+    expect(atoms).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sourceType: "formal_nutrient", atomType: "brand_requirement" }),
+        expect.objectContaining({ sourceType: "formal_nutrient", atomType: "conversion_asset" }),
+        expect.objectContaining({ sourceType: "formal_nutrient", atomType: "claim_candidate" }),
+        expect.objectContaining({ sourceType: "formal_nutrient", atomType: "risk_constraint" }),
+        expect.objectContaining({ sourceType: "formal_nutrient", atomType: "case_pattern" }),
+        expect.objectContaining({ sourceType: "formal_nutrient", atomType: "audience_signal" }),
+        expect.objectContaining({ sourceType: "temporary_nutrient_card", atomType: "brand_requirement" }),
+        expect.objectContaining({ sourceType: "gene", atomType: "performance_signal" }),
+        expect.objectContaining({ sourceType: "gene", atomType: "counterexample" }),
+      ]),
+    );
+    expect(routes[0]).toEqual(
+      expect.objectContaining({
+        priority: "must",
+      }),
+    );
+    expect(["risk_review", "fact_check"]).toContain(routes[0]?.slot);
+    expect(firstPlan?.riskCheckRequired).toBe(true);
+    expect(firstPlan?.plannedUsage).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          resourceType: "nutrient",
+          status: "planned",
+          slots: expect.arrayContaining(["fact_check"]),
+        }),
+      ]),
+    );
+    expect(capturedTasks[0]?.input).toMatchObject({
+      referenceAtoms: expect.any(Array),
+      plannedReferenceUsage: expect.any(Array),
+    });
+    expect(plans[0]?.plannedReferenceUsage).not.toEqual(plans[1]?.plannedReferenceUsage);
+  });
+
+  it("infers platform and content form by generator, user, system, then fallback priority", async () => {
+    const generatorTasks: AgentTask[] = [];
+    const generatorFixture = await createFixture(successAgent(generatorTasks));
+    const generatorResult = await generatorFixture.service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      userInput: "请发到 Reddit",
+      generatorId: "generator_1",
+      fruitCount: 1,
+    });
+    await generatorFixture.scheduler.runAll();
+    expect(generatorTasks[0]?.input).toMatchObject({
+      platformInference: {
+        source: "generator",
+        platforms: ["小红书"],
+        contentForms: ["图文笔记"],
+      },
+      selectedRoute: expect.objectContaining({
+        platforms: ["小红书"],
+      }),
+    });
+    await expect(generatorFixture.service.getGrowthTask(generatorResult.task.id)).resolves.toMatchObject({
+      attempts: [
+        expect.objectContaining({
+          selectedRoute: expect.objectContaining({ platforms: ["小红书"] }),
+          platformInference: expect.objectContaining({ source: "generator" }),
+        }),
+      ],
+    });
+
+    const userTasks: AgentTask[] = [];
+    const userFixture = await createFixture(successAgent(userTasks));
+    await userFixture.generatorStorage.createGenerator({
+      id: "generator_generic",
+      name: "通用生成器",
+      description: "泛用内容创作",
+      enableState: "enabled",
+      contentLocation: "generators/generator_generic",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      disabledAt: null,
+    });
+    await userFixture.service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      userInput: "做成 Reddit 讨论帖",
+      generatorId: "generator_generic",
+      fruitCount: 1,
+    });
+    await userFixture.scheduler.runAll();
+    expect(userTasks[0]?.input).toMatchObject({
+      platformInference: {
+        source: "user",
+        platforms: ["Reddit"],
+        contentForms: ["讨论帖"],
+      },
+    });
+
+    const systemTasks: AgentTask[] = [];
+    const systemFixture = await createFixture(successAgent(systemTasks));
+    await systemFixture.generatorStorage.createGenerator({
+      id: "generator_plain",
+      name: "通用生成器",
+      description: "泛用内容创作",
+      enableState: "enabled",
+      contentLocation: "generators/generator_plain",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      disabledAt: null,
+    });
+    await systemFixture.seedStorage.createSeed({
+      id: "seed_bilibili",
+      title: "B站AI教学账号",
+      archiveState: SEED_ARCHIVE_STATES.active,
+      contentLocation: "seeds/seed_bilibili.md",
+      rootNodeId: "seed-node_seed_bilibili",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      archivedAt: null,
+    });
+    await systemFixture.service.startGrowthTask({
+      seedId: "seed_bilibili",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_bilibili" },
+      generatorId: "generator_plain",
+      fruitCount: 1,
+    });
+    await systemFixture.scheduler.runAll();
+    expect(systemTasks[0]?.input).toMatchObject({
+      platformInference: {
+        source: "system",
+        platforms: ["B站"],
+        contentForms: ["视频脚本"],
+      },
+    });
+
+    const fallbackTasks: AgentTask[] = [];
+    const fallbackFixture = await createFixture(successAgent(fallbackTasks));
+    await fallbackFixture.generatorStorage.createGenerator({
+      id: "generator_neutral",
+      name: "通用生成器",
+      description: "泛用内容创作",
+      enableState: "enabled",
+      contentLocation: "generators/generator_neutral",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      disabledAt: null,
+    });
+    await fallbackFixture.service.startGrowthTask({
+      seedId: "seed_1",
+      sourceNodeRef: { nodeType: "seed", nodeId: "seed-node_seed_1" },
+      generatorId: "generator_neutral",
+      fruitCount: 1,
+    });
+    await fallbackFixture.scheduler.runAll();
+    expect(fallbackTasks[0]?.input).toMatchObject({
+      platformInference: {
+        source: "fallback",
+        platforms: ["通用内容平台"],
+      },
     });
   });
 

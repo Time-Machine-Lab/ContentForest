@@ -3,6 +3,7 @@ import {
   candidateToGrowthFruitInput,
   validateBranchGrowthCandidateFruit,
 } from "../agent/skills/branch-growth-candidate.js";
+import type { ReferenceUsageSummary } from "../modules/growth/domain/growth-types.js";
 
 const validCandidate = {
   type: "candidate_fruit",
@@ -25,10 +26,17 @@ describe("BranchGrowthCandidate schema", () => {
       candidateToGrowthFruitInput(validCandidate, {
         authorizedResourceRefs: [{ resourceType: "gene", resourceId: "gene_1" }],
       }),
-    ).toEqual({
+    ).toMatchObject({
       markdown: "# 好内容",
       summary: "适合小红书的产品表达",
       geneTags: ["情绪价值"],
+      actualReferenceUsage: [
+        expect.objectContaining({
+          resourceType: "gene",
+          resourceId: "gene_1",
+          status: "actual",
+        }),
+      ],
     });
   });
 
@@ -164,5 +172,114 @@ describe("BranchGrowthCandidate schema", () => {
         },
       }),
     ).toThrow(/real local file paths|system facts/);
+  });
+
+  it("validates reference usage authorization and high risk handling summaries", () => {
+    const highRiskUsage: ReferenceUsageSummary = {
+      sourceType: "formal_nutrient",
+      resourceType: "nutrient",
+      resourceId: "nutrient_1",
+      title: "广告 brief",
+      status: "actual",
+      atomIds: ["atom_claim"],
+      actions: ["constrain"],
+      slots: ["fact_check"],
+      usageSummary: "使用广告主候选功效主张",
+      evidenceStrength: "candidate",
+      riskLevel: "high",
+    };
+
+    expect(() =>
+      validateBranchGrowthCandidateFruit(
+        {
+          ...validCandidate,
+          meta: {
+            ...validCandidate.meta,
+            usedResourceRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
+            referenceUsage: [highRiskUsage],
+          },
+        },
+        {
+          authorizedResourceRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
+          plannedReferenceUsage: [highRiskUsage],
+        },
+      ),
+    ).toThrow(/riskHandlingSummary|factCheckSummary/);
+
+    const accepted = validateBranchGrowthCandidateFruit(
+      {
+        ...validCandidate,
+        meta: {
+          ...validCandidate.meta,
+          usedResourceRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
+          referenceUsage: [highRiskUsage],
+          factCheckSummary: "已按研究和广告边界做条件化表达",
+        },
+      },
+      {
+        authorizedResourceRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
+        plannedReferenceUsage: [highRiskUsage],
+      },
+    );
+    expect(accepted.meta.referenceUsage).toEqual([
+      expect.objectContaining({
+        resourceType: "nutrient",
+        resourceId: "nutrient_1",
+        riskLevel: "high",
+      }),
+    ]);
+
+    expect(() =>
+      validateBranchGrowthCandidateFruit(
+        {
+          ...validCandidate,
+          meta: {
+            ...validCandidate.meta,
+            usedResourceRefs: [],
+            referenceUsage: [{
+              ...highRiskUsage,
+              resourceId: "nutrient_2",
+              riskLevel: "low",
+              actions: ["ground"],
+              slots: ["proof_evidence"],
+            }],
+            factCheckSummary: "低风险转述",
+          },
+        },
+        {
+          authorizedResourceRefs: [{ resourceType: "nutrient", resourceId: "nutrient_1" }],
+        },
+      ),
+    ).toThrow(/not authorized/);
+  });
+
+  it("accepts route candidate meta but rejects system facts inside it", () => {
+    const candidate = validateBranchGrowthCandidateFruit({
+      ...validCandidate,
+      meta: {
+        ...validCandidate.meta,
+        routeId: "route-1-platform-fit",
+        routeSummary: "平台语感路线",
+        mutationOperators: ["叙事机制变异"],
+        riskWarnings: ["不要伪造案例"],
+      },
+    });
+
+    expect(candidate.meta).toMatchObject({
+      routeId: "route-1-platform-fit",
+      routeSummary: "平台语感路线",
+      mutationOperators: ["叙事机制变异"],
+      riskWarnings: ["不要伪造案例"],
+    });
+
+    expect(() =>
+      validateBranchGrowthCandidateFruit({
+        ...validCandidate,
+        meta: {
+          ...validCandidate.meta,
+          routeSummary: "已发布到平台",
+        },
+      }),
+    ).toThrow(/system facts/);
   });
 });

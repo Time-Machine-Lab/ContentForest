@@ -159,6 +159,26 @@ export interface ReferableNutrientContent extends NutrientContentSummary {
 }
 
 export type NutrientUsageResourceType = "nutrient" | "nutrient_card";
+export type NutrientReferenceUsageStatus =
+  | "provided"
+  | "planned"
+  | "actual"
+  | "planned_not_used"
+  | "unverified";
+
+export interface NutrientReferenceUsageBreakdown {
+  fruitId: string;
+  growthTaskId: string;
+  growthAttemptId: string;
+  status: NutrientReferenceUsageStatus;
+  atomIds: string[];
+  actions: string[];
+  slots: string[];
+  usageSummary: string;
+  evidenceStrength: string;
+  riskLevel: string;
+  usedAt: string;
+}
 
 export interface NutrientUsageFruitSummary {
   fruitId: string;
@@ -179,6 +199,8 @@ export interface NutrientUsageSummary {
   publicationRecordCount: number;
   feedbackSnapshotCount: number;
   latestUsedAt: string | null;
+  statusCounts: Record<NutrientReferenceUsageStatus, number>;
+  referenceUsages: NutrientReferenceUsageBreakdown[];
   fruits: NutrientUsageFruitSummary[];
 }
 

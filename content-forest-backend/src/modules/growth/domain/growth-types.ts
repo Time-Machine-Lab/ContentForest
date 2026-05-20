@@ -76,6 +76,224 @@ export interface GrowthMutationPlan {
   inherit: string[];
   avoid: string[];
   evidenceSummary: string;
+  selectedRouteId?: string | null;
+  selectedRoute?: ExplorationRoute;
+  referencePlan?: ReferencePlan;
+  referenceAtoms?: ReferenceAtom[];
+  plannedReferenceUsage?: ReferenceUsageSummary[];
+  actualReferenceUsage?: ReferenceUsageSummary[];
+  mutationOperators?: MutationOperator[];
+  platformInference?: PlatformInference;
+  routeTrace?: RouteTraceSummary;
+}
+
+export type PlatformInferenceSource = "generator" | "user" | "system" | "fallback";
+export type PlatformInferenceConfidence = "high" | "medium" | "low";
+
+export interface PlatformInference {
+  platforms: string[];
+  contentForms: string[];
+  source: PlatformInferenceSource;
+  confidence: PlatformInferenceConfidence;
+  evidenceSummary: string;
+}
+
+export interface MutationOperator {
+  key: string;
+  label: string;
+  variable: string;
+  action: string;
+  radius: GrowthMutationIntensity;
+}
+
+export type ReferencePlanSourceType =
+  | "user_input"
+  | "generator"
+  | "source_node"
+  | "seed_brief"
+  | "nutrient"
+  | "formal_nutrient"
+  | "temporary_nutrient_card"
+  | "gene"
+  | "feedback"
+  | "research_context"
+  | "system_context";
+
+export type ReferencePlanRole =
+  | "hard_constraint"
+  | "intent_driver"
+  | "evidence"
+  | "candidate_evidence"
+  | "inherit"
+  | "strengthen"
+  | "combine"
+  | "mutate"
+  | "avoid"
+  | "context";
+
+export interface ReferencePlanItem {
+  sourceType: ReferencePlanSourceType;
+  resourceId: string | null;
+  role: ReferencePlanRole;
+  usage: string;
+  confidence: PlatformInferenceConfidence;
+}
+
+export type ReferenceAtomType =
+  | "fact"
+  | "audience_signal"
+  | "platform_mechanic"
+  | "case_pattern"
+  | "language_asset"
+  | "structure_template"
+  | "visual_audio_asset"
+  | "trend_signal"
+  | "risk_constraint"
+  | "counterexample"
+  | "performance_signal"
+  | "claim_candidate"
+  | "conversion_asset"
+  | "brand_requirement";
+
+export type ReferenceEvidenceStrength =
+  | "confirmed"
+  | "observed"
+  | "candidate"
+  | "speculative";
+
+export type ReferenceSourceBias =
+  | "neutral"
+  | "self_reported"
+  | "promotional"
+  | "platform_observed"
+  | "system_inferred";
+
+export type ReferenceRiskLevel = "low" | "medium" | "high";
+
+export type ReferenceAction =
+  | "ground"
+  | "constrain"
+  | "shape"
+  | "style"
+  | "inherit"
+  | "adapt"
+  | "combine"
+  | "mutate"
+  | "criticize"
+  | "avoid";
+
+export type ContentSlot =
+  | "title_hook"
+  | "opening"
+  | "audience_scenario"
+  | "body_structure"
+  | "script_or_shot"
+  | "visual_audio"
+  | "proof_evidence"
+  | "wording_style"
+  | "cta_conversion"
+  | "risk_review"
+  | "fact_check";
+
+export type ReferenceRoutePriority = "must" | "strong" | "normal" | "weak";
+
+export type ReferenceUsageStatus =
+  | "provided"
+  | "planned"
+  | "actual"
+  | "planned_not_used"
+  | "unverified";
+
+export interface ReferenceSourceRef {
+  sourceType: ReferencePlanSourceType;
+  resourceType: "nutrient" | "nutrient_card" | "gene" | null;
+  resourceId: string | null;
+  title: string | null;
+}
+
+export interface ReferenceAtom extends ReferenceSourceRef {
+  id: string;
+  atomType: ReferenceAtomType;
+  summary: string;
+  evidenceStrength: ReferenceEvidenceStrength;
+  sourceBias: ReferenceSourceBias;
+  allowedActions: ReferenceAction[];
+  targetSlots: ContentSlot[];
+  usageBoundary: string;
+  forbiddenUses: string[];
+  riskLevel: ReferenceRiskLevel;
+}
+
+export interface ReferenceRoute {
+  atomId: string;
+  action: ReferenceAction;
+  slot: ContentSlot;
+  priority: ReferenceRoutePriority;
+  instruction: string;
+  boundary: string;
+}
+
+export interface ReferenceUsageSummary extends ReferenceSourceRef {
+  status: ReferenceUsageStatus;
+  atomIds: string[];
+  actions: ReferenceAction[];
+  slots: ContentSlot[];
+  usageSummary: string;
+  evidenceStrength: ReferenceEvidenceStrength;
+  riskLevel: ReferenceRiskLevel;
+}
+
+export interface ReferencePlan {
+  summary: string;
+  items: ReferencePlanItem[];
+  atoms?: ReferenceAtom[];
+  routes?: ReferenceRoute[];
+  providedUsage?: ReferenceUsageSummary[];
+  plannedUsage?: ReferenceUsageSummary[];
+  riskCheckRequired?: boolean;
+  fallbackUsed?: boolean;
+  fallbackReason?: string | null;
+}
+
+export interface ExplorationRoute {
+  id: string;
+  objective: string;
+  platforms: string[];
+  audience: string;
+  contentForm: string;
+  narrativeMechanism: string;
+  emotionalDrivers: string[];
+  evidencePlan: string[];
+  interactionMode: string;
+  conversionPath?: string | null;
+  riskGuards: string[];
+  mutationOperators: MutationOperator[];
+  successSignals: string[];
+  referencePlan: ReferencePlan;
+}
+
+export interface ContentSearchMap {
+  algorithmVersion: string;
+  platformInference: PlatformInference;
+  objectives: string[];
+  audiences: string[];
+  contentForms: string[];
+  narrativeMechanisms: string[];
+  emotionalDrivers: string[];
+  evidenceInventory: string[];
+  riskGuards: string[];
+  routeCandidates: ExplorationRoute[];
+  fallbackUsed: boolean;
+  fallbackReason: string | null;
+}
+
+export interface RouteTraceSummary {
+  algorithmVersion: string;
+  platformInferenceSource: PlatformInferenceSource;
+  selectedRouteId: string;
+  mutationOperatorKeys: string[];
+  successSignals: string[];
+  riskGuards: string[];
 }
 
 export interface GrowthPathStep {
@@ -132,6 +350,13 @@ export interface GrowthAttempt {
   failureReason: string | null;
   agentOutput: Record<string, unknown>;
   mutationPlan: GrowthMutationPlan;
+  selectedRoute?: ExplorationRoute;
+  referencePlan?: ReferencePlan;
+  referenceAtoms?: ReferenceAtom[];
+  plannedReferenceUsage?: ReferenceUsageSummary[];
+  actualReferenceUsage?: ReferenceUsageSummary[];
+  mutationOperators?: MutationOperator[];
+  platformInference?: PlatformInference;
   createdAt: string;
   updatedAt: string;
 }
@@ -170,6 +395,13 @@ export interface BranchGrowthAgentInput {
   authorizationScope: GrowthAuthorizationScope;
   detailParams: Record<string, unknown>;
   roundGrowthBrief: Record<string, unknown>;
+  contentSearchMap?: ContentSearchMap;
+  selectedRoute?: ExplorationRoute;
+  referencePlan?: ReferencePlan;
+  referenceAtoms?: ReferenceAtom[];
+  plannedReferenceUsage?: ReferenceUsageSummary[];
+  mutationOperators?: MutationOperator[];
+  platformInference?: PlatformInference;
   searchMode: GrowthSearchMode;
   mutationIntensity: GrowthMutationIntensity;
   mutationPlan: GrowthMutationPlan;
@@ -183,4 +415,5 @@ export interface BranchGrowthAgentCandidate {
   markdown: string;
   summary?: string;
   geneTags?: string[];
+  actualReferenceUsage?: ReferenceUsageSummary[];
 }

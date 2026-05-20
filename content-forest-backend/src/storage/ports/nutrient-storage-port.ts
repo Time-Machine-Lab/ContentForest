@@ -4,6 +4,7 @@ import type {
   NutrientGapSuggestionSourceType,
   NutrientGapSuggestionStatus,
   NutrientLibraryScope,
+  NutrientReferenceUsageStatus,
   NutrientResearchMessageRole,
   NutrientUsageResourceType,
 } from "../../modules/nutrient/domain/nutrient-types.js";
@@ -98,6 +99,8 @@ export interface NutrientUsageRecord {
   growthTaskId: string;
   growthAttemptId: string;
   fruitId: string;
+  usageStatus: NutrientReferenceUsageStatus;
+  referenceSummary: Record<string, unknown> | null;
   usedAt: string;
   createdAt: string;
 }

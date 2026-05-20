@@ -210,13 +210,26 @@ describe("Growth module integration", () => {
       expect(queried.body).toMatchObject({
         status: GROWTH_TASK_STATUSES.completed,
         successfulFruitIds: ["fruit_integration_1"],
-        attempts: [
-          {
-            mutationPlan: {
-              intensity: GROWTH_MUTATION_INTENSITIES.conservative,
+          attempts: [
+            {
+              selectedRoute: expect.objectContaining({
+                id: expect.stringMatching(/^route-/),
+              }),
+              referencePlan: expect.objectContaining({
+                summary: expect.any(String),
+              }),
+              mutationOperators: expect.arrayContaining([
+                expect.objectContaining({ key: expect.any(String) }),
+              ]),
+              platformInference: expect.objectContaining({
+                source: expect.any(String),
+              }),
+              mutationPlan: {
+                intensity: GROWTH_MUTATION_INTENSITIES.conservative,
+                selectedRouteId: expect.stringMatching(/^route-/),
+              },
             },
-          },
-        ],
+          ],
       });
       expect(
         (queried.body as { pathGraph: Array<{ label: string; detail: string | null }> }).pathGraph,

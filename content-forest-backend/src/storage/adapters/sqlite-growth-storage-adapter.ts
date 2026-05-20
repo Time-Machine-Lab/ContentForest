@@ -609,6 +609,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
   }
 
   private toAttemptRecord(row: GrowthAttemptRow): GrowthAttemptRecord {
+    const mutationPlan = this.parseMutationPlan(row.mutation_plan_json);
     return {
       id: row.id,
       taskId: row.task_id,
@@ -618,7 +619,14 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       fruitId: row.fruit_id,
       failureReason: row.failure_reason,
       agentOutput: this.parseRecord(row.agent_output_json),
-      mutationPlan: this.parseMutationPlan(row.mutation_plan_json),
+      mutationPlan,
+      selectedRoute: mutationPlan.selectedRoute,
+      referencePlan: mutationPlan.referencePlan,
+      referenceAtoms: mutationPlan.referenceAtoms,
+      plannedReferenceUsage: mutationPlan.plannedReferenceUsage,
+      actualReferenceUsage: mutationPlan.actualReferenceUsage,
+      mutationOperators: mutationPlan.mutationOperators,
+      platformInference: mutationPlan.platformInference,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -776,7 +784,7 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
     const avoid = Array.isArray(parsed.avoid)
       ? parsed.avoid.filter((item): item is string => typeof item === "string")
       : [];
-    return {
+    const plan: GrowthMutationPlan = {
       direction:
         typeof parsed.direction === "string" ? parsed.direction : "默认延展方向",
       intent:
@@ -791,6 +799,34 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
       evidenceSummary:
         typeof parsed.evidenceSummary === "string" ? parsed.evidenceSummary : "",
     };
+    if (typeof parsed.selectedRouteId === "string") {
+      plan.selectedRouteId = parsed.selectedRouteId;
+    }
+    if (this.isRecord(parsed.selectedRoute)) {
+      plan.selectedRoute = parsed.selectedRoute as unknown as GrowthMutationPlan["selectedRoute"];
+    }
+    if (this.isRecord(parsed.referencePlan)) {
+      plan.referencePlan = parsed.referencePlan as unknown as GrowthMutationPlan["referencePlan"];
+    }
+    if (Array.isArray(parsed.referenceAtoms)) {
+      plan.referenceAtoms = parsed.referenceAtoms as GrowthMutationPlan["referenceAtoms"];
+    }
+    if (Array.isArray(parsed.plannedReferenceUsage)) {
+      plan.plannedReferenceUsage = parsed.plannedReferenceUsage as GrowthMutationPlan["plannedReferenceUsage"];
+    }
+    if (Array.isArray(parsed.actualReferenceUsage)) {
+      plan.actualReferenceUsage = parsed.actualReferenceUsage as GrowthMutationPlan["actualReferenceUsage"];
+    }
+    if (Array.isArray(parsed.mutationOperators)) {
+      plan.mutationOperators = parsed.mutationOperators as GrowthMutationPlan["mutationOperators"];
+    }
+    if (this.isRecord(parsed.platformInference)) {
+      plan.platformInference = parsed.platformInference as unknown as GrowthMutationPlan["platformInference"];
+    }
+    if (this.isRecord(parsed.routeTrace)) {
+      plan.routeTrace = parsed.routeTrace as unknown as GrowthMutationPlan["routeTrace"];
+    }
+    return plan;
   }
 
   private isSourceNodeRef(value: unknown): value is GrowthSourceNodeRef {
@@ -801,5 +837,9 @@ export class SqliteGrowthStorageAdapter implements GrowthStoragePort {
         (value as GrowthSourceNodeRef).nodeType === "fruit") &&
       typeof (value as GrowthSourceNodeRef).nodeId === "string"
     );
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 }

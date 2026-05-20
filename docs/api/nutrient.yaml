@@ -1363,6 +1363,55 @@ components:
           properties:
             markdown:
               type: string
+    NutrientReferenceUsageStatus:
+      type: string
+      enum: [provided, planned, actual, planned_not_used, unverified]
+      description: Reference state only. These values are associative telemetry, not causal attribution.
+    NutrientReferenceUsageBreakdown:
+      type: object
+      required:
+        - fruitId
+        - growthTaskId
+        - growthAttemptId
+        - status
+        - atomIds
+        - actions
+        - slots
+        - usageSummary
+        - evidenceStrength
+        - riskLevel
+        - usedAt
+      properties:
+        fruitId:
+          type: string
+        growthTaskId:
+          type: string
+        growthAttemptId:
+          type: string
+        status:
+          $ref: '#/components/schemas/NutrientReferenceUsageStatus'
+        atomIds:
+          type: array
+          items:
+            type: string
+        actions:
+          type: array
+          items:
+            type: string
+        slots:
+          type: array
+          items:
+            type: string
+        usageSummary:
+          type: string
+          description: Qualitative reference explanation; do not expose fake percentage weights.
+        evidenceStrength:
+          type: string
+        riskLevel:
+          type: string
+        usedAt:
+          type: string
+          format: date-time
     NutrientUsageSummary:
       type: object
       required:
@@ -1375,6 +1424,8 @@ components:
         - publicationRecordCount
         - feedbackSnapshotCount
         - latestUsedAt
+        - statusCounts
+        - referenceUsages
         - fruits
       properties:
         resourceType:
@@ -1398,6 +1449,25 @@ components:
           type: string
           format: date-time
           nullable: true
+        statusCounts:
+          type: object
+          required: [provided, planned, actual, planned_not_used, unverified]
+          properties:
+            provided:
+              type: integer
+            planned:
+              type: integer
+            actual:
+              type: integer
+            planned_not_used:
+              type: integer
+            unverified:
+              type: integer
+          description: Counts reference states only; they do not indicate nutrient causality.
+        referenceUsages:
+          type: array
+          items:
+            $ref: '#/components/schemas/NutrientReferenceUsageBreakdown'
         fruits:
           type: array
           items:

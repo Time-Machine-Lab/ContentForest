@@ -310,6 +310,169 @@ components:
         confidence:
           type: string
           enum: [high, medium, low]
+    GrowthReferenceAtomSourceType:
+      type: string
+      enum:
+        - user_input
+        - generator
+        - source_node
+        - seed_brief
+        - formal_nutrient
+        - temporary_nutrient_card
+        - gene
+        - feedback
+        - research_context
+        - system_context
+    GrowthReferenceAtom:
+      type: object
+      required:
+        - id
+        - sourceType
+        - atomType
+        - summary
+        - evidenceStrength
+        - sourceBias
+        - allowedActions
+        - targetSlots
+        - usageBoundary
+        - forbiddenUses
+        - riskLevel
+      description: >
+        一次枝化生长任务内的参考原子摘要。它描述某段授权资料在生成中能做什么，
+        不是长期营养实体，也不得扩大 Agent 授权范围。
+      properties:
+        id:
+          type: string
+        sourceType:
+          $ref: '#/components/schemas/GrowthReferenceAtomSourceType'
+        resourceType:
+          type: string
+          nullable: true
+          enum: [nutrient, nutrient_card, gene, null]
+        resourceId:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        atomType:
+          type: string
+          enum:
+            - fact
+            - audience_signal
+            - platform_mechanic
+            - case_pattern
+            - language_asset
+            - structure_template
+            - visual_audio_asset
+            - trend_signal
+            - risk_constraint
+            - counterexample
+            - performance_signal
+            - claim_candidate
+            - conversion_asset
+            - brand_requirement
+        summary:
+          type: string
+        evidenceStrength:
+          type: string
+          enum: [confirmed, observed, candidate, speculative]
+        sourceBias:
+          type: string
+          enum: [neutral, self_reported, promotional, platform_observed, system_inferred]
+        allowedActions:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthReferenceAction'
+        targetSlots:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthContentSlot'
+        usageBoundary:
+          type: string
+        forbiddenUses:
+          type: array
+          items:
+            type: string
+        riskLevel:
+          type: string
+          enum: [low, medium, high]
+    GrowthReferenceAction:
+      type: string
+      enum: [ground, constrain, shape, style, inherit, adapt, combine, mutate, criticize, avoid]
+    GrowthContentSlot:
+      type: string
+      enum:
+        - title_hook
+        - opening
+        - audience_scenario
+        - body_structure
+        - script_or_shot
+        - visual_audio
+        - proof_evidence
+        - wording_style
+        - cta_conversion
+        - risk_review
+        - fact_check
+    GrowthReferenceRoute:
+      type: object
+      required: [atomId, action, slot, priority, instruction, boundary]
+      description: 说明某个参考原子以何种动作影响哪个内容槽位。
+      properties:
+        atomId:
+          type: string
+        action:
+          $ref: '#/components/schemas/GrowthReferenceAction'
+        slot:
+          $ref: '#/components/schemas/GrowthContentSlot'
+        priority:
+          type: string
+          enum: [must, strong, normal, weak]
+        instruction:
+          type: string
+        boundary:
+          type: string
+    GrowthReferenceUsageStatus:
+      type: string
+      enum: [provided, planned, actual, planned_not_used, unverified]
+    GrowthReferenceUsageSummary:
+      type: object
+      required: [status, sourceType, resourceType, resourceId, atomIds, actions, slots, usageSummary, evidenceStrength, riskLevel]
+      description: >
+        参考使用摘要。用于区分资料被提供、被计划路由、被实际使用或无法确认，
+        不表达精确百分比权重，也不声明因果效果。
+      properties:
+        status:
+          $ref: '#/components/schemas/GrowthReferenceUsageStatus'
+        sourceType:
+          $ref: '#/components/schemas/GrowthReferenceAtomSourceType'
+        resourceType:
+          type: string
+          nullable: true
+          enum: [nutrient, nutrient_card, gene, null]
+        resourceId:
+          type: string
+          nullable: true
+        atomIds:
+          type: array
+          items:
+            type: string
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthReferenceAction'
+        slots:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthContentSlot'
+        usageSummary:
+          type: string
+        evidenceStrength:
+          type: string
+          enum: [confirmed, observed, candidate, speculative]
+        riskLevel:
+          type: string
+          enum: [low, medium, high]
     GrowthReferencePlan:
       type: object
       required: [summary, items]
@@ -321,6 +484,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/GrowthReferencePlanItem'
+        atoms:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthReferenceAtom'
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthReferenceRoute'
+        providedUsage:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthReferenceUsageSummary'
+        plannedUsage:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthReferenceUsageSummary'
+        riskCheckRequired:
+          type: boolean
+        fallbackUsed:
+          type: boolean
+        fallbackReason:
+          type: string
+          nullable: true
     GrowthExplorationRoute:
       type: object
       required:
@@ -500,6 +686,18 @@ components:
           $ref: '#/components/schemas/GrowthExplorationRoute'
         referencePlan:
           $ref: '#/components/schemas/GrowthReferencePlan'
+        referenceAtoms:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthReferenceAtom'
+        plannedReferenceUsage:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthReferenceUsageSummary'
+        actualReferenceUsage:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthReferenceUsageSummary'
         mutationOperators:
           type: array
           items:

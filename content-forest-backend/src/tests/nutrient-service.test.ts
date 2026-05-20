@@ -765,6 +765,88 @@ describe("NutrientService", () => {
     });
   });
 
+  it("summarizes provided planned and actual nutrient reference states without settling cards", async () => {
+    const { service, storage } = await createFixture();
+    const card = await service.createCard("seed_1", {
+      title: "brief card",
+      markdown: "advertiser brief",
+    });
+
+    await service.recordNutrientUsage({
+      seedId: "seed_1",
+      growthTaskId: "growth-task_1",
+      growthAttemptId: "growth-attempt_1",
+      fruitId: "fruit_1",
+      refs: [
+        {
+          resourceType: "nutrient_card",
+          resourceId: card.id,
+          usageStatus: "provided",
+          referenceSummary: {
+            usageSummary: "授权提供但未计划使用",
+            actions: [],
+            slots: [],
+            atomIds: [],
+            evidenceStrength: "candidate",
+            riskLevel: "medium",
+          },
+        },
+        {
+          resourceType: "nutrient_card",
+          resourceId: card.id,
+          usageStatus: "planned",
+          referenceSummary: {
+            usageSummary: "计划作为风险检查",
+            actions: ["criticize"],
+            slots: ["risk_review"],
+            atomIds: ["atom_card"],
+            evidenceStrength: "candidate",
+            riskLevel: "medium",
+          },
+        },
+        {
+          resourceType: "nutrient_card",
+          resourceId: card.id,
+          usageStatus: "actual",
+          referenceSummary: {
+            usageSummary: "实际用于 CTA 边界",
+            actions: ["constrain"],
+            slots: ["cta_conversion"],
+            atomIds: ["atom_card"],
+            evidenceStrength: "candidate",
+            riskLevel: "medium",
+          },
+        },
+      ],
+    });
+
+    await expect(
+      storage.listUsageRecordsByResource("nutrient_card", card.id),
+    ).resolves.toHaveLength(3);
+    await expect(service.getCardUsageSummary(card.id)).resolves.toMatchObject({
+      statusCounts: {
+        provided: 1,
+        planned: 1,
+        actual: 1,
+        planned_not_used: 0,
+        unverified: 0,
+      },
+      referenceUsages: expect.arrayContaining([
+        expect.objectContaining({
+          status: "planned",
+          actions: ["criticize"],
+          slots: ["risk_review"],
+          usageSummary: "计划作为风险检查",
+        }),
+      ]),
+    });
+    await expect(service.getCard(card.id)).resolves.toMatchObject({
+      status: NUTRIENT_CARD_STATUSES.unsettled,
+      settledContentId: null,
+      lastReferencedAt: "2026-01-01T00:00:02.000Z",
+    });
+  });
+
   it("summarizes nutrient card usage through fruit, publication and feedback facts", async () => {
     const {
       service,
