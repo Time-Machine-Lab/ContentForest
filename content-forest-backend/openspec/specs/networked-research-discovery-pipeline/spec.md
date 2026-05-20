@@ -1,9 +1,7 @@
 ## Purpose
 
 Defines the two-layer networked research discovery pipeline, covering replaceable search providers, controlled browser exploration strategies, observed-case normalization, and traceable failure handling.
-
 ## Requirements
-
 ### Requirement: 联网研究必须支持双层发现管线
 系统 SHALL 将联网研究组织为“初步搜索层”和“深入探索层”两层管线。初步搜索层负责通过搜索 API 或平台数据源发现候选线索；深入探索层负责在明确平台或候选链接后通过 Browser Action 执行站内搜索、页面打开、结果读取和详情观察。系统 MUST NOT 默认依赖搜索引擎网页 UI 作为唯一搜索入口。
 
@@ -141,3 +139,142 @@ Defines the two-layer networked research discovery pipeline, covering replaceabl
 - **WHEN** 本变更进入实现阶段
 - **THEN** 任务清单 MUST 要求更新 `docs/design/内容森林Agent架构设计文档.md`
 - **AND** 文档 MUST 说明 Browser Action 是深入探索工具而非默认搜索入口
+
+### Requirement: 联网研究发现管线必须支持外部 Agent 委托模式
+系统 SHALL 支持外部 Agent 委托研究模式。该模式下，系统 MUST 将用户研究请求、目标平台、期望结果数量和输出契约组装为研究指令，并将搜索、浏览、资料判断和初步总结交给外部 Agent 完成。
+
+#### Scenario: 生成外部 Agent 研究指令
+- **WHEN** 用户请求研究某个平台的内容案例、趋势或表达规律
+- **THEN** 系统 MUST 生成清晰的外部 Agent 研究指令
+- **AND** 指令 MUST 要求外部 Agent 区分真实来源、经验总结、限制状态和可沉淀营养建议
+
+#### Scenario: 外部 Agent 自主执行搜索和浏览
+- **WHEN** Codex 外部 Agent Provider 接收到研究指令
+- **THEN** ContentForest MUST NOT 规定具体搜索引擎、浏览器步骤或平台 DOM 读取逻辑
+- **AND** 外部 Agent MAY 自主使用其具备的联网搜索或浏览能力完成研究
+
+### Requirement: 外部 Agent 委托模式必须替代默认双层搜索浏览流程
+系统 SHALL 将“初步搜索 + 深入探索”的双层流程作为可替换实现细节保留，但默认联网研究 MUST 使用外部 Agent 委托模式。系统 MUST NOT 在默认营养研究中强制执行本地 Query Planner 搜索词拆分、搜索 Provider 调用和 Browser Action 平台策略。
+
+#### Scenario: 默认委托研究
+- **WHEN** 营养研究任务请求联网资料
+- **THEN** 系统 MUST 通过外部 Agent 委托模式获取研究资料
+- **AND** 系统 MUST NOT 默认启动本地 Browser Action 深入探索
+
+#### Scenario: 旧双层流程作为非默认能力
+- **WHEN** 开发者显式启用旧双层搜索浏览 Provider
+- **THEN** 系统 MAY 继续使用初步搜索和深入探索流程
+- **AND** Trace MUST 明确该流程是显式启用的降级或调试路径
+
+### Requirement: 外部 Agent 研究指令必须约束不可编造结果
+系统 SHALL 在外部 Agent 研究指令中明确要求不得编造真实平台案例、链接、互动数据或来源。系统 MUST 要求外部 Agent 将“未找到”“访问受限”“只能给出经验总结”等情况作为结构化限制状态返回。
+
+#### Scenario: 找不到真实案例
+- **WHEN** 外部 Agent 无法找到满足条件的真实案例或来源链接
+- **THEN** 外部 Agent 输出契约 MUST 允许返回空案例列表和限制说明
+- **AND** 系统 MUST 将该状态交付给营养研究 Skill
+- **AND** 系统 MUST NOT 自动补写虚构案例
+
+#### Scenario: 平台访问受限
+- **WHEN** 外部 Agent 遇到登录墙、验证码、IP 风控或平台访问限制
+- **THEN** 外部 Agent 输出契约 MUST 允许返回受限状态和诊断摘要
+- **AND** 系统 MUST 将其记录为 Provider 限制而不是有效研究结果
+
+### Requirement: 外部 Agent 委托研究必须兼容营养研究会话
+系统 SHALL 保持营养研究会话的用户体验不变。用户在营养工作台中发起研究对话时，系统 MUST 仍返回普通 Agent 回复和可沉淀营养块；外部 Agent Provider 的存在 MUST 对前端会话模型透明。
+
+#### Scenario: 营养研究会话使用外部 Agent 结果
+- **WHEN** 用户在营养研究会话中提交研究问题
+- **THEN** 后端 MUST 通过联网研究 Tool 获取外部 Agent 研究上下文
+- **AND** 营养研究 Skill MUST 基于该上下文生成普通回复和可沉淀营养块
+
+#### Scenario: 外部 Agent 研究失败
+- **WHEN** 外部 Agent Provider 调用失败或返回不可用状态
+- **THEN** 营养研究会话 MUST 保存可理解的失败回复
+- **AND** 系统 MUST NOT 保存虚假的可沉淀营养块
+
+### Requirement: 顶层文档必须同步外部 Agent 委托研究架构
+系统 SHALL 在实现 Codex 外部 Agent Provider 时同步更新顶层设计文档。第二期开发规划 MUST 描述营养库活化如何委托外部 Agent 研究；Agent 架构设计 MUST 描述联网研究 Tool、Provider Router、Codex 外部 Agent Provider 和旧搜索浏览 Provider 的边界。
+
+#### Scenario: 更新第二期开发规划
+- **WHEN** 本变更进入实现阶段
+- **THEN** 任务清单 MUST 要求更新 `docs/内容森林第二期开发规划文档.md`
+- **AND** 文档 MUST 说明当前默认不自研复杂搜索与浏览器操作
+
+#### Scenario: 更新 Agent 架构设计
+- **WHEN** 本变更进入实现阶段
+- **THEN** 任务清单 MUST 要求更新 `docs/design/内容森林Agent架构设计文档.md`
+- **AND** 文档 MUST 说明 Codex 外部 Agent Provider 是当前默认联网研究实现
+
+### Requirement: 非小红书平台必须通过平台 MCP 证据管线采集
+系统 SHALL 将非小红书平台型营养研究组织为“目标规划、平台路由、能力判断、MCP 候选发现、MCP 详情补全、覆盖率和质量门控、营养综合”的证据管线。系统 MUST 优先使用 TikHub MCP 获取平台原生数据，MUST 默认覆盖 TikHub 支持的非小红书社媒平台，MUST NOT 仅依赖通用网页搜索生成平台事实。
+
+#### Scenario: 执行 Twitter 平台证据管线
+- **WHEN** 用户请求收集 Twitter/X AI 产品相关帖子
+- **THEN** 系统 MUST 识别目标平台为 Twitter/X
+- **AND** 系统 MUST 通过 TikHub MCP 发现并读取帖子数据
+
+#### Scenario: 执行其他非小红书平台证据管线
+- **WHEN** 用户请求收集 TikTok、Douyin、Instagram、Weibo、Bilibili、YouTube、Kuaishou、Zhihu、LinkedIn、Reddit、WeChat 或 Threads 平台内容
+- **THEN** 系统 MUST 识别目标平台并进入 TikHub MCP 证据管线
+- **AND** 系统 MUST 根据平台能力矩阵决定是否执行搜索、详情补全或返回受限状态
+
+#### Scenario: 平台未启用
+- **WHEN** 用户请求的平台不在 TikHub 启用平台列表中
+- **THEN** 系统 MUST 返回平台 Provider 不可用或进入 Codex 候选深研
+- **AND** 系统 MUST NOT 使用错误的平台 MCP server 强行采集
+
+### Requirement: TikHub 工具映射必须由平台和意图决定
+系统 SHALL 根据目标平台、研究意图、平台能力矩阵和工具 schema 选择 TikHub MCP 工具。Provider MUST 使用显式工具映射表或受控发现规则，MUST NOT 让 Agent 自由选择任意 TikHub MCP 工具。
+
+#### Scenario: 建立平台能力矩阵
+- **WHEN** Provider 发现 TikHub 平台和工具 schema
+- **THEN** 系统 MUST 为每个平台记录搜索、详情补全、评论、作者信息和互动指标等能力
+- **AND** 系统 MUST 跳过需要平台 Cookie、账号私域权限或写操作权限的工具
+
+#### Scenario: 选择 Twitter 搜索工具
+- **WHEN** 研究意图为 Twitter/X 关键词搜索
+- **THEN** 系统 MUST 选择 Twitter/X 搜索类 MCP 工具
+- **AND** 系统 MUST 将用户自然语言请求清洗为适合平台搜索的关键词
+
+#### Scenario: 选择其他平台搜索工具
+- **WHEN** 研究意图为非小红书平台关键词搜索
+- **THEN** 系统 MUST 根据目标平台选择对应平台的搜索类 MCP 工具
+- **AND** 系统 MUST 在没有安全搜索工具时返回结构化能力不足状态
+
+#### Scenario: 选择 Twitter 详情工具
+- **WHEN** 搜索结果提供 tweet id 或可读取链接
+- **THEN** 系统 MUST 优先调用 Twitter/X 详情类 MCP 工具补全帖子数据
+- **AND** 系统 MUST 将详情补全失败记录为受限状态或 Provider failure
+
+#### Scenario: 选择其他平台详情工具
+- **WHEN** 搜索结果提供平台帖子 id 或可读取链接
+- **THEN** 系统 MUST 优先调用对应平台的详情类 MCP 工具补全帖子数据
+- **AND** 系统 MUST 保留平台特有字段到 raw metadata
+
+### Requirement: 覆盖率门控必须决定是否启用 Codex 深研
+系统 SHALL 在 TikHub MCP 采集后执行覆盖率和质量门控。只有当平台未知、TikHub 不支持、MCP 返回结果不足、API 受限或用户要求全网调研/竞品分析/趋势分析时，系统 MUST 启用 Codex external research。
+
+#### Scenario: TikHub 实采结果足够
+- **WHEN** TikHub MCP 返回不少于目标数量的完整已观察案例
+- **THEN** 系统 MUST 直接进入营养综合
+- **AND** 系统 MUST NOT 额外调用 Codex 生成平台帖子事实
+
+#### Scenario: 用户要求全网深入研究
+- **WHEN** 用户请求包含全网调研、深入研究、竞品分析、趋势或方法论总结
+- **THEN** 系统 MUST 在 TikHub 平台证据之外启用 Codex external research
+- **AND** Codex 输出 MUST 与 TikHub 实采平台证据分层表达
+
+### Requirement: TikHub 证据管线 Trace 必须可诊断
+系统 SHALL 为 TikHub MCP 证据管线记录可诊断 Trace。Trace MUST 表达目标平台、MCP endpoint、平台能力摘要、工具名称、候选数量、详情补全数量、完整案例数量、受限状态、Codex 是否触发和最终质量摘要，MUST NOT 泄露 API key、Authorization header、MCP session id 或超长平台正文。
+
+#### Scenario: 记录成功 MCP 采集 Trace
+- **WHEN** TikHub MCP 证据管线成功完成
+- **THEN** Trace MUST 包含平台 slug、工具名摘要、候选数量和详情补全数量
+- **AND** Trace MUST 能说明是否触发 Codex 深研
+
+#### Scenario: 记录 MCP 失败 Trace
+- **WHEN** TikHub MCP 因鉴权、额度、网络、session 或工具错误失败
+- **THEN** Trace MUST 包含脱敏失败原因
+- **AND** Trace MUST NOT 包含 TikHub API key、Authorization header 或 MCP session id
+

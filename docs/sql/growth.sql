@@ -11,6 +11,12 @@
 -- - Markdown 不保存任何生长任务 meta；Agent 输出必须由后端校验后交付果实领域落地。
 -- - 同一来源节点同一时间只能有一个生长锁；其他节点不受影响。
 -- - 异步执行不新增表；运行中任务、后台 attempts、来源节点锁和失败输入继续由下列表维护。
+-- - 内容解空间地图、平台推断、候选探索路线等任务级策略元数据使用 growth_tasks.agent_input_json
+--   保存摘要，不建模为长期领域聚合。
+-- - attempt 级选中探索路线、参考计划和突变算子使用 growth_attempts.mutation_plan_json
+--   的 additive 字段保存；Agent/Skill 返回的路线级 Trace 和候选 meta 使用 agent_output_json 保存。
+-- - 第一版不新增独立路线表；历史任务缺少这些 JSON 字段时必须按现有 search_mode、
+--   mutation_intensity 和 mutation_plan_json 降级解释。
 
 CREATE TABLE IF NOT EXISTS growth_tasks (
   id TEXT PRIMARY KEY,
@@ -29,6 +35,7 @@ CREATE TABLE IF NOT EXISTS growth_tasks (
   mutation_intensity TEXT NOT NULL DEFAULT 'balanced' CHECK (mutation_intensity IN ('conservative', 'balanced', 'aggressive')),
   pipeline_recommendation_reason TEXT NOT NULL DEFAULT '',
   authorization_refs_json TEXT NOT NULL DEFAULT '[]',
+  -- agent_input_json 可包含 contentSearchMap、platformInference、routeCandidates 等 additive 策略摘要。
   agent_input_json TEXT NOT NULL DEFAULT '{}',
   successful_fruit_ids_json TEXT NOT NULL DEFAULT '[]',
   failure_reason TEXT,
@@ -52,6 +59,9 @@ CREATE TABLE IF NOT EXISTS growth_attempts (
   fruit_id TEXT,
   failure_reason TEXT,
   agent_output_json TEXT NOT NULL DEFAULT '{}',
+  -- mutation_plan_json 必须继续兼容 direction/intent/intensity/hypothesis/inherit/avoid/evidenceSummary。
+  -- 新增 selectedRoute、referencePlan、mutationOperators、platformInference、routeTrace 等字段时，
+  -- 不得要求历史 attempt 具备这些字段，也不得移除现有突变计划字段。
   mutation_plan_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,

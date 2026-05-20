@@ -1,11 +1,11 @@
 ## 1. 顶层文档与契约
 
-- [ ] 1.1 更新 `docs/api/growth.yaml`，为任务或 attempt 详情补充解空间摘要、选中探索路线、参考计划、突变算子、平台推断来源等 additive schema，并保留现有 `searchMode`、`mutationIntensity`、`mutationPlan`。
-- [ ] 1.2 更新 `docs/sql/growth.sql`，说明路线元数据存放在现有 JSON 字段或新增 additive JSON 字段中，不新增独立路线表。
-- [ ] 1.3 更新 `docs/design/domain/枝化生长领域模块设计文档.md`，将探索槽位从核心机制调整为兼容兜底，并补充内容解空间地图、探索路线、参考计划、突变算子和平台推断优先级。
-- [ ] 1.4 更新 `docs/design/内容森林Agent架构设计文档.md`，补充 AgentPort 与内置枝化生长 Skill 对路线元数据、参考计划、候选证据和路线级 Trace 的处理。
-- [ ] 1.5 更新 `docs/design/domain/生成器领域模块设计文档.md`，说明生成器可作为平台/方法论推断来源，但不要求专用 manifest，也不承担生长策略职责。
-- [ ] 1.6 更新 `docs/内容森林第二期开发规划文档.md`，把“探索模式/突变方向”表述升级为“解空间搜索/探索路线/突变算子”的产品语义。
+- [x] 1.1 更新 `docs/api/growth.yaml`，为任务或 attempt 详情补充解空间摘要、选中探索路线、参考计划、突变算子、平台推断来源等 additive schema，并保留现有 `searchMode`、`mutationIntensity`、`mutationPlan`。
+- [x] 1.2 更新 `docs/sql/growth.sql`，说明路线元数据存放在现有 JSON 字段或新增 additive JSON 字段中，不新增独立路线表。
+- [x] 1.3 更新 `docs/design/domain/枝化生长领域模块设计文档.md`，将探索槽位从核心机制调整为兼容兜底，并补充内容解空间地图、探索路线、参考计划、突变算子和平台推断优先级。
+- [x] 1.4 更新 `docs/design/内容森林Agent架构设计文档.md`，补充 AgentPort 与内置枝化生长 Skill 对路线元数据、参考计划、候选证据和路线级 Trace 的处理。
+- [x] 1.5 更新 `docs/design/domain/生成器领域模块设计文档.md`，说明生成器可作为平台/方法论推断来源，但不要求专用 manifest，也不承担生长策略职责。
+- [x] 1.6 更新 `docs/内容森林第二期开发规划文档.md`，把“探索模式/突变方向”表述升级为“解空间搜索/探索路线/突变算子”的产品语义。
 
 ## 2. 策略模型与管线
 

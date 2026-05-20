@@ -232,6 +232,209 @@ components:
             type: string
         evidenceSummary:
           type: string
+        selectedRouteId:
+          type: string
+          nullable: true
+          description: 当 mutationPlan 由探索路线派生时，记录对应探索路线标识；历史任务可为空。
+    GrowthPlatformInference:
+      type: object
+      required: [platforms, contentForms, source, confidence, evidenceSummary]
+      description: 本轮平台与内容形态推断结果。推断来源只表达枝化生长策略线索，不写回生成器系统事实。
+      properties:
+        platforms:
+          type: array
+          items:
+            type: string
+        contentForms:
+          type: array
+          items:
+            type: string
+        source:
+          type: string
+          enum: [generator, user, system, fallback]
+        confidence:
+          type: string
+          enum: [high, medium, low]
+        evidenceSummary:
+          type: string
+    GrowthMutationOperator:
+      type: object
+      required: [key, label, variable, action, radius]
+      description: 突变算子表达本次 attempt 在选中路线内改变哪些变量，或跨路线执行怎样的变化。
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        variable:
+          type: string
+          description: 受众、叙事、结构、证据、情绪、互动、转化或风险规避等变量。
+        action:
+          type: string
+        radius:
+          $ref: '#/components/schemas/GrowthMutationIntensity'
+    GrowthReferencePlanItem:
+      type: object
+      required: [sourceType, role, usage, confidence]
+      properties:
+        sourceType:
+          type: string
+          enum:
+            - user_input
+            - generator
+            - source_node
+            - seed_brief
+            - nutrient
+            - temporary_nutrient_card
+            - gene
+            - feedback
+            - system_context
+        resourceId:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum:
+            - hard_constraint
+            - intent_driver
+            - evidence
+            - candidate_evidence
+            - inherit
+            - strengthen
+            - combine
+            - mutate
+            - avoid
+            - context
+        usage:
+          type: string
+        confidence:
+          type: string
+          enum: [high, medium, low]
+    GrowthReferencePlan:
+      type: object
+      required: [summary, items]
+      description: 说明每类授权上下文对选中探索路线的作用，避免无差别拼接长上下文。
+      properties:
+        summary:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthReferencePlanItem'
+    GrowthExplorationRoute:
+      type: object
+      required:
+        - id
+        - objective
+        - platforms
+        - audience
+        - contentForm
+        - narrativeMechanism
+        - emotionalDrivers
+        - evidencePlan
+        - interactionMode
+        - riskGuards
+        - mutationOperators
+        - successSignals
+      properties:
+        id:
+          type: string
+        objective:
+          type: string
+        platforms:
+          type: array
+          items:
+            type: string
+        audience:
+          type: string
+        contentForm:
+          type: string
+        narrativeMechanism:
+          type: string
+        emotionalDrivers:
+          type: array
+          items:
+            type: string
+        evidencePlan:
+          type: array
+          items:
+            type: string
+        interactionMode:
+          type: string
+        conversionPath:
+          type: string
+          nullable: true
+        riskGuards:
+          type: array
+          items:
+            type: string
+        mutationOperators:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthMutationOperator'
+        successSignals:
+          type: array
+          items:
+            type: string
+        referencePlan:
+          $ref: '#/components/schemas/GrowthReferencePlan'
+    GrowthContentSearchMap:
+      type: object
+      required:
+        - algorithmVersion
+        - platformInference
+        - objectives
+        - audiences
+        - contentForms
+        - narrativeMechanisms
+        - emotionalDrivers
+        - evidenceInventory
+        - riskGuards
+        - routeCandidates
+        - fallbackUsed
+      description: 任务级轻量解空间摘要，不是长期领域聚合，也不要求独立路线表。
+      properties:
+        algorithmVersion:
+          type: string
+        platformInference:
+          $ref: '#/components/schemas/GrowthPlatformInference'
+        objectives:
+          type: array
+          items:
+            type: string
+        audiences:
+          type: array
+          items:
+            type: string
+        contentForms:
+          type: array
+          items:
+            type: string
+        narrativeMechanisms:
+          type: array
+          items:
+            type: string
+        emotionalDrivers:
+          type: array
+          items:
+            type: string
+        evidenceInventory:
+          type: array
+          items:
+            type: string
+        riskGuards:
+          type: array
+          items:
+            type: string
+        routeCandidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthExplorationRoute'
+        fallbackUsed:
+          type: boolean
+        fallbackReason:
+          type: string
+          nullable: true
     GrowthPathStep:
       type: object
       description: >
@@ -293,6 +496,16 @@ components:
           format: date-time
         mutationPlan:
           $ref: '#/components/schemas/GrowthMutationPlan'
+        selectedRoute:
+          $ref: '#/components/schemas/GrowthExplorationRoute'
+        referencePlan:
+          $ref: '#/components/schemas/GrowthReferencePlan'
+        mutationOperators:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthMutationOperator'
+        platformInference:
+          $ref: '#/components/schemas/GrowthPlatformInference'
     GrowthTaskDetail:
       type: object
       required:
@@ -346,6 +559,8 @@ components:
             type: string
         pipelineParams:
           $ref: '#/components/schemas/GrowthPipelineParams'
+        contentSearchMap:
+          $ref: '#/components/schemas/GrowthContentSearchMap'
         pathGraph:
           type: array
           description: >
